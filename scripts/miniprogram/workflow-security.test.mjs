@@ -9,6 +9,7 @@ const publisher = await readFile(resolve(root, '.github/workflows/monthly-data-a
 const recovery = await readFile(resolve(root, '.github/workflows/monthly-data-pending-publish.yml'), 'utf8')
 const monitor = await readFile(resolve(root, '.github/workflows/monthly-data-post-publish-monitor.yml'), 'utf8')
 const rehearsal = await readFile(resolve(root, '.github/workflows/cloud-write-rehearsal.yml'), 'utf8')
+const fullReplay = await readFile(resolve(root, '.github/workflows/full-auto-update-replay.yml'), 'utf8')
 
 test('discovery workflow remains read-only and has no production environment', () => {
   assert.match(discovery, /permissions:\s+contents: read/)
@@ -97,4 +98,17 @@ test('manual write rehearsal is isolated from production keys', async () => {
   assert.match(script, /automatic_rollback_verified/)
   assert.match(script, /uploadedCityKeys\.length !== 70/)
   assert.match(script, /verify-remote-data\.mjs/)
+})
+
+test('full historical replay can write only below its numeric rehearsal prefix', async () => {
+  const script = await readFile(resolve(root, 'scripts/miniprogram/replay-full-auto-update.ts'), 'utf8')
+  assert.match(fullReplay, /workflow_dispatch:/)
+  assert.match(fullReplay, /miniprogram:data:replay/)
+  assert.doesNotMatch(fullReplay, /AUTOMATIC_RELEASE_ENABLED|tcb login/)
+  assert.match(script, /housing-data\/rehearsals\/\$\{cloudRunId\}\/full-auto-update\//)
+  assert.match(script, /assertRehearsalKey\(`/)
+  assert.doesNotMatch(script, /putObject\([`'"]housing-data\/(?:current\.json|releases\/)/)
+  assert.match(script, /production_pointer_untouched: true/)
+  assert.match(script, /corrupt_candidate_rejected/)
+  assert.match(script, /pointer_unchanged: true/)
 })

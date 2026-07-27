@@ -1,0 +1,54 @@
+name: full-auto-update-replay
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: housing-data-full-auto-update-replay
+  cancel-in-progress: false
+
+jobs:
+  replay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: housing-data-production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Run isolated full historical replay
+        env:
+          TENCENTCLOUD_SECRET_ID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
+          TENCENTCLOUD_SECRET_KEY: ${{ secrets.TENCENTCLOUD_SECRET_KEY }}
+        run: >-
+          npm run miniprogram:data:replay --
+          --cloud
+          --env=cloud1-d3gpdx70w5d05c68c
+          --run-id=${{ github.run_id }}-${{ github.run_attempt }}
+          --cloud-run-id=${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Add report to task summary
+        if: always()
+        shell: bash
+        run: |
+          report="work/full-auto-update-replay/${{ github.run_id }}-${{ github.run_attempt }}/report.json"
+          if [ -f "$report" ]; then
+            echo '```json' >> "$GITHUB_STEP_SUMMARY"
+            cat "$report" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Full replay failed before producing a report." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: full-auto-update-replay-${{ github.run_id }}-${{ github.run_attempt }}
+          path: work/full-auto-update-replay/
+          if-no-files-found: warn
+          retention-days: 90
+
