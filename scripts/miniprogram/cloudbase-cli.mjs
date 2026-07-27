@@ -12,7 +12,8 @@ export async function runTcb(args, { allowFailure = false } = {}) {
     return { ok: true, stdout: result.stdout || '', stderr: result.stderr || '', command: ['tcb', ...args] }
   } catch (error) {
     const result = { ok: false, stdout: error.stdout || '', stderr: error.stderr || error.message || '', command: ['tcb', ...args], exitCode: error.code }
-    if (!allowFailure) throw new Error(`CloudBase CLI failed: ${result.command.join(' ')}\n${result.stderr || result.stdout}`)
+    const details = [result.stderr.trim(), result.stdout.trim()].filter(Boolean).join('\n')
+    if (!allowFailure) throw new Error(`CloudBase CLI failed: ${result.command.join(' ')}\n${details}`)
     return result
   }
 }
