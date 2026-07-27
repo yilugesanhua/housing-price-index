@@ -3,6 +3,8 @@ import { createHash } from "node:crypto";
 import { createRequire } from "node:module";
 import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
+import { gunzip } from "node:zlib";
+import { promisify } from "node:util";
 import { CITY_IDS, CITY_NAMES, CITY_PROFILES, CITY_SEARCH_ALIASES, CITY_TIER_LABELS, FEATURED_CITY_IDS, type CityId } from "../../packages/core/src/index";
 import { evaluateLatestCheck, evaluateReleaseSchedule } from "../data/check-latest";
 import { parseOfficialHtml, recordKey, sha256 as sourceSha256 } from "../data/official-parser";
@@ -21,9 +23,10 @@ const cloudEnvId = argument("env") ?? "cloud1-d3gpdx70w5d05c68c";
 const outputRoot = resolve(root, "work/full-auto-update-replay", runId);
 const officialUrl = "https://www.stats.gov.cn/sj/zxfb/202607/t20260715_1964115.html";
 const rawHash = "4bb4edcce2610ec0651109a18a5bf620b762972ab7309e4bdec62a52e57f678c";
-const rawPath = resolve(root, "data/raw/2026-06", `${rawHash}.html`);
+const rawPath = resolve(root, "data/raw/2026-06", `${rawHash}.html.gz`);
 const batchPath = resolve(root, "data/raw/2026-06", `${rawHash}.batch.json`);
 const stages: Array<{ name: string; status: "passed"; duration_ms: number; evidence: Record<string, unknown> }> = [];
+const gunzipAsync = promisify(gunzip);
 
 async function stage<T>(name: string, action: () => Promise<{ value: T; evidence: Record<string, unknown> }>): Promise<T> {
   const started = performance.now();
@@ -183,7 +186,8 @@ const schedule = await stage("release_schedule", async () => {
 });
 
 const parsed = await stage("official_source_parse", async () => {
-  const [html, batchFile] = await Promise.all([readFile(rawPath, "utf8"), readFile(batchPath, "utf8")]);
+  const [compressedHtml, batchFile] = await Promise.all([readFile(rawPath), readFile(batchPath, "utf8")]);
+  const html = (await gunzipAsync(compressedHtml)).toString("utf8");
   const archived = JSON.parse(batchFile) as { source_batch: SourceBatch; records: StandardRecord[] };
   assert.equal(sourceSha256(html), rawHash, "archived official HTML SHA-256 mismatch");
   const result = parseOfficialHtml(html, archived.source_batch);
@@ -308,4 +312,3 @@ const report = {
 };
 await writeFile(resolve(outputRoot, "report.json"), `${JSON.stringify(report, null, 2)}\n`, "utf8");
 console.log(JSON.stringify(report));
-
