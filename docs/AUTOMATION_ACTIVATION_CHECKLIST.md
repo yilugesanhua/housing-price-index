@@ -7,21 +7,23 @@
 - 自动发现、候选生成、全量数据门禁、受限发布、发布后守卫、自动回滚、待发布恢复、私有审计和24小时监测代码已实现。
 - `npm run check`、`npm run test:e2e`、小程序/自动化故障测试和GitHub Actions静态检查已通过。
 - 公开仓库 `yilugesanhua/housing-price-index` 已创建，初始提交 `4e0713e` 已推送，GitHub Actions `ci / verify` 已通过。
-- `housing-data-production` Environment 已创建；仓库级和Environment级 `AUTOMATIC_RELEASE_ENABLED` 均为 `false`，且尚未配置任何生产Secret。
+- `housing-data-production` Environment 已创建；写入与只读监测 Secrets 已分别配置，仓库级和Environment级 `AUTOMATIC_RELEASE_ENABLED` 均保持 `false`。
 - `main-production-guard` 规则集已启用，禁止删除、强制推送和非线性历史；生产Environment仅允许 `main` 分支进入。
 - GitHub个人仓库不允许内置Actions身份绕过“必需状态检查”，因此规则集不直接要求 `verify`；自动发布工作流必须在候选生成前通过GitHub API证明基础提交的普通 `ci / verify` 已成功。
-- 生产开关必须保持关闭，直到下面的测试云演练、双真机和权限检查全部完成。
+- COS/SCF 官方 SDK 联调、完整 70 城隔离上传/回读、隔离指针切换与故障自动回滚已通过；生产开关必须保持关闭，直到开发者工具检查、双真机和微信审核全部完成。
 - 当前已发布微信版本 `v2.0.2` 不包含远程更新客户端；完成下列事项前，不得宣称线上用户已获得自动更新能力。
 
 ## 需要维护人员参与
 
 1. 在腾讯云创建或授权最小权限CI服务身份时，完成必要的扫码、短信、2FA或实名确认。密钥不得粘贴到聊天、代码、日志或普通仓库变量。
-2. 确认测试云环境或与生产完全隔离的测试目录。测试必须覆盖上传中断、指针中断、损坏文件、凭据失效、守卫失败、自动回滚成功和回滚失败报警。
+2. 已使用生产 Bucket 下严格隔离的 `housing-data/rehearsals/<run-id>/` 目录完成写入、全量版本、指针切换和自动回滚演练；后续如调整权限策略，仍需重新验证凭据失效与回滚失败报警。
 3. 分别在一台Android和一台iPhone上完成首次在线、首次离线、旧缓存、清缓存、定位授权、弱网和图表交互验收。
 4. 确认上传首个包含远程数据客户端的小程序版本并提交微信审核。
 5. 上述证据全部通过后，明确确认允许把仓库级和GitHub Environment级 `AUTOMATIC_RELEASE_ENABLED` 从 `false` 改为 `true`。
 
 除身份验证、真机操作和最终确认外，其余仓库初始化、工作流配置、环境变量录入、测试执行和结果核对由Codex完成。
+
+双真机逐项操作与证据格式见 [`MINIPROGRAM_V2_2_0_DEVICE_TEST.md`](MINIPROGRAM_V2_2_0_DEVICE_TEST.md)。
 
 ## GitHub配置目标
 
@@ -39,6 +41,11 @@
 - 故障演练证明线上旧指针保持不变，或在新指针守卫失败后自动恢复。
 - 私有审计包包含当月压缩原始HTML、批次元数据、官方日程、发现/生产门禁、发布报告和所有文件哈希。
 - 正式小程序版本通过双真机验证并完成微信审核。
+
+已完成的云端证据：
+
+- 隔离完整发布与自动回滚：GitHub Actions `30264827489`，70 城分片全量重建通过。
+- 演练后生产只读复核：GitHub Actions `30265087706`，正式版本仍为 `2026-06-ec36ff8fb2e5`，云函数和 70 城完整回读通过。
 
 ## 启用后正常月份
 

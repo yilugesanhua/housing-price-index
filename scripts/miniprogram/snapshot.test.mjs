@@ -347,6 +347,12 @@ test('source page can confirm and clear saved filter state', async () => {
   assert.match(script, /wx\.removeStorageSync\(STORAGE_KEY\)/)
 })
 
+test('source page describes validated remote updates instead of version-only data', async () => {
+  const sourceWxml = await readFile(resolve(root, 'apps/miniprogram/pages/source/source.wxml'), 'utf8')
+  assert.match(sourceWxml, /内置快照兜底，官方新月份通过完整校验后由云端更新/)
+  assert.doesNotMatch(sourceWxml, /数据随小程序版本发布/)
+})
+
 test('source page clears local filters only after confirmation', () => {
   const pageConfig = loadPageConfig('apps/miniprogram/pages/source/source.js')
   const removed = []

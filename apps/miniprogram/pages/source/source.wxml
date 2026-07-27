@@ -13,7 +13,7 @@
   </view>
   <view class="section">
     <text class="heading">请注意</text>
-    <text class="body">本工具不展示、估算或暗示住宅成交单价，不提供房源、中介、估价、购房推荐或投资建议。数据随小程序版本发布，当前覆盖 {{coverageStart}} 至 {{datasetAsOf}}，趋势页支持最近3年、5年或10年。</text>
+    <text class="body">本工具不展示、估算或暗示住宅成交单价，不提供房源、中介、估价、购房推荐或投资建议。数据以内置快照兜底，官方新月份通过完整校验后由云端更新；当前覆盖 {{coverageStart}} 至 {{datasetAsOf}}，趋势页支持最近3年、5年或10年。</text>
   </view>
   <view class="section">
     <text class="heading">隐私</text>
