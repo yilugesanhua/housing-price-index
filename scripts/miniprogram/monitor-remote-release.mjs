@@ -3,7 +3,7 @@ import { execFile } from 'node:child_process'
 import { resolve } from 'node:path'
 import { promisify } from 'node:util'
 import COS from 'cos-nodejs-sdk-v5'
-import { runTcb } from './cloudbase-cli.mjs'
+import TencentCloudScf from 'tencentcloud-sdk-nodejs-scf'
 import { validateManifestFunctionOutput } from './post-publish-guard.mjs'
 import { sha256 } from './remote-data-lib.mjs'
 
@@ -19,6 +19,8 @@ const secretKey = process.env.TENCENTCLOUD_MONITOR_SECRET_KEY
 if (!/^20\d{2}-(0[1-9]|1[0-2])-[a-f0-9]{12}$/.test(datasetVersion || '')) throw new Error('Use --dataset=<active-version>')
 if (!secretId || !secretKey) throw new Error('Read-only COS monitor credentials are required')
 const cos = new COS({ SecretId: secretId, SecretKey: secretKey })
+const ScfClient = TencentCloudScf.scf.v20180416.Client
+const scf = new ScfClient({ credential: { secretId, secretKey }, region: storageRegion })
 const cosCall = (method, key) => new Promise((resolveCall, reject) => {
   cos[method]({ Bucket: storageBucketId, Region: storageRegion, Key: key }, (error, data) => {
     if (error) reject(new Error(`COS ${method} failed for ${key}: ${error.code || error.statusCode || 'unknown'} ${error.message || ''}`.trim()))
@@ -41,8 +43,8 @@ await downloadObject('housing-data/current.json', currentPath)
 const currentText = await readFile(currentPath, 'utf8')
 const current = JSON.parse(currentText)
 if (current.dataset_version !== datasetVersion || current.manifest_sha256 !== audit.manifest_sha256) throw new Error('Active pointer no longer matches the monitored published release')
-const invocation = await runTcb(['fn', 'invoke', 'getHousingDataManifest', '--json', '-e', cloudEnvId])
-validateManifestFunctionOutput(invocation.stdout, current)
+const invocation = await scf.Invoke({ FunctionName: 'getHousingDataManifest', Namespace: cloudEnvId, InvocationType: 'RequestResponse' })
+validateManifestFunctionOutput(JSON.stringify(invocation), current)
 const cloudRoot = `housing-data/releases/${datasetVersion}`
 await downloadObject(`${cloudRoot}/manifest.json`, resolve(outputRoot, 'manifest.json'))
 const manifestText = await readFile(resolve(outputRoot, 'manifest.json'), 'utf8')

@@ -55,6 +55,14 @@ test('remote monitor uses the official COS SDK with the read-only identity', asy
   assert.match(monitor, /Verify cloud function, pointer, and all 70 remote shards\s+env:\s+TENCENTCLOUD_MONITOR_SECRET_ID:/)
 })
 
+test('remote monitor invokes SCF directly without CloudBase CLI preflight permissions', async () => {
+  const script = await readFile(resolve(root, 'scripts/miniprogram/monitor-remote-release.mjs'), 'utf8')
+  assert.match(script, /scf\.Invoke\(/)
+  assert.match(script, /Namespace: cloudEnvId/)
+  assert.doesNotMatch(script, /runTcb|\['fn', 'invoke'/)
+  assert.doesNotMatch(monitor, /tcb login/)
+})
+
 test('only the publish job receives the protected environment and credentials', () => {
   const prepare = publisher.slice(publisher.indexOf('  prepare:'), publisher.indexOf('  publish:'))
   const publish = publisher.slice(publisher.indexOf('  publish:'))

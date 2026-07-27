@@ -66,6 +66,7 @@
     "@cloudbase/cli": "^3.6.4",
     "@types/node": "^26.1.1",
     "cos-nodejs-sdk-v5": "^2.15.4",
+    "tencentcloud-sdk-nodejs-scf": "^4.1.168",
     "tsx": "^4.23.1"
   },
   "dependencies": {
