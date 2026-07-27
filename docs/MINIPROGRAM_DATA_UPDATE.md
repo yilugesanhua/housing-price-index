@@ -430,4 +430,4 @@ npm run miniprogram:data:repair-current -- --env=cloud1-d3gpdx70w5d05c68c --data
 - `.github/workflows/cloud-write-rehearsal.yml` 是独立手动演练入口。它只允许写入 `housing-data/rehearsals/<github-run-id>-<attempt>/`，并执行上传、HEAD、下载、字节数与 SHA-256 回读校验；脚本硬性拒绝 `housing-data/current.json`、`housing-data/releases/` 及其他非演练路径。
 - 演练对象默认保留用于审计，不自动申请删除权限；其体积不足 1KB，可在后续存储维护窗口按明确前缀清理。
 - 隔离写入工作流运行 `30263193696` 已在真实 GitHub Environment 中通过；两个演练对象均完成上传、HEAD、下载、字节数与 SHA-256 复核。随后运行 `30263278546` 的只读全量监测再次确认正式 `current.json` 未变化、云函数响应有效且 70 城完整版本可重建。
-- 下一门槛是在同一隔离前缀中完成受控指针切换、故障自动回滚及恢复演练；通过后再评估人工监护的正式指针演练。这些演练完成前 `AUTOMATIC_RELEASE_ENABLED` 必须保持 `false`。
+- 同一隔离工作流还必须覆盖受控指针切换、故障自动回滚、恢复回读，以及完整 70 城候选包的目录上传、72 个文件全量下载和逐值重建；通过后再评估人工监护的正式指针演练。这些演练完成前 `AUTOMATIC_RELEASE_ENABLED` 必须保持 `false`。

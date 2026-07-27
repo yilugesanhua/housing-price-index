@@ -95,4 +95,6 @@ test('manual write rehearsal is isolated from production keys', async () => {
   assert.match(script, /activatePointerWithRollback/)
   assert.match(script, /intentional isolated post-switch guard failure/)
   assert.match(script, /automatic_rollback_verified/)
+  assert.match(script, /uploadedCityKeys\.length !== 70/)
+  assert.match(script, /verify-remote-data\.mjs/)
 })

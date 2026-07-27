@@ -22,6 +22,13 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: Build and locally verify the current full release package
+        shell: bash
+        run: |
+          mkdir -p work/cloud-write-rehearsal
+          node -e "require('fs').writeFileSync('work/cloud-write-rehearsal/calendar.json', JSON.stringify({entries:[{expected_stat_month:'2026-07',scheduled_at:'2026-08-17T01:30:00.000Z'}]},null,2)+'\n')"
+          npm run miniprogram:data:stage -- --calendar=work/cloud-write-rehearsal/calendar.json --env=cloud1-d3gpdx70w5d05c68c
+          npm run miniprogram:data:verify-remote
       - name: Upload, HEAD, download, and hash-check isolated objects
         env:
           TENCENTCLOUD_SECRET_ID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
