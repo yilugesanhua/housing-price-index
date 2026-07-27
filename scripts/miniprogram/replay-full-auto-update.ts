@@ -66,6 +66,14 @@ const issues: ReplayIssue[] = [
     resolution: "Require the target padding window to equal the baseline window after its oldest month slides out.",
     verification: "The annual replay must restart at month 1 and pass all 12 sequential windows.",
   },
+  {
+    id: "REPLAY-003",
+    detected_in: "cloud-year-run-30287408324",
+    severity: "fixed",
+    problem: "The first cloud annual replay passed 10 months, then an unbounded COS request stalled until the 20-minute job limit canceled the process.",
+    resolution: "Limit object operations to batches of 10, enforce a 60-second timeout with three idempotent attempts, and raise the annual rehearsal job limit to 45 minutes.",
+    verification: "Restart the cloud annual replay from month 1; all 12 months and the following production read-only monitor must pass.",
+  },
 ];
 
 function digest(value: unknown): string {
@@ -89,6 +97,35 @@ async function timed<T>(stages: StageReport[], name: string, action: () => Promi
   stages.push(report);
   allStages.push(report);
   return result.value;
+}
+
+async function retryCloud<T>(label: string, action: () => Promise<T>): Promise<T> {
+  let latestError: unknown;
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    let timer: NodeJS.Timeout | undefined;
+    try {
+      return await Promise.race([
+        action(),
+        new Promise<never>((_resolve, reject) => {
+          timer = setTimeout(() => reject(new Error(`${label} timed out after 60 seconds (attempt ${attempt}/3)`)), 60_000);
+        }),
+      ]);
+    } catch (error) {
+      latestError = error;
+      if (attempt < 3) console.warn(`[replay:cloud] ${label} failed; retrying (${attempt}/3): ${error instanceof Error ? error.message : String(error)}`);
+    } finally {
+      if (timer) clearTimeout(timer);
+    }
+  }
+  throw latestError;
+}
+
+async function mapCloudBatches<T, R>(items: T[], label: (item: T) => string, action: (item: T) => Promise<R>): Promise<R[]> {
+  const results: R[] = [];
+  for (let start = 0; start < items.length; start += 10) {
+    results.push(...await Promise.all(items.slice(start, start + 10).map((item) => retryCloud(label(item), () => action(item)))));
+  }
+  return results;
 }
 
 async function readSourceArchive(targetMonth: string): Promise<SourceArchive> {
@@ -237,7 +274,7 @@ if (useCloud) assert.match(cloudRunId ?? "", /^\d+(?:-\d+)?$/, "--cloud requires
 const prefix = useCloud ? `housing-data/rehearsals/${cloudRunId}/full-auto-update-year/` : null;
 const key = (relative: string) => assertRehearsalKey(`${prefix}${relative}`, cloudRunId!);
 let isolatedPointerText = stableJson({ dataset_version: `${shiftMonth(targetMonths[0], -1)}-${"a".repeat(12)}`, marker: "12-month-baseline" });
-if (cloud) await cloud.putObject(key("current.json"), Buffer.from(isolatedPointerText));
+if (cloud) await retryCloud("initialize isolated pointer", () => cloud.putObject(key("current.json"), Buffer.from(isolatedPointerText)));
 const replays: Array<Record<string, unknown>> = [];
 let activeTargetMonth = "";
 
@@ -331,10 +368,10 @@ for (const [index, targetMonth] of targetMonths.entries()) {
   });
 
   await timed(stages, "corrupt_candidate_rejected", async () => {
-    const pointerBefore = cloud ? (await cloud.getObject(key("current.json"))).toString("utf8") : isolatedPointerText;
+    const pointerBefore = cloud ? (await retryCloud("read pointer before corrupt candidate", () => cloud.getObject(key("current.json")))).toString("utf8") : isolatedPointerText;
     const corrupt = archive.records.slice(0, -1);
     assert.throws(() => validateMonthlyCandidate(baselineRecords, corrupt, archive.source_batch), /560 records|70 cities|incomplete/);
-    const pointerAfter = cloud ? (await cloud.getObject(key("current.json"))).toString("utf8") : isolatedPointerText;
+    const pointerAfter = cloud ? (await retryCloud("read pointer after corrupt candidate", () => cloud.getObject(key("current.json")))).toString("utf8") : isolatedPointerText;
     assert.equal(pointerAfter, pointerBefore, `${targetMonth}: pointer changed after corrupt candidate rejection`);
     return { value: null, evidence: { corruption: "one official record removed", validation_failed_before_upload: true, pointer_sha256_before: digest(pointerBefore), pointer_sha256_after: digest(pointerAfter), pointer_unchanged: true } };
   });
@@ -343,14 +380,16 @@ for (const [index, targetMonth] of targetMonths.entries()) {
     const release = packaged.release;
     if (cloud) {
       const releasePrefix = `${targetMonth}/release/`;
-      await cloud.putObject(key(`${releasePrefix}bootstrap.json`), Buffer.from(release.bootstrapText));
-      await Promise.all(Object.entries(release.cities).map(([cityId, item]: [string, any]) => cloud.putObject(key(`${releasePrefix}cities/${cityId}.json`), Buffer.from(item.text))));
-      await cloud.putObject(key(`${releasePrefix}manifest.json`), Buffer.from(release.manifestText));
-      const downloads = await Promise.all([
-        cloud.getObject(key(`${releasePrefix}bootstrap.json`)),
-        cloud.getObject(key(`${releasePrefix}manifest.json`)),
-        ...Object.keys(release.cities).map((cityId) => cloud.getObject(key(`${releasePrefix}cities/${cityId}.json`))),
-      ]);
+      await retryCloud(`${targetMonth} upload bootstrap`, () => cloud.putObject(key(`${releasePrefix}bootstrap.json`), Buffer.from(release.bootstrapText)));
+      const cityEntries = Object.entries(release.cities) as Array<[string, any]>;
+      await mapCloudBatches(cityEntries, ([cityId]) => `${targetMonth} upload ${cityId}`, ([cityId, item]) => cloud.putObject(key(`${releasePrefix}cities/${cityId}.json`), Buffer.from(item.text)));
+      await retryCloud(`${targetMonth} upload manifest`, () => cloud.putObject(key(`${releasePrefix}manifest.json`), Buffer.from(release.manifestText)));
+      const cityIds = Object.keys(release.cities);
+      const downloads = [
+        await retryCloud(`${targetMonth} download bootstrap`, () => cloud.getObject(key(`${releasePrefix}bootstrap.json`))),
+        await retryCloud(`${targetMonth} download manifest`, () => cloud.getObject(key(`${releasePrefix}manifest.json`))),
+        ...await mapCloudBatches(cityIds, (cityId) => `${targetMonth} download ${cityId}`, (cityId) => cloud.getObject(key(`${releasePrefix}cities/${cityId}.json`))),
+      ];
       assert.equal(sha256(downloads[0]), sha256(release.bootstrapText));
       assert.equal(sha256(downloads[1]), sha256(release.manifestText));
       for (let cityIndex = 0; cityIndex < 70; cityIndex += 1) {
@@ -363,16 +402,16 @@ for (const [index, targetMonth] of targetMonths.entries()) {
         candidateText: release.currentText,
         previous,
         rollbackEligible: true,
-        writePointer: async (text: string) => cloud.putObject(key("current.json"), Buffer.from(text)),
-        readPointerText: async () => (await cloud.getObject(key("current.json"))).toString("utf8"),
+        writePointer: async (text: string) => retryCloud(`${targetMonth} write isolated pointer`, () => cloud.putObject(key("current.json"), Buffer.from(text))),
+        readPointerText: async () => (await retryCloud(`${targetMonth} read isolated pointer`, () => cloud.getObject(key("current.json")))).toString("utf8"),
         guardCandidate: async (expected: any) => {
-          const actual = JSON.parse((await cloud.getObject(key("current.json"))).toString("utf8"));
+          const actual = JSON.parse((await retryCloud(`${targetMonth} guard isolated pointer`, () => cloud.getObject(key("current.json")))).toString("utf8"));
           assert.equal(actual.dataset_version, expected.dataset_version);
           assert.equal(actual.manifest_sha256, expected.manifest_sha256);
         },
         guardRollback: async () => undefined,
       });
-      isolatedPointerText = (await cloud.getObject(key("current.json"))).toString("utf8");
+      isolatedPointerText = (await retryCloud(`${targetMonth} final isolated pointer readback`, () => cloud.getObject(key("current.json")))).toString("utf8");
     } else {
       isolatedPointerText = release.currentText;
     }
