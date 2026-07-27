@@ -8,6 +8,7 @@ const discovery = await readFile(resolve(root, '.github/workflows/monthly-data-c
 const publisher = await readFile(resolve(root, '.github/workflows/monthly-data-auto-publish.yml'), 'utf8')
 const recovery = await readFile(resolve(root, '.github/workflows/monthly-data-pending-publish.yml'), 'utf8')
 const monitor = await readFile(resolve(root, '.github/workflows/monthly-data-post-publish-monitor.yml'), 'utf8')
+const rehearsal = await readFile(resolve(root, '.github/workflows/cloud-write-rehearsal.yml'), 'utf8')
 
 test('discovery workflow remains read-only and has no production environment', () => {
   assert.match(discovery, /permissions:\s+contents: read/)
@@ -71,4 +72,23 @@ test('only the publish job receives the protected environment and credentials', 
   assert.match(publish, /vars\.AUTOMATIC_RELEASE_ENABLED == 'true'/)
   assert.match(publish, /secrets\.TENCENTCLOUD_SECRET_ID/)
   assert.match(publish, /CI_GATE_REPORT_SHA256/)
+})
+
+test('publisher workflows use direct SDK credentials without CloudBase CLI login', () => {
+  assert.doesNotMatch(publisher, /tcb login/)
+  assert.doesNotMatch(recovery, /tcb login/)
+  assert.match(publisher, /Publish immutable release[\s\S]*TENCENTCLOUD_SECRET_ID:/)
+  assert.match(recovery, /Retry guarded publication[\s\S]*TENCENTCLOUD_SECRET_ID:/)
+})
+
+test('manual write rehearsal is isolated from production keys', async () => {
+  const script = await readFile(resolve(root, 'scripts/miniprogram/rehearse-cloud-write.mjs'), 'utf8')
+  assert.match(rehearsal, /workflow_dispatch:/)
+  assert.match(rehearsal, /environment: housing-data-production/)
+  assert.match(rehearsal, /miniprogram:data:rehearse-write/)
+  assert.doesNotMatch(rehearsal, /AUTOMATIC_RELEASE_ENABLED|tcb login/)
+  assert.match(script, /housing-data\/rehearsals\/\$\{runId\}\//)
+  assert.doesNotMatch(script, /housing-data\/current\.json|housing-data\/releases\//)
+  assert.match(script, /headObject/)
+  assert.match(script, /getObject/)
 })

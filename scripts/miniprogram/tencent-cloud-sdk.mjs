@@ -1,0 +1,98 @@
+import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises'
+import { dirname, resolve } from 'node:path'
+import COS from 'cos-nodejs-sdk-v5'
+import TencentCloudScf from 'tencentcloud-sdk-nodejs-scf'
+
+export const DEFAULT_CLOUD_ENV_ID = 'cloud1-d3gpdx70w5d05c68c'
+export const STORAGE_BUCKET_ID = '636c-cloud1-d3gpdx70w5d05c68c-1456861154'
+export const STORAGE_REGION = 'ap-shanghai'
+
+const missingCodes = new Set(['NoSuchKey', 'NotFound', 'ResourceNotFound'])
+
+function cloudError(operation, key, error) {
+  const code = error?.code || error?.statusCode || 'unknown'
+  return new Error(`COS ${operation} failed for ${key}: ${code} ${error?.message || ''}`.trim(), { cause: error })
+}
+
+export function isMissingObjectError(error) {
+  const cause = error?.cause || error
+  return cause?.statusCode === 404 || missingCodes.has(cause?.code)
+}
+
+export function assertRehearsalKey(key, runId) {
+  const expectedPrefix = `housing-data/rehearsals/${runId}/`
+  if (!/^\d+(?:-\d+)?$/.test(runId || '') || !key.startsWith(expectedPrefix) || key.includes('..')) {
+    throw new Error(`Refusing non-rehearsal COS key: ${key}`)
+  }
+  return key
+}
+
+export function createTencentCloudClient({
+  secretId = process.env.TENCENTCLOUD_SECRET_ID,
+  secretKey = process.env.TENCENTCLOUD_SECRET_KEY,
+  cloudEnvId = DEFAULT_CLOUD_ENV_ID,
+  bucket = STORAGE_BUCKET_ID,
+  region = STORAGE_REGION,
+} = {}) {
+  if (!secretId || !secretKey) throw new Error('Tencent Cloud publisher credentials are required')
+  if (!/^cloud[\w-]+$/.test(cloudEnvId)) throw new Error('Invalid CloudBase environment ID')
+
+  const cos = new COS({ SecretId: secretId, SecretKey: secretKey })
+  const ScfClient = TencentCloudScf.scf.v20180416.Client
+  const scf = new ScfClient({ credential: { secretId, secretKey }, region })
+
+  const callCos = (method, key, extra = {}) => new Promise((resolveCall, reject) => {
+    cos[method]({ Bucket: bucket, Region: region, Key: key, ...extra }, (error, data) => {
+      if (error) reject(cloudError(method, key, error))
+      else resolveCall(data)
+    })
+  })
+
+  const headObject = (key) => callCos('headObject', key)
+  const getObject = async (key) => {
+    const result = await callCos('getObject', key)
+    return Buffer.isBuffer(result.Body) ? result.Body : Buffer.from(result.Body)
+  }
+  const downloadObject = async (key, destination) => {
+    const body = await getObject(key)
+    await mkdir(dirname(destination), { recursive: true })
+    await writeFile(destination, body)
+    return body
+  }
+  const putObject = async (key, body) => callCos('putObject', key, { Body: body })
+  const uploadFile = async (source, key) => putObject(key, await readFile(source))
+  const uploadDirectory = async (sourceRoot, keyPrefix) => {
+    const uploaded = []
+    async function visit(directory, relativeRoot = '') {
+      const entries = await readdir(directory, { withFileTypes: true })
+      for (const entry of entries) {
+        const relativePath = relativeRoot ? `${relativeRoot}/${entry.name}` : entry.name
+        const absolutePath = resolve(directory, entry.name)
+        if (entry.isDirectory()) await visit(absolutePath, relativePath)
+        else if (entry.isFile()) {
+          const key = `${keyPrefix.replace(/\/$/, '')}/${relativePath}`
+          await uploadFile(absolutePath, key)
+          uploaded.push(key)
+        }
+      }
+    }
+    await visit(sourceRoot)
+    return uploaded
+  }
+  const objectExists = async (key) => {
+    try {
+      await headObject(key)
+      return true
+    } catch (error) {
+      if (isMissingObjectError(error)) return false
+      throw error
+    }
+  }
+  const invokeFunction = (functionName) => scf.Invoke({
+    FunctionName: functionName,
+    Namespace: cloudEnvId,
+    InvocationType: 'RequestResponse',
+  })
+
+  return { bucket, region, cloudEnvId, headObject, getObject, downloadObject, putObject, uploadFile, uploadDirectory, objectExists, invokeFunction }
+}

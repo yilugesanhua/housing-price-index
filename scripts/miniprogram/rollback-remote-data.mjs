@@ -2,7 +2,7 @@ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { createInterface } from 'node:readline/promises'
 import { stdin, stdout } from 'node:process'
 import { resolve } from 'node:path'
-import { runTcb } from './cloudbase-cli.mjs'
+import { createTencentCloudClient } from './tencent-cloud-sdk.mjs'
 import { sha256, stableJson } from './remote-data-lib.mjs'
 import { readRollbackEligibleAudit } from './release-audit-lib.mjs'
 
@@ -17,11 +17,11 @@ await rm(workRoot, { recursive: true, force: true })
 await mkdir(workRoot, { recursive: true })
 const manifestPath = resolve(workRoot, 'manifest.json')
 const currentPath = resolve(workRoot, 'current-before-rollback.json')
-await runTcb(['env', 'list', '--json'])
-await runTcb(['storage', 'download', `housing-data/releases/${datasetVersion}/manifest.json`, manifestPath, '--json', '-e', cloudEnvId])
+const cloud = createTencentCloudClient({ cloudEnvId })
+await cloud.downloadObject(`housing-data/releases/${datasetVersion}/manifest.json`, manifestPath)
 const manifestText = await readFile(manifestPath, 'utf8')
 if (sha256(manifestText) !== audit.manifest_sha256) throw new Error('Rollback target manifest hash does not match its publish audit record')
-await runTcb(['storage', 'download', 'housing-data/current.json', currentPath, '--json', '-e', cloudEnvId])
+await cloud.downloadObject('housing-data/current.json', currentPath)
 const previousCurrent = JSON.parse(await readFile(currentPath, 'utf8'))
 if (!stdin.isTTY) throw new Error('Interactive terminal required for rollback')
 console.log(JSON.stringify({ target_env: cloudEnvId, current_dataset_version: previousCurrent.dataset_version, rollback_dataset_version: datasetVersion, manifest_sha256: audit.manifest_sha256 }, null, 2))
@@ -47,9 +47,9 @@ const current = {
 const rollbackPointerPath = resolve(workRoot, 'current.rollback.json')
 const rollbackPointerText = stableJson(current)
 await writeFile(rollbackPointerPath, rollbackPointerText, 'utf8')
-await runTcb(['storage', 'upload', rollbackPointerPath, 'housing-data/current.json', '--times', '3', '--json', '-e', cloudEnvId])
+await cloud.uploadFile(rollbackPointerPath, 'housing-data/current.json')
 const roundTripPath = resolve(workRoot, 'current.roundtrip.json')
-await runTcb(['storage', 'download', 'housing-data/current.json', roundTripPath, '--json', '-e', cloudEnvId])
+await cloud.downloadObject('housing-data/current.json', roundTripPath)
 if (await readFile(roundTripPath, 'utf8') !== rollbackPointerText) throw new Error('Rollback current.json round-trip verification failed')
 const logDir = resolve(root, 'data/releases')
 const timestamp = current.published_at.replace(/[:.]/g, '-')

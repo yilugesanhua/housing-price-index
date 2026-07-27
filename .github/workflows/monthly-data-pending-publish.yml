@@ -67,17 +67,10 @@ jobs:
         run: |
           result="$(npm run --silent miniprogram:data:create-recovery-gate)"
           node -e "const v=JSON.parse(process.argv[1]); const fs=require('fs'); fs.appendFileSync(process.env.GITHUB_OUTPUT,'dataset_version='+v.dataset_version+'\ngate_report_sha256='+v.gate_report_sha256+'\ncommit_sha='+v.commit_sha+'\ndiscovery_run_id='+v.discovery_run_id+'\n')" "$result"
-      - name: Authenticate minimum-permission CloudBase service identity
+      - name: Retry guarded publication
         env:
           TENCENTCLOUD_SECRET_ID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
           TENCENTCLOUD_SECRET_KEY: ${{ secrets.TENCENTCLOUD_SECRET_KEY }}
-        shell: bash
-        run: |
-          test -n "$TENCENTCLOUD_SECRET_ID"
-          test -n "$TENCENTCLOUD_SECRET_KEY"
-          npx tcb login --apiKeyId "$TENCENTCLOUD_SECRET_ID" --apiKey "$TENCENTCLOUD_SECRET_KEY" --json >/dev/null
-      - name: Retry guarded publication
-        env:
           AUTOMATIC_RELEASE_ENABLED: ${{ vars.AUTOMATIC_RELEASE_ENABLED }}
           CI_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           CI_COMMIT_SHA: ${{ steps.gate.outputs.commit_sha }}
@@ -94,6 +87,8 @@ jobs:
           --dataset=${{ steps.gate.outputs.dataset_version }}
       - name: Publish immutable private audit package
         env:
+          TENCENTCLOUD_SECRET_ID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
+          TENCENTCLOUD_SECRET_KEY: ${{ secrets.TENCENTCLOUD_SECRET_KEY }}
           CI_COMMIT_SHA: ${{ steps.gate.outputs.commit_sha }}
         run: >-
           npm run miniprogram:data:publish-audit --

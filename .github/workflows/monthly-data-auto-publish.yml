@@ -150,17 +150,10 @@ jobs:
         with:
           name: housing-data-candidate-${{ github.run_id }}
           path: work
-      - name: Authenticate minimum-permission CloudBase service identity
+      - name: Publish immutable release, guard, and auto-rollback on failure
         env:
           TENCENTCLOUD_SECRET_ID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
           TENCENTCLOUD_SECRET_KEY: ${{ secrets.TENCENTCLOUD_SECRET_KEY }}
-        shell: bash
-        run: |
-          test -n "$TENCENTCLOUD_SECRET_ID"
-          test -n "$TENCENTCLOUD_SECRET_KEY"
-          npx tcb login --apiKeyId "$TENCENTCLOUD_SECRET_ID" --apiKey "$TENCENTCLOUD_SECRET_KEY" --json >/dev/null
-      - name: Publish immutable release, guard, and auto-rollback on failure
-        env:
           AUTOMATIC_RELEASE_ENABLED: ${{ vars.AUTOMATIC_RELEASE_ENABLED }}
           CI_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           CI_COMMIT_SHA: ${{ needs.prepare.outputs.candidate_commit_sha }}
@@ -177,6 +170,8 @@ jobs:
           --dataset=${{ needs.prepare.outputs.dataset_version }}
       - name: Publish immutable private audit package
         env:
+          TENCENTCLOUD_SECRET_ID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
+          TENCENTCLOUD_SECRET_KEY: ${{ secrets.TENCENTCLOUD_SECRET_KEY }}
           CI_COMMIT_SHA: ${{ needs.prepare.outputs.candidate_commit_sha }}
         run: >-
           npm run miniprogram:data:publish-audit --

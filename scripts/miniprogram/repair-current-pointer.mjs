@@ -2,7 +2,7 @@ import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { createInterface } from 'node:readline/promises'
 import { stdin, stdout } from 'node:process'
 import { resolve } from 'node:path'
-import { runTcb } from './cloudbase-cli.mjs'
+import { createTencentCloudClient } from './tencent-cloud-sdk.mjs'
 import { sha256, stableJson } from './remote-data-lib.mjs'
 import { readRollbackEligibleAudit } from './release-audit-lib.mjs'
 
@@ -16,8 +16,8 @@ const workRoot = resolve(root, 'work/miniprogram-data/current-pointer-repair', d
 await rm(workRoot, { recursive: true, force: true })
 await mkdir(workRoot, { recursive: true })
 const currentPath = resolve(workRoot, 'current.before.json')
-await runTcb(['env', 'list', '--json'])
-await runTcb(['storage', 'download', 'housing-data/current.json', currentPath, '--json', '-e', cloudEnvId])
+const cloud = createTencentCloudClient({ cloudEnvId })
+await cloud.downloadObject('housing-data/current.json', currentPath)
 const currentText = await readFile(currentPath, 'utf8')
 const current = JSON.parse(currentText)
 if (current.dataset_version !== datasetVersion) throw new Error('Requested dataset is not the active remote version')
@@ -48,9 +48,9 @@ const repaired = { ...current, previous_dataset_version: null }
 const repairedText = stableJson(repaired)
 const repairedPath = resolve(workRoot, 'current.repaired.json')
 await writeFile(repairedPath, repairedText, 'utf8')
-await runTcb(['storage', 'upload', repairedPath, 'housing-data/current.json', '--times', '3', '--json', '-e', cloudEnvId])
+await cloud.uploadFile(repairedPath, 'housing-data/current.json')
 const roundTripPath = resolve(workRoot, 'current.roundtrip.json')
-await runTcb(['storage', 'download', 'housing-data/current.json', roundTripPath, '--json', '-e', cloudEnvId])
+await cloud.downloadObject('housing-data/current.json', roundTripPath)
 if (await readFile(roundTripPath, 'utf8') !== repairedText) throw new Error('Repaired current.json round-trip verification failed')
 
 const timestamp = repairedAt.replace(/[:.]/g, '-')

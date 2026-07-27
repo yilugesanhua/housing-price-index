@@ -1,6 +1,6 @@
 import { copyFile, glob, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { basename, dirname, resolve } from 'node:path'
-import { isMissingCloudFile, runTcb } from './cloudbase-cli.mjs'
+import { createTencentCloudClient } from './tencent-cloud-sdk.mjs'
 import { byteLength, sha256 } from './remote-data-lib.mjs'
 
 const root = resolve(import.meta.dirname, '../..')
@@ -60,10 +60,11 @@ if (dryRun) {
   process.exit(0)
 }
 const cloudRoot = `housing-data-audit/releases/${datasetVersion}`
-const existing = await runTcb(['storage', 'detail', `${cloudRoot}/audit-manifest.json`, '--json', '-e', cloudEnvId], { allowFailure: true })
-if (existing.ok) {
+const cloud = createTencentCloudClient({ cloudEnvId })
+const existing = await cloud.objectExists(`${cloudRoot}/audit-manifest.json`)
+if (existing) {
   const roundTrip = resolve(outputRoot, 'existing-audit-manifest.json')
-  await runTcb(['storage', 'download', `${cloudRoot}/audit-manifest.json`, roundTrip, '--json', '-e', cloudEnvId])
+  await cloud.downloadObject(`${cloudRoot}/audit-manifest.json`, roundTrip)
   const existingManifest = JSON.parse(await readFile(roundTrip, 'utf8'))
   if (existingManifest.format !== 'housing-data-private-audit-v1' || existingManifest.dataset_version !== datasetVersion || existingManifest.cloud_env_id !== cloudEnvId || !Array.isArray(existingManifest.files)) throw new Error('Existing private audit manifest is invalid')
   const existingPaths = new Set(existingManifest.files.map((file) => file.path))
@@ -74,16 +75,15 @@ if (existing.ok) {
     if (!/^[a-zA-Z0-9._/-]+$/.test(file.path || '') || file.path.includes('..') || !/^[a-f0-9]{64}$/.test(file.sha256 || '') || !Number.isInteger(file.bytes)) throw new Error('Existing private audit contains unsafe file metadata')
     const destination = resolve(verifyRoot, file.path)
     await mkdir(dirname(destination), { recursive: true })
-    await runTcb(['storage', 'download', `${cloudRoot}/${file.path}`, destination, '--json', '-e', cloudEnvId])
+    await cloud.downloadObject(`${cloudRoot}/${file.path}`, destination)
     const content = await readFile(destination)
     if (content.byteLength !== file.bytes || sha256(content) !== file.sha256) throw new Error(`Existing private audit file verification failed: ${file.path}`)
   }
   console.log(`Private audit ${datasetVersion} already exists and all ${existingManifest.files.length} files passed verification`)
   process.exit(0)
 }
-if (!isMissingCloudFile(existing)) throw new Error(`Could not prove private audit path is unused: ${existing.stderr || existing.stdout}`)
-await runTcb(['storage', 'upload', outputRoot, cloudRoot, '--times', '3', '--json', '-e', cloudEnvId])
+await cloud.uploadDirectory(outputRoot, cloudRoot)
 const roundTrip = resolve(outputRoot, 'audit-manifest.roundtrip.json')
-await runTcb(['storage', 'download', `${cloudRoot}/audit-manifest.json`, roundTrip, '--json', '-e', cloudEnvId])
+await cloud.downloadObject(`${cloudRoot}/audit-manifest.json`, roundTrip)
 if (sha256(await readFile(roundTrip)) !== sha256(manifestText)) throw new Error('Private audit manifest round-trip verification failed')
 console.log(`Published private audit ${datasetVersion}: ${files.length} evidence files, ${byteLength(manifestText) + manifest.total_bytes} bytes`)

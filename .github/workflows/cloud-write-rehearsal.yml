@@ -1,0 +1,51 @@
+name: cloud-write-rehearsal
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: housing-data-cloud-write-rehearsal
+  cancel-in-progress: false
+
+jobs:
+  rehearse:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    environment: housing-data-production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Upload, HEAD, download, and hash-check isolated objects
+        env:
+          TENCENTCLOUD_SECRET_ID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
+          TENCENTCLOUD_SECRET_KEY: ${{ secrets.TENCENTCLOUD_SECRET_KEY }}
+        run: >-
+          npm run miniprogram:data:rehearse-write --
+          --env=cloud1-d3gpdx70w5d05c68c
+          --run-id=${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Add result to task summary
+        if: always()
+        shell: bash
+        run: |
+          report="work/cloud-write-rehearsal/${{ github.run_id }}-${{ github.run_attempt }}/report.json"
+          if [ -f "$report" ]; then
+            echo '```json' >> "$GITHUB_STEP_SUMMARY"
+            cat "$report" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Isolated cloud write rehearsal failed before producing a report." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: cloud-write-rehearsal-${{ github.run_id }}-${{ github.run_attempt }}
+          path: work/cloud-write-rehearsal/
+          if-no-files-found: warn
+          retention-days: 90

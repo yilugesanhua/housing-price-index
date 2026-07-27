@@ -422,3 +422,11 @@ npm run miniprogram:data:repair-current -- --env=cloud1-d3gpdx70w5d05c68c --data
 - GitHub默认分支/环境保护、Secrets脱敏、Fork和Pull Request无法读取生产凭据。
 
 在首个支持远程数据的代码版本完成真机验收和微信审核发布、自动化层完成测试环境演练并显式开启生产开关前，不得向现有用户承诺每月自动更新已经启用。当前已发布的 `v2.0.2` 仍以版本内置数据为准。
+
+## 2026-07-27 云端联调记录
+
+- 发布后只读监测已通过真实云端端到端验证：直接使用腾讯云 COS SDK 回读 `current.json`、清单、bootstrap 和全部 70 个城市分片，并使用 SCF SDK 调用 `getHousingDataManifest`；运行 `30255973893` 的完整版本重建与哈希复核通过。
+- 生产发布、待发布恢复、人工回滚、指针修复和私有审计上传已从 CloudBase CLI 存储/函数命令迁移到官方 COS/SCF SDK，避免 CLI 内部环境预检引入与实际读写无关的额外权限。
+- `.github/workflows/cloud-write-rehearsal.yml` 是独立手动演练入口。它只允许写入 `housing-data/rehearsals/<github-run-id>-<attempt>/`，并执行上传、HEAD、下载、字节数与 SHA-256 回读校验；脚本硬性拒绝 `housing-data/current.json`、`housing-data/releases/` 及其他非演练路径。
+- 演练对象默认保留用于审计，不自动申请删除权限；其体积不足 1KB，可在后续存储维护窗口按明确前缀清理。
+- 下一门槛是让隔离写入工作流在真实 GitHub Environment 中通过。通过后再单独设计和执行受控指针切换、失败回滚及恢复演练；这些演练完成前 `AUTOMATIC_RELEASE_ENABLED` 必须保持 `false`。

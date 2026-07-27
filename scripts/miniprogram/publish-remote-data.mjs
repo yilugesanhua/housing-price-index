@@ -4,7 +4,7 @@ import { createInterface } from 'node:readline/promises'
 import { stdin, stdout } from 'node:process'
 import { resolve } from 'node:path'
 import { promisify } from 'node:util'
-import { isMissingCloudFile, runTcb, tcbPlanForRelease } from './cloudbase-cli.mjs'
+import { createTencentCloudClient, isMissingObjectError } from './tencent-cloud-sdk.mjs'
 import { sha256, stableJson } from './remote-data-lib.mjs'
 import { readRollbackEligibleAudit, rollbackVersionOrNull } from './release-audit-lib.mjs'
 import { authorizeCiRelease } from './ci-release-authorization.mjs'
@@ -27,34 +27,40 @@ if (report.status !== 'staged' || report.dataset_version !== datasetVersion || r
 if (report.manifest_sha256 !== sha256(manifestText) || manifest.validation_status !== 'passed') throw new Error('Staged manifest failed the publish gate')
 const ciMode = process.env.GITHUB_ACTIONS === 'true'
 if (ciMode) await authorizeCiRelease({ root, datasetVersion, cloudEnvId })
-const plan = tcbPlanForRelease(datasetVersion, cloudEnvId, localRoot)
+const cloudRoot = `housing-data/releases/${datasetVersion}`
+const plan = [
+  ['putObject', `${cloudRoot}/bootstrap.json`],
+  ['putObject', `${cloudRoot}/cities/<70-city-files>.json`],
+  ['putObject', `${cloudRoot}/manifest.json`],
+  ['putObject', 'housing-data/current.json', 'after full verification'],
+]
 if (dryRun) {
-  console.log(JSON.stringify({ dry_run: true, dataset_version: datasetVersion, cloud_env_id: cloudEnvId, commands: plan.map((args) => ['tcb', ...args]) }, null, 2))
+  console.log(JSON.stringify({ dry_run: true, dataset_version: datasetVersion, cloud_env_id: cloudEnvId, sdk_operations: plan }, null, 2))
   process.exit(0)
 }
 
-await runTcb(['env', 'list', '--json'])
-const cloudRoot = `housing-data/releases/${datasetVersion}`
-const existing = await runTcb(['storage', 'detail', `${cloudRoot}/manifest.json`, '--json', '-e', cloudEnvId], { allowFailure: true })
+const cloud = createTencentCloudClient({ cloudEnvId })
+const existing = await cloud.objectExists(`${cloudRoot}/manifest.json`)
 let releaseAlreadyUploaded = false
-if (existing.ok) {
+if (existing) {
   const existingManifestPath = resolve(localRoot, 'existing-remote-manifest.json')
   await rm(existingManifestPath, { force: true })
-  await runTcb(['storage', 'download', `${cloudRoot}/manifest.json`, existingManifestPath, '--json', '-e', cloudEnvId])
+  await cloud.downloadObject(`${cloudRoot}/manifest.json`, existingManifestPath)
   if (sha256(await readFile(existingManifestPath, 'utf8')) !== report.manifest_sha256) {
     throw new Error(`Immutable remote release already exists with different content: ${datasetVersion}`)
   }
   releaseAlreadyUploaded = true
-} else if (!isMissingCloudFile(existing)) {
-  throw new Error(`Could not prove the remote release path is unused:\n${existing.stderr || existing.stdout}`)
 }
 
 let previous = null
 const previousPath = resolve(localRoot, 'previous-current.json')
 await rm(previousPath, { force: true })
-const previousDownload = await runTcb(['storage', 'download', 'housing-data/current.json', previousPath, '--json', '-e', cloudEnvId], { allowFailure: true })
-if (previousDownload.ok) previous = JSON.parse(await readFile(previousPath, 'utf8'))
-else if (!isMissingCloudFile(previousDownload)) throw new Error(`Could not read the current remote pointer:\n${previousDownload.stderr || previousDownload.stdout}`)
+try {
+  await cloud.downloadObject('housing-data/current.json', previousPath)
+  previous = JSON.parse(await readFile(previousPath, 'utf8'))
+} catch (error) {
+  if (!isMissingObjectError(error)) throw error
+}
 const previousDatasetVersion = await rollbackVersionOrNull(root, previous?.dataset_version, cloudEnvId)
 if (previous?.dataset_version && !previousDatasetVersion) {
   console.warn(`Current remote version ${previous.dataset_version} is not an eligible rollback target; previous_dataset_version will be null`)
@@ -65,35 +71,27 @@ if (previousDatasetVersion && previousDatasetVersion !== datasetVersion) {
   previousAudit = await readRollbackEligibleAudit(root, previousDatasetVersion, cloudEnvId)
   const previousManifestPath = resolve(localRoot, 'previous-manifest.json')
   await rm(previousManifestPath, { force: true })
-  await runTcb(['storage', 'download', `housing-data/releases/${previousDatasetVersion}/manifest.json`, previousManifestPath, '--json', '-e', cloudEnvId])
+  await cloud.downloadObject(`housing-data/releases/${previousDatasetVersion}/manifest.json`, previousManifestPath)
   if (sha256(await readFile(previousManifestPath, 'utf8')) !== previousAudit.manifest_sha256) throw new Error('Previous release is not a verified rollback target')
 }
 
 if (!releaseAlreadyUploaded) {
-  await runTcb(['storage', 'upload', resolve(localRoot, 'bootstrap.json'), `${cloudRoot}/bootstrap.json`, '--times', '3', '--json', '-e', cloudEnvId])
-  await runTcb(['storage', 'upload', resolve(localRoot, 'cities'), `${cloudRoot}/cities`, '--times', '3', '--json', '-e', cloudEnvId])
-  await runTcb(['storage', 'upload', resolve(localRoot, 'manifest.json'), `${cloudRoot}/manifest.json`, '--times', '3', '--json', '-e', cloudEnvId])
+  await cloud.uploadFile(resolve(localRoot, 'bootstrap.json'), `${cloudRoot}/bootstrap.json`)
+  await cloud.uploadDirectory(resolve(localRoot, 'cities'), `${cloudRoot}/cities`)
+  await cloud.uploadFile(resolve(localRoot, 'manifest.json'), `${cloudRoot}/manifest.json`)
 }
 
 async function verifyCompleteRemoteRelease(label) {
   const verifyRoot = resolve(localRoot, label)
   await rm(verifyRoot, { recursive: true, force: true })
   await mkdir(verifyRoot, { recursive: true })
-  await runTcb(['storage', 'download', `${cloudRoot}/`, verifyRoot, '--dir', '--json', '-e', cloudEnvId])
-  const candidates = [verifyRoot, resolve(verifyRoot, datasetVersion)]
-  let downloadedRoot = null
-  for (const candidate of candidates) {
-    try { await readFile(resolve(candidate, 'manifest.json'), 'utf8'); downloadedRoot = candidate; break } catch (_) {}
-  }
-  if (!downloadedRoot) throw new Error('Remote release download did not contain manifest.json at an expected path')
+  const downloadedRoot = verifyRoot
+  await cloud.downloadObject(`${cloudRoot}/manifest.json`, resolve(downloadedRoot, 'manifest.json'))
+  await cloud.downloadObject(`${cloudRoot}/bootstrap.json`, resolve(downloadedRoot, 'bootstrap.json'))
   await mkdir(resolve(downloadedRoot, 'cities'), { recursive: true })
   for (const cityId of Object.keys(manifest.city_files)) {
     const cityPath = resolve(downloadedRoot, 'cities', `${cityId}.json`)
-    try {
-      await readFile(cityPath, 'utf8')
-    } catch (_) {
-      await runTcb(['storage', 'download', `${cloudRoot}/cities/${cityId}.json`, cityPath, '--json', '-e', cloudEnvId])
-    }
+    await cloud.downloadObject(`${cloudRoot}/cities/${cityId}.json`, cityPath)
   }
   await copyFile(resolve(localRoot, 'current.candidate.json'), resolve(downloadedRoot, 'current.candidate.json'))
   const remoteManifestText = await readFile(resolve(downloadedRoot, 'manifest.json'), 'utf8')
@@ -129,8 +127,8 @@ console.log(JSON.stringify({
 }, null, 2))
 if (previous?.dataset_version === datasetVersion) {
   if (previous.manifest_sha256 !== report.manifest_sha256 || previous.manifest_file_id !== manifest.bootstrap_file_id.replace(/\/bootstrap\.json$/, '/manifest.json')) throw new Error('Active dataset version matches but pointer contents differ')
-  const invocation = await runTcb(['fn', 'invoke', 'getHousingDataManifest', '--json', '-e', cloudEnvId])
-  validateManifestFunctionOutput(invocation.stdout, previous)
+  const invocation = await cloud.invokeFunction('getHousingDataManifest')
+  validateManifestFunctionOutput(JSON.stringify(invocation), previous)
   await verifyCompleteRemoteRelease('remote-verify-idempotent')
   const idempotentAudit = { ...report, status: 'published', published_at: previous.published_at, previous_dataset_version: previous.previous_dataset_version, current_sha256: sha256(stableJson(previous)), github_run_id: ciMode ? process.env.GITHUB_RUN_ID : null, commit_sha: ciMode ? process.env.CI_COMMIT_SHA : null, idempotent_recovery: true }
   await writeOrVerifyPublishAudit(idempotentAudit)
@@ -159,23 +157,23 @@ await activatePointerWithRollback({
   writePointer: async (text, label) => {
     const path = resolve(localRoot, `current.${label}.json`)
     await writeFile(path, text, 'utf8')
-    await runTcb(['storage', 'upload', path, 'housing-data/current.json', '--times', '3', '--json', '-e', cloudEnvId])
+    await cloud.uploadFile(path, 'housing-data/current.json')
   },
   readPointerText: async (label) => {
     const path = resolve(localRoot, `current.${label}.roundtrip.json`)
     await rm(path, { force: true })
-    await runTcb(['storage', 'download', 'housing-data/current.json', path, '--json', '-e', cloudEnvId])
+    await cloud.downloadObject('housing-data/current.json', path)
     return readFile(path, 'utf8')
   },
   guardCandidate: async () => {
-    const invocation = await runTcb(['fn', 'invoke', 'getHousingDataManifest', '--json', '-e', cloudEnvId])
-    validateManifestFunctionOutput(invocation.stdout, current)
+    const invocation = await cloud.invokeFunction('getHousingDataManifest')
+    validateManifestFunctionOutput(JSON.stringify(invocation), current)
     await verifyCompleteRemoteRelease('remote-verify-after-switch')
     if (previousDatasetVersion && !previousAudit) throw new Error('Previous release lost rollback eligibility after pointer switch')
   },
   guardRollback: async (rollbackPointer) => {
-    const invocation = await runTcb(['fn', 'invoke', 'getHousingDataManifest', '--json', '-e', cloudEnvId])
-    validateManifestFunctionOutput(invocation.stdout, rollbackPointer)
+    const invocation = await cloud.invokeFunction('getHousingDataManifest')
+    validateManifestFunctionOutput(JSON.stringify(invocation), rollbackPointer)
   },
   recordRollback: async ({ failedAt, guardError, rollbackPointer, rollbackText }) => {
     const rollbackAudit = { status: 'automatically_rolled_back', rolled_back_at: failedAt, from_dataset_version: datasetVersion, to_dataset_version: rollbackPointer.dataset_version, cloud_env_id: cloudEnvId, trigger_error: String(guardError?.message || guardError), current_sha256: sha256(rollbackText), github_run_id: ciMode ? process.env.GITHUB_RUN_ID : null, commit_sha: ciMode ? process.env.CI_COMMIT_SHA : null }

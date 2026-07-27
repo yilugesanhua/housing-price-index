@@ -49,6 +49,7 @@
     "miniprogram:data:verify-official-source": "node scripts/miniprogram/verify-official-source.mjs",
     "miniprogram:data:create-recovery-gate": "node scripts/miniprogram/create-recovery-gate.mjs",
     "miniprogram:data:publish": "node scripts/miniprogram/publish-remote-data.mjs",
+    "miniprogram:data:rehearse-write": "node scripts/miniprogram/rehearse-cloud-write.mjs",
     "miniprogram:data:rollback": "node scripts/miniprogram/rollback-remote-data.mjs",
     "miniprogram:data:repair-current": "node scripts/miniprogram/repair-current-pointer.mjs",
     "miniprogram:cloud:deploy": "tcb fn deploy getHousingDataManifest --force -e cloud1-d3gpdx70w5d05c68c",
