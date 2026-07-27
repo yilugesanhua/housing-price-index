@@ -2,6 +2,7 @@ import { copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { execFile } from 'node:child_process'
 import { resolve } from 'node:path'
 import { promisify } from 'node:util'
+import COS from 'cos-nodejs-sdk-v5'
 import { runTcb } from './cloudbase-cli.mjs'
 import { validateManifestFunctionOutput } from './post-publish-guard.mjs'
 import { sha256 } from './remote-data-lib.mjs'
@@ -12,29 +13,44 @@ const argument = (name) => process.argv.find((value) => value.startsWith(`--${na
 const datasetVersion = argument('dataset')
 const cloudEnvId = argument('env') || 'cloud1-d3gpdx70w5d05c68c'
 const storageBucketId = '636c-cloud1-d3gpdx70w5d05c68c-1456861154'
+const storageRegion = 'ap-shanghai'
+const secretId = process.env.TENCENTCLOUD_MONITOR_SECRET_ID
+const secretKey = process.env.TENCENTCLOUD_MONITOR_SECRET_KEY
 if (!/^20\d{2}-(0[1-9]|1[0-2])-[a-f0-9]{12}$/.test(datasetVersion || '')) throw new Error('Use --dataset=<active-version>')
+if (!secretId || !secretKey) throw new Error('Read-only COS monitor credentials are required')
+const cos = new COS({ SecretId: secretId, SecretKey: secretKey })
+const cosCall = (method, key) => new Promise((resolveCall, reject) => {
+  cos[method]({ Bucket: storageBucketId, Region: storageRegion, Key: key }, (error, data) => {
+    if (error) reject(new Error(`COS ${method} failed for ${key}: ${error.code || error.statusCode || 'unknown'} ${error.message || ''}`.trim()))
+    else resolveCall(data)
+  })
+})
+const downloadObject = async (key, destination) => {
+  const result = await cosCall('getObject', key)
+  await writeFile(destination, result.Body)
+}
 const audit = JSON.parse(await readFile(resolve(root, 'data/releases', `${datasetVersion}.json`), 'utf8'))
 if (audit.status !== 'published' || audit.cloud_env_id !== cloudEnvId) throw new Error('Monitor target lacks a matching publish audit')
 const outputRoot = resolve(root, 'work/post-publish-monitor', datasetVersion)
 await rm(outputRoot, { recursive: true, force: true })
 await mkdir(resolve(outputRoot, 'cities'), { recursive: true })
 const currentPath = resolve(outputRoot, 'current.json')
-await runTcb(['storage', 'objects', 'stat', 'housing-data/current.json', '--bucket', storageBucketId, '--method', 'HEAD', '--json'])
+await cosCall('headObject', 'housing-data/current.json')
 console.log('[monitor] Cloud storage metadata preflight passed')
-await runTcb(['storage', 'download', 'housing-data/current.json', currentPath, '-e', cloudEnvId])
+await downloadObject('housing-data/current.json', currentPath)
 const currentText = await readFile(currentPath, 'utf8')
 const current = JSON.parse(currentText)
 if (current.dataset_version !== datasetVersion || current.manifest_sha256 !== audit.manifest_sha256) throw new Error('Active pointer no longer matches the monitored published release')
 const invocation = await runTcb(['fn', 'invoke', 'getHousingDataManifest', '--json', '-e', cloudEnvId])
 validateManifestFunctionOutput(invocation.stdout, current)
 const cloudRoot = `housing-data/releases/${datasetVersion}`
-await runTcb(['storage', 'download', `${cloudRoot}/manifest.json`, resolve(outputRoot, 'manifest.json'), '--json', '-e', cloudEnvId])
+await downloadObject(`${cloudRoot}/manifest.json`, resolve(outputRoot, 'manifest.json'))
 const manifestText = await readFile(resolve(outputRoot, 'manifest.json'), 'utf8')
 if (sha256(manifestText) !== current.manifest_sha256) throw new Error('Monitored manifest hash mismatch')
 const manifest = JSON.parse(manifestText)
-await runTcb(['storage', 'download', `${cloudRoot}/bootstrap.json`, resolve(outputRoot, 'bootstrap.json'), '--json', '-e', cloudEnvId])
+await downloadObject(`${cloudRoot}/bootstrap.json`, resolve(outputRoot, 'bootstrap.json'))
 for (const cityId of Object.keys(manifest.city_files || {})) {
-  await runTcb(['storage', 'download', `${cloudRoot}/cities/${cityId}.json`, resolve(outputRoot, 'cities', `${cityId}.json`), '--json', '-e', cloudEnvId])
+  await downloadObject(`${cloudRoot}/cities/${cityId}.json`, resolve(outputRoot, 'cities', `${cityId}.json`))
 }
 if (Object.keys(manifest.city_files || {}).length !== 70) throw new Error('Monitored manifest does not contain 70 cities')
 await copyFile(currentPath, resolve(outputRoot, 'current.candidate.json'))

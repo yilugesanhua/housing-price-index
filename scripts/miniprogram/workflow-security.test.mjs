@@ -47,11 +47,12 @@ test('24-hour monitor uses a separate read-only identity and does not expose poi
   assert.doesNotMatch(monitor, /miniprogram:data:publish|storage', 'upload|TENCENTCLOUD_SECRET_ID:/)
 })
 
-test('remote monitor uses the current read-only object metadata API', async () => {
+test('remote monitor uses the official COS SDK with the read-only identity', async () => {
   const script = await readFile(resolve(root, 'scripts/miniprogram/monitor-remote-release.mjs'), 'utf8')
-  assert.match(script, /'storage', 'objects', 'stat'/)
-  assert.match(script, /'--method', 'HEAD'/)
-  assert.doesNotMatch(script, /'storage', 'detail', 'housing-data\/current\.json'/)
+  assert.match(script, /cosCall\('headObject', 'housing-data\/current\.json'\)/)
+  assert.match(script, /TENCENTCLOUD_MONITOR_SECRET_ID/)
+  assert.doesNotMatch(script, /\['storage', '(?:detail|download)'/)
+  assert.match(monitor, /Verify cloud function, pointer, and all 70 remote shards\s+env:\s+TENCENTCLOUD_MONITOR_SECRET_ID:/)
 })
 
 test('only the publish job receives the protected environment and credentials', () => {

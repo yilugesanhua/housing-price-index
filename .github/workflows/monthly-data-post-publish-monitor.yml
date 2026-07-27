@@ -57,6 +57,9 @@ jobs:
           test -n "$TENCENTCLOUD_MONITOR_SECRET_KEY"
           npx tcb login --apiKeyId "$TENCENTCLOUD_MONITOR_SECRET_ID" --apiKey "$TENCENTCLOUD_MONITOR_SECRET_KEY" --json >/dev/null
       - name: Verify cloud function, pointer, and all 70 remote shards
+        env:
+          TENCENTCLOUD_MONITOR_SECRET_ID: ${{ secrets.TENCENTCLOUD_MONITOR_SECRET_ID }}
+          TENCENTCLOUD_MONITOR_SECRET_KEY: ${{ secrets.TENCENTCLOUD_MONITOR_SECRET_KEY }}
         run: >-
           node scripts/miniprogram/monitor-remote-release.mjs
           --env=cloud1-d3gpdx70w5d05c68c
