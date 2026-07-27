@@ -1,6 +1,12 @@
 name: monthly-data-post-publish-monitor
 
 on:
+  workflow_dispatch:
+    inputs:
+      dataset_version:
+        description: Published dataset version to verify (YYYY-MM-12hex)
+        required: true
+        type: string
   schedule:
     - cron: "43 * * * *"
 
@@ -22,8 +28,11 @@ jobs:
       - uses: actions/checkout@v4
       - id: window
         shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          MANUAL_DATASET_VERSION: ${{ inputs.dataset_version || '' }}
         run: |
-          node -e "const fs=require('fs'); let v={}; try{v=JSON.parse(fs.readFileSync('data/releases/latest-auto-release.json','utf8'))}catch{}; const age=Date.now()-Date.parse(v.published_at||''); const active=v.status==='published'&&Number.isFinite(age)&&age>=0&&age<=24*60*60*1000; fs.appendFileSync(process.env.GITHUB_OUTPUT,'active='+active+'\ndataset_version='+(v.dataset_version||'')+'\n')"
+          node -e "const fs=require('fs'); const manual=(process.env.MANUAL_DATASET_VERSION||'').trim(); if(manual&&!/^20\d{2}-(0[1-9]|1[0-2])-[a-f0-9]{12}$/.test(manual)) throw new Error('Invalid manual dataset version'); let v={}; try{v=JSON.parse(fs.readFileSync('data/releases/latest-auto-release.json','utf8'))}catch{}; const age=Date.now()-Date.parse(v.published_at||''); const scheduled=v.status==='published'&&Number.isFinite(age)&&age>=0&&age<=24*60*60*1000; const active=process.env.EVENT_NAME==='workflow_dispatch'?Boolean(manual):scheduled; fs.appendFileSync(process.env.GITHUB_OUTPUT,'active='+active+'\ndataset_version='+(manual||v.dataset_version||'')+'\n')"
 
   monitor:
     needs: inspect

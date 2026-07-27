@@ -40,6 +40,8 @@ test('scheduled recovery reads state without credentials and publishes only a re
 })
 
 test('24-hour monitor uses a separate read-only identity and does not expose pointer writes', () => {
+  assert.match(monitor, /workflow_dispatch:/)
+  assert.match(monitor, /Invalid manual dataset version/)
   assert.match(monitor, /TENCENTCLOUD_MONITOR_SECRET_ID/)
   assert.match(monitor, /monitor-remote-release\.mjs/)
   assert.doesNotMatch(monitor, /miniprogram:data:publish|storage', 'upload|TENCENTCLOUD_SECRET_ID:/)
