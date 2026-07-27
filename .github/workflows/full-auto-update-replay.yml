@@ -32,6 +32,7 @@ jobs:
           --env=cloud1-d3gpdx70w5d05c68c
           --run-id=${{ github.run_id }}-${{ github.run_attempt }}
           --cloud-run-id=${{ github.run_id }}-${{ github.run_attempt }}
+          --months=12
       - name: Add report to task summary
         if: always()
         shell: bash
@@ -51,4 +52,3 @@ jobs:
           path: work/full-auto-update-replay/
           if-no-files-found: warn
           retention-days: 90
-
