@@ -429,4 +429,5 @@ npm run miniprogram:data:repair-current -- --env=cloud1-d3gpdx70w5d05c68c --data
 - 生产发布、待发布恢复、人工回滚、指针修复和私有审计上传已从 CloudBase CLI 存储/函数命令迁移到官方 COS/SCF SDK，避免 CLI 内部环境预检引入与实际读写无关的额外权限。
 - `.github/workflows/cloud-write-rehearsal.yml` 是独立手动演练入口。它只允许写入 `housing-data/rehearsals/<github-run-id>-<attempt>/`，并执行上传、HEAD、下载、字节数与 SHA-256 回读校验；脚本硬性拒绝 `housing-data/current.json`、`housing-data/releases/` 及其他非演练路径。
 - 演练对象默认保留用于审计，不自动申请删除权限；其体积不足 1KB，可在后续存储维护窗口按明确前缀清理。
-- 下一门槛是让隔离写入工作流在真实 GitHub Environment 中通过。通过后再单独设计和执行受控指针切换、失败回滚及恢复演练；这些演练完成前 `AUTOMATIC_RELEASE_ENABLED` 必须保持 `false`。
+- 隔离写入工作流运行 `30263193696` 已在真实 GitHub Environment 中通过；两个演练对象均完成上传、HEAD、下载、字节数与 SHA-256 复核。随后运行 `30263278546` 的只读全量监测再次确认正式 `current.json` 未变化、云函数响应有效且 70 城完整版本可重建。
+- 下一门槛是在同一隔离前缀中完成受控指针切换、故障自动回滚及恢复演练；通过后再评估人工监护的正式指针演练。这些演练完成前 `AUTOMATIC_RELEASE_ENABLED` 必须保持 `false`。
