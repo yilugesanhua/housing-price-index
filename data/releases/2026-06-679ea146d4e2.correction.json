@@ -1,0 +1,9 @@
+{
+  "status": "superseded_invalid_pointer",
+  "dataset_version": "2026-06-679ea146d4e2",
+  "recorded_at": "2026-07-26T11:47:41.551Z",
+  "reason": "The initial remote manifest used an environment-only cloud file ID that wx.cloud.downloadFile could not resolve.",
+  "replacement_dataset_version": "2026-06-ec36ff8fb2e5",
+  "rollback_allowed": false,
+  "original_audit_preserved": "data/releases/2026-06-679ea146d4e2.json"
+}

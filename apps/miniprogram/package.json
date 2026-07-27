@@ -1,0 +1,8 @@
+{
+  "name": "@housing/miniprogram",
+  "private": true,
+  "version": "0.0.0",
+  "dependencies": {
+    "@antv/wx-f2": "2.1.1"
+  }
+}

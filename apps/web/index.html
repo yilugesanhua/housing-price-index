@@ -1,0 +1,92 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="theme-color" content="#F2F2F7" />
+    <meta name="description" content="查看北京、上海、广州、深圳、厦门、福州住宅价格指数变化。" />
+    <meta property="og:title" content="70城住宅指数" />
+    <meta property="og:description" content="六城住宅价格指数的环比、同比与长期趋势比较。" />
+    <meta property="og:url" content="/" data-public-url />
+    <meta property="og:image" content="/share-card.png" />
+    <meta property="og:image:type" content="image/png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <link rel="canonical" href="/" data-public-url />
+    <title>70城住宅指数</title>
+    <style>
+      .boot-state {
+        min-height: 100vh;
+        min-height: 100dvh;
+        display: grid;
+        place-items: center;
+        padding: 24px;
+        background: #f2f2f7;
+        color: #1c1c1e;
+        font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Segoe UI", sans-serif;
+        text-align: center;
+      }
+      .boot-state-inner { width: min(100%, 320px); }
+      .boot-state-mark {
+        width: 36px;
+        height: 36px;
+        display: grid;
+        place-items: center;
+        margin: 0 auto 14px;
+        border-radius: 8px;
+        background: #1c1c1e;
+        color: #fff;
+        font-size: 15px;
+        font-weight: 700;
+      }
+      .boot-state strong { display: block; font-size: 18px; }
+      .boot-state p { margin: 7px 0 0; color: #5f6368; font-size: 14px; line-height: 1.5; }
+      .boot-state button {
+        min-width: 96px;
+        min-height: 44px;
+        margin-top: 16px;
+        border: 0;
+        border-radius: 8px;
+        background: #1c1c1e;
+        color: #fff;
+        font: inherit;
+        font-weight: 650;
+        cursor: pointer;
+      }
+      .boot-state button:hover { background: #3a3a3c; }
+      .boot-state button[hidden] { display: none; }
+    </style>
+  </head>
+  <body>
+    <a class="skip-link" href="#main-content">跳转到主要内容</a>
+    <div id="root">
+      <main class="boot-state" data-boot-state role="status" aria-live="polite">
+        <div class="boot-state-inner">
+          <span class="boot-state-mark" aria-hidden="true">70</span>
+          <strong>70城住宅指数</strong>
+          <p data-boot-message>正在加载最新住宅指数数据…</p>
+          <button type="button" data-boot-reload hidden>重新加载</button>
+        </div>
+      </main>
+    </div>
+    <script>
+      (() => {
+        const showBootError = () => {
+          const bootState = document.querySelector("[data-boot-state]");
+          if (!bootState) return;
+          const message = bootState.querySelector("[data-boot-message]");
+          const reload = bootState.querySelector("[data-boot-reload]");
+          if (message) message.textContent = "页面加载时间过长，请重新加载。";
+          if (reload) reload.hidden = false;
+        };
+        window.addEventListener("error", showBootError);
+        window.addEventListener("unhandledrejection", showBootError);
+        window.setTimeout(showBootError, 15000);
+        document.addEventListener("click", (event) => {
+          if (event.target.closest("[data-boot-reload]")) window.location.reload();
+        });
+      })();
+    </script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

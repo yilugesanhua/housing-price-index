@@ -1,0 +1,8 @@
+/data/manifest.json
+  Cache-Control: no-store, no-cache, must-revalidate
+
+/data/data.json
+  Cache-Control: no-cache, must-revalidate
+
+/data/data-*.json
+  Cache-Control: public, max-age=31536000, immutable

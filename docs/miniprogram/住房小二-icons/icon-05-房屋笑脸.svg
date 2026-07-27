@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">住房小二图标方案五：房屋笑脸</title>
+  <desc id="desc">蓝色背景，白色房屋化作亲切笑脸，强调随手可用的住房数据助手。</desc>
+  <rect width="1024" height="1024" rx="224" fill="#005FCC"/>
+  <path d="M176 468 512 196l336 272v300c0 51-41 92-92 92H268c-51 0-92-41-92-92V468Z" fill="#FFF"/>
+  <circle cx="376" cy="532" r="50" fill="#176C79"/>
+  <circle cx="648" cy="532" r="50" fill="#176C79"/>
+  <path d="M350 666c48 72 108 108 162 108s114-36 162-108" fill="none" stroke="#D07A34" stroke-width="58" stroke-linecap="round"/>
+</svg>

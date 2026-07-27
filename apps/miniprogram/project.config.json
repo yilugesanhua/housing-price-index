@@ -1,0 +1,26 @@
+{
+  "compileType": "miniprogram",
+  "cloudfunctionRoot": "cloudfunctions/",
+  "libVersion": "trial",
+  "packOptions": {
+    "ignore": [
+      { "type": "folder", "value": "node_modules" }
+    ]
+  },
+  "setting": {
+    "coverView": true,
+    "es6": true,
+    "postcss": true,
+    "minified": true,
+    "enhance": true,
+    "showShadowRootInWxmlPanel": true,
+    "uploadWithSourceMap": true,
+    "minifyWXSS": true,
+    "minifyWXML": true,
+    "lazyloadPlaceholderEnable": false,
+    "useCompilerPlugins": false
+  },
+  "appid": "wxf2b2a44f4c788def",
+  "projectname": "住房小二",
+  "condition": {}
+}

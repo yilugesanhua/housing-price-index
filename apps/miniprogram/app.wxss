@@ -1,0 +1,11 @@
+@import "./styles/tokens.wxss";
+
+page {
+  background: var(--color-page);
+  color: var(--color-ink);
+  font-family: var(--font-system);
+}
+
+button::after {
+  border: 0;
+}

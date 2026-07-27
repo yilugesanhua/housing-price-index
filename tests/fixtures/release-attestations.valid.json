@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "android_wechat": { "verified_at": "2026-07-15T00:00:00.000Z", "tester": "fixture", "device_or_os": "Android fixture", "version": "fixture", "result": "passed" },
+  "iphone_wechat": { "verified_at": "2026-07-15T00:00:00.000Z", "tester": "fixture", "device_or_os": "iPhone fixture", "version": "fixture", "result": "passed" },
+  "chrome_current": { "verified_at": "2026-07-15T00:00:00.000Z", "tester": "fixture", "device_or_os": "fixture", "version": "fixture", "result": "passed" },
+  "chrome_previous": { "verified_at": "2026-07-15T00:00:00.000Z", "tester": "fixture", "device_or_os": "fixture", "version": "fixture", "result": "passed" },
+  "edge_current": { "verified_at": "2026-07-15T00:00:00.000Z", "tester": "fixture", "device_or_os": "fixture", "version": "fixture", "result": "passed" },
+  "edge_previous": { "verified_at": "2026-07-15T00:00:00.000Z", "tester": "fixture", "device_or_os": "fixture", "version": "fixture", "result": "passed" },
+  "safari_current": { "verified_at": "2026-07-15T00:00:00.000Z", "tester": "fixture", "device_or_os": "fixture", "version": "fixture", "result": "passed" },
+  "safari_previous": { "verified_at": "2026-07-15T00:00:00.000Z", "tester": "fixture", "device_or_os": "fixture", "version": "fixture", "result": "passed" },
+  "legal_review": { "verified_at": "2026-07-15T00:00:00.000Z", "tester": "fixture", "device_or_os": "fixture scope", "version": "n/a", "result": "passed" }
+}

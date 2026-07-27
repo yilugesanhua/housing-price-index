@@ -1,0 +1,29 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1720" height="440" viewBox="0 0 1720 440" role="img" aria-labelledby="title desc">
+  <title id="title">住房小二小程序图标五个候选方案</title>
+  <desc id="desc">从左至右为屋檐二、数字二成屋、双窗助手、门牌小二和房屋笑脸。</desc>
+  <rect width="1720" height="440" fill="#F2F2F7"/>
+  <style>
+    .label{font:600 28px -apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",sans-serif;fill:#1C1C1E;text-anchor:middle}
+    .sub{font:400 20px -apple-system,BlinkMacSystemFont,"PingFang SC","Segoe UI",sans-serif;fill:#5F6368;text-anchor:middle}
+  </style>
+  <g transform="translate(48 40)">
+    <image href="icon-01-屋檐二.svg" width="280" height="280"/>
+    <text class="label" x="140" y="332">01 屋檐二</text><text class="sub" x="140" y="368">首推 · 极简耐用</text>
+  </g>
+  <g transform="translate(384 40)">
+    <image href="icon-02-数字二成屋.svg" width="280" height="280"/>
+    <text class="label" x="140" y="332">02 数字二成屋</text><text class="sub" x="140" y="368">醒目 · 传播性强</text>
+  </g>
+  <g transform="translate(720 40)">
+    <image href="icon-03-双窗助手.svg" width="280" height="280"/>
+    <text class="label" x="140" y="332">03 双窗助手</text><text class="sub" x="140" y="368">专业 · 数据含义强</text>
+  </g>
+  <g transform="translate(1056 40)">
+    <image href="icon-04-门牌小二.svg" width="280" height="280"/>
+    <text class="label" x="140" y="332">04 门牌小二</text><text class="sub" x="140" y="368">亲切 · 社区感</text>
+  </g>
+  <g transform="translate(1392 40)">
+    <image href="icon-05-房屋笑脸.svg" width="280" height="280"/>
+    <text class="label" x="140" y="332">05 房屋笑脸</text><text class="sub" x="140" y="368">友好 · 助手感</text>
+  </g>
+</svg>

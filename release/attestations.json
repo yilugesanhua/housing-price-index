@@ -1,0 +1,24 @@
+{
+  "schema_version": 1,
+  "android_wechat": null,
+  "iphone_wechat": null,
+  "chrome_current": {
+    "verified_at": "2026-07-15T14:11:36.000Z",
+    "tester": "automated-local-smoke",
+    "device_or_os": "Windows",
+    "version": "149.0.7827.201",
+    "result": "passed"
+  },
+  "chrome_previous": null,
+  "edge_current": {
+    "verified_at": "2026-07-15T14:11:36.000Z",
+    "tester": "automated-local-smoke",
+    "device_or_os": "Windows",
+    "version": "147.0.3912.72",
+    "result": "passed"
+  },
+  "edge_previous": null,
+  "safari_current": null,
+  "safari_previous": null,
+  "legal_review": null
+}

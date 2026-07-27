@@ -1,0 +1,18 @@
+{
+  "$schema": "https://static.cloudbase.net/cli/cloudbaserc.schema.json",
+  "envId": "cloud1-d3gpdx70w5d05c68c",
+  "functionRoot": "apps/miniprogram/cloudfunctions",
+  "functions": [
+    {
+      "name": "getHousingDataManifest",
+      "timeout": 5,
+      "memorySize": 128,
+      "runtime": "Nodejs20.19",
+      "handler": "index.main",
+      "description": "返回住房小二当前已发布数据清单指针",
+      "envVariables": {
+        "HOUSING_DATA_CURRENT_FILE_ID": "cloud://cloud1-d3gpdx70w5d05c68c.636c-cloud1-d3gpdx70w5d05c68c-1456861154/housing-data/current.json"
+      }
+    }
+  ]
+}

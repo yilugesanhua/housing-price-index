@@ -1,0 +1,10 @@
+{
+  "status": "current_pointer_repaired",
+  "repaired_at": "2026-07-26T13:44:49.511Z",
+  "cloud_env_id": "cloud1-d3gpdx70w5d05c68c",
+  "dataset_version": "2026-06-ec36ff8fb2e5",
+  "removed_previous_dataset_version": "2026-06-679ea146d4e2",
+  "reason": "The initial remote manifest used an environment-only cloud file ID that wx.cloud.downloadFile could not resolve.",
+  "before_sha256": "8a92a6770a252b519d6d6217087a9e438f0fb2405ae89d9a3de52bcc9dc387ff",
+  "after_sha256": "d2ef3cd4248c0bb8ad1bda305a11587db1ca38012d952178e8cdbae32e8a3c96"
+}

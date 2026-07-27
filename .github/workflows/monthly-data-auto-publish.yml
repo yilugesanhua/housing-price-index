@@ -1,0 +1,206 @@
+name: monthly-data-auto-publish
+
+on:
+  workflow_run:
+    workflows: [monthly-data-check]
+    types: [completed]
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: housing-data-production-publish
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    if: >-
+      github.event.workflow_run.conclusion == 'failure' &&
+      github.event.workflow_run.head_branch == github.event.repository.default_branch
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    outputs:
+      candidate_commit_sha: ${{ steps.bind.outputs.candidate_commit_sha }}
+      dataset_version: ${{ steps.bind.outputs.dataset_version }}
+      gate_report_sha256: ${{ steps.bind.outputs.gate_report_sha256 }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium webkit
+      - name: Require successful ordinary CI for the base commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE_SHA: ${{ github.event.workflow_run.head_sha }}
+        shell: bash
+        run: |
+          count="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${BASE_SHA}&status=completed&per_page=20" --jq ".workflow_runs | map(select(.head_sha == \"${BASE_SHA}\" and .conclusion == \"success\")) | length")"
+          test "$count" -gt 0
+      - name: Download exact discovery artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: monthly-data-check-${{ github.event.workflow_run.id }}
+          path: work/discovery-artifact
+          github-token: ${{ github.token }}
+          run-id: ${{ github.event.workflow_run.id }}
+      - name: Re-fetch official schedule and release list
+        shell: bash
+        run: |
+          set +e
+          npm run data:check-latest
+          status=$?
+          set -e
+          if [ "$status" -ne 2 ]; then
+            echo "Fresh discovery did not confirm exactly one available update (exit $status)."
+            exit 1
+          fi
+      - name: Record trusted workflow-run context
+        env:
+          TRIGGER_WORKFLOW: ${{ github.event.workflow_run.name }}
+          TRIGGER_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          TRIGGER_EVENT: ${{ github.event.workflow_run.event }}
+          TRIGGER_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch }}
+          TRIGGER_HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+          TRIGGER_RUN_ID: ${{ github.event.workflow_run.id }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: >-
+          node -e "const fs=require('fs'); fs.mkdirSync('work/auto-release',{recursive:true});
+          fs.writeFileSync('work/auto-release/trigger.json', JSON.stringify({workflow_name:process.env.TRIGGER_WORKFLOW,
+          conclusion:process.env.TRIGGER_CONCLUSION,event:process.env.TRIGGER_EVENT,
+          head_branch:process.env.TRIGGER_HEAD_BRANCH,head_sha:process.env.TRIGGER_HEAD_SHA,
+          run_id:process.env.TRIGGER_RUN_ID,default_branch:process.env.DEFAULT_BRANCH},null,2)+'\n')"
+      - name: Validate discovery handoff against fresh official data
+        run: >-
+          npm run data:validate-handoff --
+          --handoff=work/discovery-artifact/handoff.json
+          --discovery-report=work/discovery-artifact/report.json
+          --fresh-report=work/monthly-data-check/report.json
+          --calendar=work/monthly-data-check/release-calendar.json
+          --trigger=work/auto-release/trigger.json
+      - name: Fetch, audit, build, and test candidate
+        run: >-
+          npm run miniprogram:data:prepare-auto --
+          --discovery-gate=work/auto-release/discovery-gate.json
+          --calendar=work/monthly-data-check/release-calendar.json
+          --env=cloud1-d3gpdx70w5d05c68c
+      - name: Stage only allowlisted generated files
+        run: npm run miniprogram:data:persist-candidate -- --gate=work/auto-release/gate-report.json
+      - name: Commit durable candidate state
+        env:
+          EXPECTED_BRANCH: ${{ github.event.repository.default_branch }}
+        shell: bash
+        run: |
+          git config user.name "housing-data-automation"
+          git config user.email "housing-data-automation@users.noreply.github.com"
+          git commit -m "data: prepare automated monthly release"
+          git push origin "HEAD:${EXPECTED_BRANCH}"
+      - id: bind
+        name: Bind production gate to pushed candidate commit
+        shell: bash
+        run: |
+          candidate_sha="$(git rev-parse HEAD)"
+          binding="$(npm run --silent miniprogram:data:bind-gate -- --gate=work/auto-release/gate-report.json --commit="$candidate_sha")"
+          node -e "const v=JSON.parse(process.argv[1]); const fs=require('fs'); fs.appendFileSync(process.env.GITHUB_OUTPUT, 'candidate_commit_sha='+v.commit_sha+'\ndataset_version='+v.dataset_version+'\ngate_report_sha256='+v.gate_report_sha256+'\n')" "$binding"
+      - name: Upload reproducible candidate and gate reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: housing-data-candidate-${{ github.run_id }}
+          path: |
+            work/auto-release/
+            work/miniprogram-data/
+            work/monthly-data-check/
+            work/discovery-artifact/
+          if-no-files-found: error
+          retention-days: 90
+
+  publish:
+    needs: prepare
+    if: needs.prepare.result == 'success' && vars.AUTOMATIC_RELEASE_ENABLED == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: housing-data-production
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.candidate_commit_sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Verify candidate is the exact default-branch head
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          CANDIDATE_SHA: ${{ needs.prepare.outputs.candidate_commit_sha }}
+        shell: bash
+        run: |
+          git fetch origin "$DEFAULT_BRANCH"
+          test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
+          test "$(git rev-parse "origin/$DEFAULT_BRANCH")" = "$CANDIDATE_SHA"
+      - uses: actions/download-artifact@v4
+        with:
+          name: housing-data-candidate-${{ github.run_id }}
+          path: work
+      - name: Authenticate minimum-permission CloudBase service identity
+        env:
+          TENCENTCLOUD_SECRET_ID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
+          TENCENTCLOUD_SECRET_KEY: ${{ secrets.TENCENTCLOUD_SECRET_KEY }}
+        shell: bash
+        run: |
+          test -n "$TENCENTCLOUD_SECRET_ID"
+          test -n "$TENCENTCLOUD_SECRET_KEY"
+          npx tcb login --apiKeyId "$TENCENTCLOUD_SECRET_ID" --apiKey "$TENCENTCLOUD_SECRET_KEY" --json >/dev/null
+      - name: Publish immutable release, guard, and auto-rollback on failure
+        env:
+          AUTOMATIC_RELEASE_ENABLED: ${{ vars.AUTOMATIC_RELEASE_ENABLED }}
+          CI_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          CI_COMMIT_SHA: ${{ needs.prepare.outputs.candidate_commit_sha }}
+          CI_RUN_ID: ${{ github.run_id }}
+          CI_DISCOVERY_RUN_ID: ${{ github.event.workflow_run.id }}
+          CI_PRODUCTION_ENVIRONMENT: housing-data-production
+          CI_CLOUD_ENV_ID: cloud1-d3gpdx70w5d05c68c
+          CI_DATASET_VERSION: ${{ needs.prepare.outputs.dataset_version }}
+          CI_GATE_REPORT_SHA256: ${{ needs.prepare.outputs.gate_report_sha256 }}
+          CI_GATE_REPORT_PATH: work/auto-release/gate-report.json
+        run: >-
+          npm run miniprogram:data:publish --
+          --env=cloud1-d3gpdx70w5d05c68c
+          --dataset=${{ needs.prepare.outputs.dataset_version }}
+      - name: Publish immutable private audit package
+        env:
+          CI_COMMIT_SHA: ${{ needs.prepare.outputs.candidate_commit_sha }}
+        run: >-
+          npm run miniprogram:data:publish-audit --
+          --env=cloud1-d3gpdx70w5d05c68c
+          --dataset=${{ needs.prepare.outputs.dataset_version }}
+      - name: Persist publish audit and clear pending state
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        shell: bash
+        run: |
+          npm run miniprogram:data:complete-auto -- --dataset=${{ needs.prepare.outputs.dataset_version }}
+          git config user.name "housing-data-automation"
+          git config user.email "housing-data-automation@users.noreply.github.com"
+          git add -- "data/releases/${{ needs.prepare.outputs.dataset_version }}.json" data/releases/pending-auto-release.json data/releases/latest-auto-release.json
+          git commit -m "data: record automated monthly release [skip ci]"
+          git push origin "HEAD:${DEFAULT_BRANCH}"
+      - name: Upload publish and rollback evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: housing-data-publish-audit-${{ github.run_id }}
+          path: |
+            data/releases/
+            work/auto-release/
+            work/miniprogram-data/${{ needs.prepare.outputs.dataset_version }}/
+          if-no-files-found: error
+          retention-days: 365

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">住房小二图标方案一：屋檐二</title>
+  <desc id="desc">深青色背景，白色房屋轮廓中以负形构成汉字二。</desc>
+  <rect width="1024" height="1024" rx="224" fill="#176C79"/>
+  <path d="M176 474 512 194l336 280v322c0 33-27 60-60 60H236c-33 0-60-27-60-60V474Z" fill="#FFF"/>
+  <rect x="326" y="470" width="372" height="72" rx="36" fill="#176C79"/>
+  <rect x="278" y="632" width="468" height="72" rx="36" fill="#176C79"/>
+</svg>

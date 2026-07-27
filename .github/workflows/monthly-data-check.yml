@@ -1,0 +1,52 @@
+name: monthly-data-check
+
+on:
+  workflow_dispatch:
+  schedule:
+    # 北京时间每天09:00同步官方发布预告；是否检查正式发布列表由预告日期和时间决定。
+    - cron: "0 1 * * *"
+    # 北京时间每月10日至22日08:07-17:37每30分钟唤醒；非预告窗口只同步日程，不抓正式发布列表。
+    - cron: "7,37 0-9 10-22 * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: monthly-data-check
+  cancel-in-progress: false
+
+jobs:
+  discover:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - id: latest
+        name: Sync release calendar and compare official and published months
+        continue-on-error: true
+        run: npm run data:check-latest
+      - name: Add report to job summary
+        if: always()
+        run: |
+          if [ -f work/monthly-data-check/report.md ]; then
+            cat work/monthly-data-check/report.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "月度检查未生成报告，请检查官方页面访问和脚本日志。" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: monthly-data-check-${{ github.run_id }}
+          path: work/monthly-data-check/
+          if-no-files-found: warn
+          retention-days: 30
+      - name: Trigger repository notification on update or failure
+        if: steps.latest.outcome == 'failure'
+        run: |
+          echo "发现新月份、预告逾期或官方页面结构异常；请查看本次任务摘要和报告。"
+          exit 1

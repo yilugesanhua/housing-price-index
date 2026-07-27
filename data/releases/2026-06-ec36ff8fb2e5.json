@@ -1,0 +1,23 @@
+{
+  "status": "published",
+  "cloud_env_id": "cloud1-d3gpdx70w5d05c68c",
+  "app_version": "v2.2.0",
+  "dataset_version": "2026-06-ec36ff8fb2e5",
+  "source_dataset_version": "2026-06-679ea146d4e2",
+  "dataset_as_of": "2026-06",
+  "release_date": "2026-07-15",
+  "official_url": "https://www.stats.gov.cn/sj/zxfb/202607/t20260715_1964115.html",
+  "source_batch_ids": [
+    "official-html-2026-06-4bb4edcce261"
+  ],
+  "manifest_sha256": "0dbceed58498dd27d0dd2be03b7f11f0e14c02fdfbcbe28dde6eaccbf146528f",
+  "bootstrap_sha256": "29c912ce874964f759fe98930994df0ee0632bd811d189a965cec8f648e1e973",
+  "bootstrap_bytes": 158978,
+  "city_count": 70,
+  "largest_city_bytes": 18919,
+  "total_release_bytes": 1478935,
+  "generated_at": "2026-07-26T11:36:16.275Z",
+  "published_at": "2026-07-26T11:47:41.551Z",
+  "previous_dataset_version": "2026-06-679ea146d4e2",
+  "current_sha256": "8a92a6770a252b519d6d6217087a9e438f0fb2405ae89d9a3de52bcc9dc387ff"
+}

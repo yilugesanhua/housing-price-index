@@ -1,0 +1,142 @@
+<view class="page">
+  <view class="brandbar">
+    <view class="brand">
+      <image class="brand-mark" src="/assets/housing-assistant.png" mode="aspectFill" aria-hidden="true" />
+      <text class="brand-name">全国城市观察</text>
+    </view>
+    <text class="brand-date">数据截止 {{datasetAsOf}}</text>
+  </view>
+
+  <view class="main-content">
+    <view class="intro">
+      <view class="intro-head">
+        <text class="title">读懂你的城市住宅价格变化</text>
+        <view class="location-entry {{locationStatus === 'locating' ? 'locating' : ''}}">
+          <view class="location-refresh" bindtap="locateCurrentCity" aria-label="重新定位当前城市" role="button">
+            <image class="location-pin" src="/assets/map-pin.svg" mode="aspectFit" aria-hidden="true" />
+          </view>
+          <picker class="location-picker" mode="selector" range="{{focusCityNames}}" value="{{focusCityIndex}}" bindchange="onFocusCityChange">
+            <view class="location-city"><text>{{locationStatus === 'locating' ? '定位中' : focusCityName}}</text><view class="location-chevron" aria-hidden="true"></view></view>
+          </picker>
+        </view>
+      </view>
+      <text class="description">本页面展示国家统计局住宅价格指数，不推算成交单价。环比看当月变化，同比看与上年同月的变化。</text>
+      <text class="release-date">发布于 {{releaseDate}}</text>
+    </view>
+
+    <view class="data-notice" wx:if="{{dataNotice}}">{{dataNotice}}</view>
+
+    <view class="analysis-nav {{analysisNavFixed ? 'is-fixed' : ''}}">
+      <view class="scope-grid">
+        <picker mode="selector" range="{{propertyOptions}}" value="{{propertyIndex}}" bindchange="onPropertyChange"><view class="scope-control">{{propertyLabel}}<text>⌄</text></view></picker>
+        <picker mode="selector" range="{{metricOptions}}" value="{{metricIndex}}" bindchange="onMetricChange"><view class="scope-control">{{metricLabel}}<text>⌄</text></view></picker>
+        <picker mode="selector" range="{{sizeOptions}}" value="{{sizeIndex}}" bindchange="onSizeChange"><view class="scope-control">{{sizeLabel}}<text>⌄</text></view></picker>
+        <picker mode="selector" range="{{rangeOptions}}" value="{{rangeIndex}}" bindchange="onRangeChange"><view class="scope-control">{{rangeLabel}}<text>⌄</text></view></picker>
+      </view>
+      <view class="nav-row">
+        <button class="nav-button {{activeSection === 'overview' ? 'active' : ''}}" data-target="overview" bindtap="jumpTo">城市概览</button>
+        <button class="nav-button {{activeSection === 'market' ? 'active' : ''}}" data-target="market" bindtap="jumpTo">70城温度</button>
+        <button class="nav-button {{activeSection === 'trend' ? 'active' : ''}}" data-target="trend" bindtap="jumpTo">历史走势</button>
+        <button class="reset-button" bindtap="resetFilters" aria-label="恢复默认筛选"><text class="reset-glyph">↻</text><text class="reset-label">重置</text></button>
+      </view>
+    </view>
+    <view class="analysis-nav-spacer" wx:if="{{analysisNavFixed}}" aria-hidden="true"></view>
+
+    <view class="focus-insight {{focusTone}}">
+      <view class="insight-dot"></view>
+      <view class="insight-city"><text class="emphasis">{{focusCityName}}</text></view>
+      <text class="insight-copy">本月70城中，{{counts.up}}城上涨、{{counts.down}}城下跌；{{focusCityName}}{{metricLabel}}{{focusMovement}} <text class="emphasis">{{focusMagnitude}}</text>，位于第 <text class="emphasis">{{focusRank}}/{{rankedCount}}</text> 位。</text>
+    </view>
+
+    <view class="section overview-section" id="overview">
+      <view class="section-heading"><text class="section-title">常用六城概览</text><text class="section-note">按变动率从高到低</text></view>
+      <view class="city-grid">
+        <view class="city-card" wx:for="{{featuredCards}}" wx:key="id">
+          <view class="city-card-head"><view class="city-identity"><text class="city-rank">{{item.rank}}</text><text class="city-name">{{item.name}}</text></view><text class="movement {{item.tone}}">{{item.movement}}</text></view>
+          <text class="city-value">{{item.value}}</text>
+          <view class="city-card-foot"><text class="city-index">指数 {{item.index}}</text><canvas class="sparkline" canvas-id="spark-{{item.id}}"></canvas></view>
+        </view>
+      </view>
+    </view>
+
+    <view class="section market-section" id="market">
+      <view class="section-heading"><view><text class="section-title">70城温度</text><text class="section-note block">城市涨跌分布与{{focusCityName}}排名 · 最新月份</text></view></view>
+      <view class="market-grid temperature-grid">
+        <view class="market-panel">
+          <view class="panel-title"><text class="panel-icon thermometer-icon" aria-hidden="true">🌡️</text><view><text class="panel-heading">70城温度</text><text class="panel-meta">{{datasetAsOf}} · 共{{market.total}}城</text></view></view>
+          <view class="breadth-bar"><view class="breadth-up" style="width: {{market.upWidth}}"></view><view class="breadth-flat" style="width: {{market.flatWidth}}"></view><view class="breadth-down" style="width: {{market.downWidth}}"></view></view>
+          <view class="market-counts"><view><text class="count up">{{counts.up}}</text><text>上涨</text></view><view><text class="count">{{counts.flat}}</text><text>持平</text></view><view><text class="count down">{{counts.down}}</text><text>下跌</text></view></view>
+        </view>
+      </view>
+      <view class="breadth-history">
+        <view class="history-heading"><view><text class="panel-heading">70城温度走势</text><text class="panel-meta">按月统计上涨、持平和下跌城市数量</text></view></view>
+        <view class="breadth-legend" aria-label="图例：上涨、持平、下跌"><view><view class="breadth-legend-dot legend-up"></view><text>上涨</text></view><view><view class="breadth-legend-dot legend-flat"></view><text>持平</text></view><view><view class="breadth-legend-dot legend-down"></view><text>下跌</text></view></view>
+        <view class="chart-frame history-chart"><f2 class="f2-chart" wx:if="{{!breadthChartError}}" onInit="{{onInitBreadthChart}}" /><view class="chart-error" wx:else><text>温度走势图暂时无法显示</text><text>恢复后可在图表中滑动查看准确数量。</text></view></view>
+      </view>
+      <view class="market-grid comparison-grid">
+        <view class="market-panel comparison-panel national-panel">
+          <view class="panel-title"><text class="panel-icon">☷</text><view><text class="panel-heading">70城排名</text><text class="panel-meta">全国样本 · {{market.nationalCount}}城</text></view></view>
+          <view class="benchmark"><text>{{focusCityName}}第 <text class="emphasis">{{market.nationalRank}}/{{market.nationalCount}}</text> 位</text></view>
+          <scroll-view class="ranking-scroll" scroll-y show-scrollbar scroll-into-view="national-rank-{{state.focusCity}}">
+            <view class="ranking-list"><view id="national-rank-{{item.id}}" class="ranking-row {{item.current ? 'current' : ''}}" wx:for="{{market.nationalRows}}" wx:key="id"><text class="ranking-number">{{item.rank}}</text><text class="ranking-name">{{item.name}}<text wx:if="{{item.current}}" class="current-tag">当前</text></text><text class="ranking-value {{item.tone}}">{{item.value}}</text></view></view>
+          </scroll-view>
+        </view>
+        <view class="market-panel comparison-panel tier-panel">
+          <view class="panel-title"><text class="panel-icon">≋</text><view><text class="panel-heading">同级城市对比</text><text class="panel-meta">{{market.tierLabel}} · {{market.tierCount}}城</text></view></view>
+          <view class="benchmark"><text>{{focusCityName}}第 <text class="emphasis">{{market.tierRank}}/{{market.tierCount}}</text> 位</text></view>
+          <scroll-view class="ranking-scroll" scroll-y show-scrollbar scroll-into-view="tier-rank-{{state.focusCity}}">
+            <view class="ranking-list"><view id="tier-rank-{{item.id}}" class="ranking-row {{item.current ? 'current' : ''}}" wx:for="{{market.tierRows}}" wx:key="id"><text class="ranking-number">{{item.rank}}</text><text class="ranking-name">{{item.name}}<text wx:if="{{item.current}}" class="current-tag">当前</text></text><text class="ranking-value {{item.tone}}">{{item.value}}</text></view></view>
+          </scroll-view>
+        </view>
+        <view class="market-panel comparison-panel province-panel">
+          <view class="panel-title"><text class="panel-icon">⌖</text><view><text class="panel-heading">省内城市对比</text><text class="panel-meta">70城样本 · {{market.province}}</text></view></view>
+          <view wx:if="{{market.provinceCount > 1}}"><view class="benchmark"><text>{{focusCityName}}第 <text class="emphasis">{{market.provinceRank}}/{{market.provinceCount}}</text> 位</text></view><scroll-view class="ranking-scroll" scroll-y show-scrollbar scroll-into-view="province-rank-{{state.focusCity}}"><view class="ranking-list"><view id="province-rank-{{item.id}}" class="ranking-row {{item.current ? 'current' : ''}}" wx:for="{{market.provinceRows}}" wx:key="id"><text class="ranking-number">{{item.rank}}</text><text class="ranking-name">{{item.name}}<text wx:if="{{item.current}}" class="current-tag">当前</text></text><text class="ranking-value {{item.tone}}">{{item.value}}</text></view></view></scroll-view></view>
+          <view wx:else class="single-province"><text class="emphasis">{{focusCityName}}</text><text>70城名单中，该省级区域仅收录本市，暂无省内横向比较。</text></view>
+        </view>
+      </view>
+    </view>
+
+    <view class="section trend-section" id="trend">
+      <view class="section-heading trend-head">
+        <view><text class="section-title">历史走势</text><text class="section-note block">最多3座城市 · {{rangeLabel}}</text></view>
+        <view class="trend-head-actions"><text class="trend-selected">已选 {{selectedCities.length}}/3 城市</text><button class="reset-button" bindtap="resetCities"><text class="reset-glyph">↻</text><text class="reset-label">恢复默认城市</text></button></view>
+      </view>
+      <view class="trend-controls" wx:if="{{selectedCities.length}}">
+        <view class="trend-city-row"><view class="legend"><button class="legend-item {{item.hidden ? 'legend-hidden' : ''}}" wx:for="{{selectedCities}}" wx:key="id" data-id="{{item.id}}" bindtap="toggleLegend" aria-label="{{item.hidden ? '显示' : '隐藏'}}{{item.name}}趋势线"><view class="legend-line pattern-{{item.seriesIndex}}" style="border-color: {{item.hidden ? '#8e8e93' : item.color}}"></view><text>{{item.name}}</text></button></view><button class="trend-city-add" bindtap="openPicker">＋ 添加城市</button></view>
+      </view>
+      <view class="chart-frame chart-shell" wx:if="{{selectedCities.length}}"><f2 class="f2-chart" wx:if="{{!trendChartError}}" onInit="{{onInitChart}}" /><view class="chart-error" wx:else><text>历史走势图暂时无法显示</text><text>可展开“查看精确数据”读取对应月份数值。</text></view></view>
+      <view class="empty" wx:else><text class="empty-title">尚未选择趋势城市</text><text>添加城市后可比较长期变化，最多同时显示3座。</text><view><button class="secondary-button" bindtap="resetCities">恢复默认城市</button><button class="add-button" bindtap="openPicker">添加城市</button></view></view>
+      <text class="chart-note" wx:if="{{selectedCities.length}}">注：虚线为0%基准线；曲线位于基准线上方表示上涨，位于下方表示下跌。</text>
+      <view class="cumulative-section" wx:if="{{selectedCities.length}}">
+        <view class="cumulative-heading"><view><text class="panel-heading">累计变化</text><text class="panel-meta">{{cumulativeStartMonth}}为基期（指数=100），按月度环比复合计算；高于100表示较基期上涨，低于100表示较基期下跌，不代表实际元/㎡房价。</text></view><text class="baseline-label">起点 100</text></view>
+        <view class="cumulative-latest"><block wx:for="{{cumulativeLatest}}" wx:key="id"><view class="cumulative-latest-item" wx:if="{{!item.hidden}}"><view class="legend-line pattern-{{item.seriesIndex}}" style="border-color: {{item.color}}"></view><text>{{item.name}} <text class="emphasis">{{item.display}}</text> <text class="value-note">{{item.change}}</text></text></view></block></view>
+        <view class="chart-frame cumulative-chart"><f2 class="f2-chart" wx:if="{{!cumulativeChartError}}" onInit="{{onInitCumulativeChart}}" /><view class="chart-error" wx:else><text>累计变化图暂时无法显示</text><text>最新累计数值仍可在图表上方查看。</text></view></view>
+      </view>
+      <view class="exact-section" wx:if="{{showExactData}}">
+        <button class="exact-toggle" bindtap="toggleExact">{{exactOpen ? '收起精确数据' : '查看精确数据'}}<text>{{exactOpen ? '⌃' : '⌄'}}</text></button>
+        <view wx:if="{{exactOpen}}" class="exact-content">
+          <picker mode="selector" range="{{exactMonthLabels}}" value="{{exactMonthIndex}}" bindchange="onExactMonthChange"><view class="exact-month">统计月份：{{exactMonth}} <text>⌄</text></view></picker>
+          <view class="exact-city" wx:for="{{exactData}}" wx:key="id"><text class="exact-city-name">{{item.name}}</text><view><text><text class="field-label">原始指数</text>{{item.index}}</text><text><text class="field-label">{{metricLabel}}变动率</text>{{item.change}}</text><text><text class="field-label">累计值</text>{{item.cumulative}}</text><text><text class="field-label">发布日期</text>{{item.releaseDate}}</text></view></view>
+        </view>
+      </view>
+    </view>
+
+    <button class="source-link" bindtap="openSource">来源、口径与免责声明</button>
+    <view class="footer">
+      <text>{{dataSourceLabel}}</text>
+      <text class="footer-separator" aria-hidden="true">·</text>
+      <text class="footer-version">版本 {{appVersion}}</text>
+    </view>
+  </view>
+</view>
+
+<view class="backdrop" wx:if="{{pickerOpen}}" bindtap="closePicker">
+  <view class="sheet" catchtap="stopPropagation">
+    <view class="sheet-head"><view><text class="sheet-title">选择趋势城市</text><text class="sheet-note">已选 {{state.cities.length}} / 3</text></view><button class="close-button" bindtap="closePicker">完成</button></view>
+    <input class="search" value="{{searchText}}" bindinput="onSearch" placeholder="搜索中文、拼音或首字母…" />
+    <scroll-view class="city-list" scroll-y>
+      <block wx:for="{{cityOptions}}" wx:key="id"><text class="city-group" wx:if="{{item.showGroup}}">{{item.group}}</text><button class="city-option {{item.selected ? 'selected' : ''}}" data-id="{{item.id}}" disabled="{{item.disabled}}" bindtap="toggleCity"><text>{{item.name}}</text><text>{{item.selected ? '已选' : ''}}</text></button></block>
+      <text class="no-result" wx:if="{{!cityOptions.length}}">没有匹配的城市</text>
+    </scroll-view>
+  </view>
+</view>

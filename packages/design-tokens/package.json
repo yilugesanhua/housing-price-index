@@ -1,0 +1,14 @@
+{
+  "name": "@housing/design-tokens",
+  "private": true,
+  "type": "module",
+  "exports": {
+    "./tokens.css": "./tokens.css",
+    "./tokens.wxss": "./tokens.wxss",
+    "./tokens.json": "./tokens.json"
+  },
+  "scripts": {
+    "generate": "node generate.mjs",
+    "check": "node generate.mjs --check"
+  }
+}

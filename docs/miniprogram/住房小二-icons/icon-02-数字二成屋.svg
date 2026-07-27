@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">住房小二图标方案二：数字二成屋</title>
+  <desc id="desc">蓝色背景，白色数字2与屋顶组合成一座房屋。</desc>
+  <rect width="1024" height="1024" rx="224" fill="#007AFF"/>
+  <path d="M208 430 512 192l304 238" fill="none" stroke="#FFF" stroke-width="92" stroke-linecap="round" stroke-linejoin="round"/>
+  <path d="M326 468c19-118 105-174 212-174 125 0 210 71 210 174 0 80-44 135-139 192L382 794h374" fill="none" stroke="#FFF" stroke-width="104" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>

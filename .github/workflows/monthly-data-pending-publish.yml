@@ -1,0 +1,125 @@
+name: monthly-data-pending-publish
+
+on:
+  schedule:
+    - cron: "17 * * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: housing-data-production-publish
+  cancel-in-progress: false
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      ready: ${{ steps.pending.outputs.ready }}
+      dataset_version: ${{ steps.pending.outputs.dataset_version }}
+      official_url: ${{ steps.pending.outputs.official_url }}
+      source_raw_sha256: ${{ steps.pending.outputs.source_raw_sha256 }}
+      discovery_run_id: ${{ steps.pending.outputs.discovery_run_id }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: pending
+        shell: bash
+        run: |
+          node -e "const fs=require('fs'); const p='data/releases/pending-auto-release.json'; let v={}; try{v=JSON.parse(fs.readFileSync(p,'utf8'))}catch{}; const ready=v.status==='ready'; fs.appendFileSync(process.env.GITHUB_OUTPUT,'ready='+ready+'\ndataset_version='+(v.dataset_version||'')+'\nofficial_url='+(v.official_url||'')+'\nsource_raw_sha256='+(v.source_raw_sha256||'')+'\ndiscovery_run_id='+(v.discovery_run_id||'')+'\n')"
+
+  publish:
+    needs: inspect
+    if: needs.inspect.outputs.ready == 'true' && vars.AUTOMATIC_RELEASE_ENABLED == 'true'
+    permissions:
+      contents: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: housing-data-production
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium webkit
+      - name: Re-fetch and hash-check the committed official source
+        run: >-
+          npm run miniprogram:data:verify-official-source --
+          --url=${{ needs.inspect.outputs.official_url }}
+          --sha256=${{ needs.inspect.outputs.source_raw_sha256 }}
+      - run: npm run data:audit -- --report-only
+      - run: npm run data:release-calendar
+      - run: npm run miniprogram:data
+      - run: >-
+          npm run miniprogram:data:stage --
+          --calendar=work/monthly-data-check/release-calendar.json
+          --env=cloud1-d3gpdx70w5d05c68c
+      - run: npm run miniprogram:data:verify-remote
+      - run: npm run check
+      - run: npm run test:e2e
+      - id: gate
+        name: Recreate commit-bound production gate
+        shell: bash
+        run: |
+          result="$(npm run --silent miniprogram:data:create-recovery-gate)"
+          node -e "const v=JSON.parse(process.argv[1]); const fs=require('fs'); fs.appendFileSync(process.env.GITHUB_OUTPUT,'dataset_version='+v.dataset_version+'\ngate_report_sha256='+v.gate_report_sha256+'\ncommit_sha='+v.commit_sha+'\ndiscovery_run_id='+v.discovery_run_id+'\n')" "$result"
+      - name: Authenticate minimum-permission CloudBase service identity
+        env:
+          TENCENTCLOUD_SECRET_ID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
+          TENCENTCLOUD_SECRET_KEY: ${{ secrets.TENCENTCLOUD_SECRET_KEY }}
+        shell: bash
+        run: |
+          test -n "$TENCENTCLOUD_SECRET_ID"
+          test -n "$TENCENTCLOUD_SECRET_KEY"
+          npx tcb login --apiKeyId "$TENCENTCLOUD_SECRET_ID" --apiKey "$TENCENTCLOUD_SECRET_KEY" --json >/dev/null
+      - name: Retry guarded publication
+        env:
+          AUTOMATIC_RELEASE_ENABLED: ${{ vars.AUTOMATIC_RELEASE_ENABLED }}
+          CI_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          CI_COMMIT_SHA: ${{ steps.gate.outputs.commit_sha }}
+          CI_RUN_ID: ${{ github.run_id }}
+          CI_DISCOVERY_RUN_ID: ${{ steps.gate.outputs.discovery_run_id }}
+          CI_PRODUCTION_ENVIRONMENT: housing-data-production
+          CI_CLOUD_ENV_ID: cloud1-d3gpdx70w5d05c68c
+          CI_DATASET_VERSION: ${{ steps.gate.outputs.dataset_version }}
+          CI_GATE_REPORT_SHA256: ${{ steps.gate.outputs.gate_report_sha256 }}
+          CI_GATE_REPORT_PATH: work/auto-release/gate-report.json
+        run: >-
+          npm run miniprogram:data:publish --
+          --env=cloud1-d3gpdx70w5d05c68c
+          --dataset=${{ steps.gate.outputs.dataset_version }}
+      - name: Publish immutable private audit package
+        env:
+          CI_COMMIT_SHA: ${{ steps.gate.outputs.commit_sha }}
+        run: >-
+          npm run miniprogram:data:publish-audit --
+          --env=cloud1-d3gpdx70w5d05c68c
+          --dataset=${{ steps.gate.outputs.dataset_version }}
+      - name: Persist publish audit and clear pending state
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        shell: bash
+        run: |
+          npm run miniprogram:data:complete-auto -- --dataset=${{ steps.gate.outputs.dataset_version }}
+          git config user.name "housing-data-automation"
+          git config user.email "housing-data-automation@users.noreply.github.com"
+          git add -- "data/releases/${{ steps.gate.outputs.dataset_version }}.json" data/releases/pending-auto-release.json data/releases/latest-auto-release.json
+          git commit -m "data: record recovered monthly release [skip ci]"
+          git push origin "HEAD:${DEFAULT_BRANCH}"
+      - name: Upload recovery evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: housing-data-recovery-audit-${{ github.run_id }}
+          path: |
+            data/releases/
+            work/auto-release/
+            work/miniprogram-data/
+            work/monthly-data-check/
+            work/private-audit/
+          if-no-files-found: warn
+          retention-days: 365

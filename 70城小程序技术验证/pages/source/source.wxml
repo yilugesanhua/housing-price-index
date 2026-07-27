@@ -1,0 +1,23 @@
+<scroll-view class="page" scroll-y>
+  <view class="header"><text class="title">数据来源与说明</text><text class="subtitle">数据截至 {{datasetAsOf}} · 发布于 {{releaseDate}}</text></view>
+  <view class="status-row {{statusTone}}"><view class="status-dot"></view><view><text class="status-label">数据状态：{{statusLabel}}</text><text class="status-reason">{{statusReason}}</text></view></view>
+  <view class="section">
+    <text class="heading">来源</text>
+    <text class="body">数据引自国家统计局“70个大中城市商品住宅销售价格变动情况”。本小程序不是国家统计局官方网站。</text>
+    <text class="url">{{sourceDisplay}}</text>
+    <button bindtap="copySource">复制官方来源链接</button>
+  </view>
+  <view class="section">
+    <text class="heading">统计口径</text>
+    <text class="body">展示新建商品住宅和二手住宅的价格指数、环比及同比变动率。指数以上期或上年同期为100，变动率由官方指数换算并保留一位小数。</text>
+  </view>
+  <view class="section">
+    <text class="heading">请注意</text>
+    <text class="body">本工具不展示、估算或暗示住宅成交单价，不提供房源、中介、估价、购房推荐或投资建议。数据随小程序版本发布，当前覆盖 {{coverageStart}} 至 {{datasetAsOf}}，趋势页支持最近3年、5年或10年。</text>
+  </view>
+  <view class="section">
+    <text class="heading">隐私</text>
+    <text class="body">首发版本不要求登录，不收集姓名、手机号、通讯录或用户提交的表单内容。经用户授权后，小程序获取当前位置并通过腾讯位置服务解析所在省市，仅用于自动匹配城市；不保存精确经纬度，匹配后的城市信息和筛选状态仅保存在本机。</text>
+    <button class="secondary-button" bindtap="clearSavedState">清除本地筛选记录</button>
+  </view>
+</scroll-view>

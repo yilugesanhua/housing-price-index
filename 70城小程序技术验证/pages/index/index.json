@@ -1,0 +1,7 @@
+{
+  "usingComponents": {
+    "f2": "@antv/wx-f2"
+  },
+  "navigationBarTitleText": "住房小二",
+  "enableShareAppMessage": true
+}

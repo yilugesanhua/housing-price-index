@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="144" height="144" viewBox="0 0 144 144">
+  <rect width="144" height="144" rx="28" fill="#1C1C1E"/>
+  <g fill="#5F6368">
+    <circle cx="34" cy="34" r="5"/><circle cx="52" cy="34" r="5"/><circle cx="70" cy="34" r="5"/><circle cx="88" cy="34" r="5"/><circle cx="106" cy="34" r="5"/>
+    <circle cx="34" cy="52" r="5"/><circle cx="106" cy="52" r="5"/><circle cx="34" cy="70" r="5"/><circle cx="106" cy="70" r="5"/>
+    <circle cx="34" cy="88" r="5"/><circle cx="106" cy="88" r="5"/><circle cx="34" cy="106" r="5"/><circle cx="52" cy="106" r="5"/><circle cx="70" cy="106" r="5"/><circle cx="88" cy="106" r="5"/><circle cx="106" cy="106" r="5"/>
+  </g>
+  <circle cx="52" cy="52" r="5" fill="#C94F45"/><circle cx="88" cy="52" r="5" fill="#007AFF"/>
+  <circle cx="52" cy="88" r="5" fill="#167D67"/><circle cx="88" cy="88" r="5" fill="#D07A34"/>
+  <text x="70" y="82" text-anchor="middle" fill="#FFFFFF" font-family="Arial, sans-serif" font-size="42" font-weight="700">70</text>
+</svg>

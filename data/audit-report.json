@@ -1,0 +1,906 @@
+{
+  "audit_version": "full-record-audit-v3",
+  "verified_at": "2026-07-18T17:10:53.662Z",
+  "verification_method": "automated-full-record-audit-v3: sha256+official-url+metadata+table-type+size-band+locator+raw-cell+schema",
+  "batch_count": 126,
+  "record_count": 70560,
+  "coverage_start": "2016-01",
+  "coverage_end": "2026-06",
+  "checks": [
+    "raw SHA-256",
+    "official URL allowlist",
+    "title month",
+    "release date",
+    "record schema",
+    "complete city/property/size-band keys",
+    "independent source table type",
+    "all-size versus size-band table",
+    "source locator resolution",
+    "raw source cell equality"
+  ],
+  "result": "passed",
+  "batches": [
+    {
+      "source_batch_id": "official-html-2016-01-cae23d2a4204",
+      "stat_month": "2016-01",
+      "raw_content_sha256": "cae23d2a4204f9bbc6a5cad920eb34f61b20bcb8a80818c3c40c8209323d9b9e",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2016-02-073838656d1e",
+      "stat_month": "2016-02",
+      "raw_content_sha256": "073838656d1ea40b428e2b3c45be6e5fb1e23e17a2e86a3613bee44aafac56a5",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2016-03-8f52c262c128",
+      "stat_month": "2016-03",
+      "raw_content_sha256": "8f52c262c1288f93b5e6756c9721f6183e42942b77c46b3a874a079a2a2fd70c",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2016-04-87f9803b623c",
+      "stat_month": "2016-04",
+      "raw_content_sha256": "87f9803b623c88249902bdc3e1276518d3dec67a220c7ffadd6470fbd608665c",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2016-05-8e92de84b1c6",
+      "stat_month": "2016-05",
+      "raw_content_sha256": "8e92de84b1c6b9314b9f769153abaa5d4e17b473c1605b1f9fab5d5a9cb639e3",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2016-06-29453a850a4f",
+      "stat_month": "2016-06",
+      "raw_content_sha256": "29453a850a4fde959b72ddf48f11df317d9278f533da5eca6628d432ff6089cb",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2016-07-35688d66a749",
+      "stat_month": "2016-07",
+      "raw_content_sha256": "35688d66a7493086093de1544e387b4a65a5e05d525b7c1b610faf04c00183c2",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2016-08-814288fc301f",
+      "stat_month": "2016-08",
+      "raw_content_sha256": "814288fc301fd60bf3464287d45f9400a7b16e4f3ee3238a89627e0ae6b3f56c",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2016-09-2a5405e51d2e",
+      "stat_month": "2016-09",
+      "raw_content_sha256": "2a5405e51d2e5ae2c240fc3507d5a955f29661e9a110bff7d268cff35a35b4f1",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2016-10-3efefa347047",
+      "stat_month": "2016-10",
+      "raw_content_sha256": "3efefa3470473956a34048340fbba224b909e0a0b48034df59733418cfb5fbf9",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2016-11-0cc935a58a05",
+      "stat_month": "2016-11",
+      "raw_content_sha256": "0cc935a58a05f5d59c9da6b4e9cc10d64f3f266e6276259345d5dc9cd48d3ac9",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2016-12-b10845cfbabd",
+      "stat_month": "2016-12",
+      "raw_content_sha256": "b10845cfbabdb81b634757bb4a5d246c2704674b87648f30269038c59fcaa565",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2017-01-7e331d61995a",
+      "stat_month": "2017-01",
+      "raw_content_sha256": "7e331d61995ad55893d75787b56918306433227c77fc95eb90e245ac4b8239d9",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2017-02-a780c69b8b11",
+      "stat_month": "2017-02",
+      "raw_content_sha256": "a780c69b8b1161bf944709151f517b3667ccb8a2f23573a2ffed1c26396a0dfd",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2017-03-05529e321354",
+      "stat_month": "2017-03",
+      "raw_content_sha256": "05529e321354a446de201bc76927aaff3dd838adb688e93e25f2fea6af888244",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2017-04-beb876185f83",
+      "stat_month": "2017-04",
+      "raw_content_sha256": "beb876185f83d10e33e1a68ef9e7693a9d37cf1708d1f3000c62295fc26402d0",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2017-05-4810ab1c59ad",
+      "stat_month": "2017-05",
+      "raw_content_sha256": "4810ab1c59ad9d91f636febcfd5fc6f2ff595ccbef43b2a98726960c3984275a",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2017-06-113d24b0cba9",
+      "stat_month": "2017-06",
+      "raw_content_sha256": "113d24b0cba941a52b3f5cd1769320d276fced49f989d8129ba033c20f24e059",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2017-07-84c6c460ec03",
+      "stat_month": "2017-07",
+      "raw_content_sha256": "84c6c460ec03e508a292c223ee9c5a8cd1aac3dd85b2490566b45009ed349ef2",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2017-08-e74908a51662",
+      "stat_month": "2017-08",
+      "raw_content_sha256": "e74908a5166298ee8744459c894d49fc9075956056e5d01b899803de5b13bcb8",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2017-09-bc56eb0cf807",
+      "stat_month": "2017-09",
+      "raw_content_sha256": "bc56eb0cf807e2577c8b91d069d503dde648075378c0015264227d26ee68885b",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2017-10-6a242ef60933",
+      "stat_month": "2017-10",
+      "raw_content_sha256": "6a242ef60933e69d91eb9e3fc4635fe1927ca3d6f76b5deb487f731eddfb6d55",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2017-11-b0b803bfae66",
+      "stat_month": "2017-11",
+      "raw_content_sha256": "b0b803bfae66f635460d4ff1442dd19df001d4a85bd9f0cddd8a460ce8623c1e",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2017-12-013236d64b2b",
+      "stat_month": "2017-12",
+      "raw_content_sha256": "013236d64b2b380a163dfa1d0e001820b6eb4c43226c66d94e362a1237390054",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2018-01-c58b63bed973",
+      "stat_month": "2018-01",
+      "raw_content_sha256": "c58b63bed9736c11c5b401fb76efa945f50d4fdaf60fa28eb6e9cb222f6f3b5f",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2018-02-6752407dca34",
+      "stat_month": "2018-02",
+      "raw_content_sha256": "6752407dca3438de97ecdc9db08f0a474f9d0e0f05404943e567d40d954debbd",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2018-03-b3fec3764ac6",
+      "stat_month": "2018-03",
+      "raw_content_sha256": "b3fec3764ac625956f0ff7bea3c08e464be9b99cf79eda0168598205e5d75874",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2018-04-079662ceca07",
+      "stat_month": "2018-04",
+      "raw_content_sha256": "079662ceca07c3fd972d3c7042717c610cbac7523085b3ce6977f08f1a0be31b",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2018-05-7da80499fc58",
+      "stat_month": "2018-05",
+      "raw_content_sha256": "7da80499fc5802bac427c6b9b7ca963c60e34b0b7798a1c6b5fbef329b4f1f9d",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2018-06-9c56ef5d19a0",
+      "stat_month": "2018-06",
+      "raw_content_sha256": "9c56ef5d19a0706fc76db31434261216dcacb3dc3cc8ce3db7828d367175aadc",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2018-07-c517e1f1ad5a",
+      "stat_month": "2018-07",
+      "raw_content_sha256": "c517e1f1ad5aeea742f94c47b0999f3c5ce5e0e1fca556772b0f19431c6202de",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2018-08-bf256964e588",
+      "stat_month": "2018-08",
+      "raw_content_sha256": "bf256964e588cd33094a9eae7f300754de9275e38b01ef7bfb07a87c35432698",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2018-09-a803ac54cb9b",
+      "stat_month": "2018-09",
+      "raw_content_sha256": "a803ac54cb9b40bc4f4644a0a68a2ff3136270ed906fd27e8cba283372d43024",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2018-10-07ca93f85da1",
+      "stat_month": "2018-10",
+      "raw_content_sha256": "07ca93f85da1994152f98279156cacc16b57c2b7257909c9971e55737f089bed",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2018-11-c743c42584e9",
+      "stat_month": "2018-11",
+      "raw_content_sha256": "c743c42584e9689925c7c13ac30bc8a9c31f7f73713765ed8167475bae9d3246",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2018-12-41483f1e7b8c",
+      "stat_month": "2018-12",
+      "raw_content_sha256": "41483f1e7b8c0381bfa5738ddc12f7b6872e0654853318222d99ade68333e01d",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2019-01-7481bdc70aa7",
+      "stat_month": "2019-01",
+      "raw_content_sha256": "7481bdc70aa7ff5151f42de5143f0293269eb79ccf04062935fc46a4e9c42923",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2019-02-7f0a3166266c",
+      "stat_month": "2019-02",
+      "raw_content_sha256": "7f0a3166266ceef451ac8b400de230dde674930b18333820d2d02c68361bcf8f",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2019-03-746c00423a8e",
+      "stat_month": "2019-03",
+      "raw_content_sha256": "746c00423a8ef1446ce6137f50fe840090764893e5a494ce2fb08a5e44541fa6",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2019-04-f9fc4ad4f8ac",
+      "stat_month": "2019-04",
+      "raw_content_sha256": "f9fc4ad4f8ac45553eb5d55517fdbf825eadc319c5d1f5ae8bc81b600d84c312",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2019-05-36ab81c8cb5d",
+      "stat_month": "2019-05",
+      "raw_content_sha256": "36ab81c8cb5d0a8b4e621d9cd80027e98121d731c2238d4be5701f293443c314",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2019-06-ffaac12f3ed7",
+      "stat_month": "2019-06",
+      "raw_content_sha256": "ffaac12f3ed73efb52428282831569829b597307ef77262e2858e0cacfa77384",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2019-07-b31b38fca6fc",
+      "stat_month": "2019-07",
+      "raw_content_sha256": "b31b38fca6fc5e6e1658f4bd46ea7398d8540848ac2b7034485eace87cd18c29",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2019-08-cc53bc833f15",
+      "stat_month": "2019-08",
+      "raw_content_sha256": "cc53bc833f150060ca6619ff86e861671d96244df138eb2473c75018a1cdd404",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2019-09-3d1d3b4b249d",
+      "stat_month": "2019-09",
+      "raw_content_sha256": "3d1d3b4b249dd936b728263f2893ca62906032af2a20fb0177831bf3ad6bf7e0",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2019-10-7bf2d90e957a",
+      "stat_month": "2019-10",
+      "raw_content_sha256": "7bf2d90e957a1884e19820c4cd467a9f4ba57c5099ac9416734f6b30b41a8f02",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2019-11-d15a1877a70a",
+      "stat_month": "2019-11",
+      "raw_content_sha256": "d15a1877a70a66ab7d41bc37c8e95a6c5e9b6d0bb7d3bf59727d8f972569b282",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2019-12-efe7c60624a3",
+      "stat_month": "2019-12",
+      "raw_content_sha256": "efe7c60624a389c8da7e3ede8716120f1184a84dbea78c13ba70df396b0dbd6d",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2020-01-05caa1dd365d",
+      "stat_month": "2020-01",
+      "raw_content_sha256": "05caa1dd365ddaf74bda91fc43cc6eb499bf76197098fbec54e5966593f85ff0",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2020-02-e56f2ebc8196",
+      "stat_month": "2020-02",
+      "raw_content_sha256": "e56f2ebc8196e1e5e31d990f9b054fa184e3ff095158cc5621c1ef7644b02864",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2020-03-69ff8901d2c9",
+      "stat_month": "2020-03",
+      "raw_content_sha256": "69ff8901d2c924c106eb38cf8d6fdd5be328c370b609fd87536b13d12f1e81ff",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2020-04-af73e822786a",
+      "stat_month": "2020-04",
+      "raw_content_sha256": "af73e822786add9a97186a49e9d0fda31c19ca1d7b98a76b0793a02484534104",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2020-05-8ef722b0bd6d",
+      "stat_month": "2020-05",
+      "raw_content_sha256": "8ef722b0bd6d2550b4c4bf668786153370a0f0ce24faf23e3edf4464e31bd9a9",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2020-06-8aabd02bd975",
+      "stat_month": "2020-06",
+      "raw_content_sha256": "8aabd02bd9755c96199044c74e11010a2ddee44f8c93d9568dbae4192cba6bf6",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2020-07-72a6c2c34c0d",
+      "stat_month": "2020-07",
+      "raw_content_sha256": "72a6c2c34c0d59d752128ca176cf3ce9c44bab7abd33c7d415471266913b12dc",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2020-08-85abfc6cf77a",
+      "stat_month": "2020-08",
+      "raw_content_sha256": "85abfc6cf77ac67e9dcc38db4d9f1341035c16e828c5a3d5e1444978a5a9ecdb",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2020-09-221675f337bc",
+      "stat_month": "2020-09",
+      "raw_content_sha256": "221675f337bcada266fc5ff9e4635adeef446f04b530dda780f2685069ee5166",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2020-10-af85119c8c0c",
+      "stat_month": "2020-10",
+      "raw_content_sha256": "af85119c8c0cbf6bfc4c7b35059aaf01c33bef86824f9c53cfe1d22982c1c153",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2020-11-b8ae94061e7d",
+      "stat_month": "2020-11",
+      "raw_content_sha256": "b8ae94061e7d1ca1689bf20896e2dc10a1b43eb792575c25aff100a46869d759",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2020-12-ba6de1a29aec",
+      "stat_month": "2020-12",
+      "raw_content_sha256": "ba6de1a29aec6dcb0bfa2bb71c0053cff0297ab06e0c9c42cfe3434c595929f5",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2021-01-8a10662a7117",
+      "stat_month": "2021-01",
+      "raw_content_sha256": "8a10662a71179d457ad37f92fcf51600a849a2728b95058f40c09b0e48940843",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2021-02-4ee6d3b2b335",
+      "stat_month": "2021-02",
+      "raw_content_sha256": "4ee6d3b2b335514b7ebcb7d7a0ff830cc3501d2a78d3ece4827af6bc3fdfbe70",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2021-03-30c2d2d3f910",
+      "stat_month": "2021-03",
+      "raw_content_sha256": "30c2d2d3f9105095e6fe88a8a52c2bd03c6bca0c3046f6211033589ab1ad82be",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2021-04-b0605a22e729",
+      "stat_month": "2021-04",
+      "raw_content_sha256": "b0605a22e7299a42d18ede73ff322097afca9fcb790cea3805b25ac7c9331fce",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2021-05-c22b5f813735",
+      "stat_month": "2021-05",
+      "raw_content_sha256": "c22b5f8137350638e897662ee66391630a13baa09a7ae7b29ad12bd3c1e51113",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2021-06-2868babe0b29",
+      "stat_month": "2021-06",
+      "raw_content_sha256": "2868babe0b29f8192e80f6409b229fa4fc9b9b5ca807eee316141132a3b10abe",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2021-07-645ec315ce72",
+      "stat_month": "2021-07",
+      "raw_content_sha256": "645ec315ce72a93c5f4a15b1ed3384e1e5a3a15d7b6d75415923b54ddd870d7c",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2021-08-c062cc4c543e",
+      "stat_month": "2021-08",
+      "raw_content_sha256": "c062cc4c543e9c588768035e9d6de077fb5ffebac7b5de3ade62c488481fb883",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2021-09-985c690abfe1",
+      "stat_month": "2021-09",
+      "raw_content_sha256": "985c690abfe1b0fbc2a05398174d6c206f21e6c440cb774856cc033ad161e4d4",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2021-10-2cf3ad4d5220",
+      "stat_month": "2021-10",
+      "raw_content_sha256": "2cf3ad4d5220a720c9d2edab2f346714757ecc512692ef4a7ca82660bdecb062",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2021-11-288301378ea9",
+      "stat_month": "2021-11",
+      "raw_content_sha256": "288301378ea96a34ac77d85adf3c77dfb26f8adb9c26c54d3688c6e8d4cb665f",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2021-12-12245cb4c209",
+      "stat_month": "2021-12",
+      "raw_content_sha256": "12245cb4c20990e1718f8c20946d97645230e5065ae96d2bef5ded19f0e6f041",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2022-01-f9a87d5d8fc1",
+      "stat_month": "2022-01",
+      "raw_content_sha256": "f9a87d5d8fc19c3c23dba873c176c76f7cd7b8a2d00f2a38732968c499b986a7",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2022-02-83f4a9f06c88",
+      "stat_month": "2022-02",
+      "raw_content_sha256": "83f4a9f06c88d9c64883ce1dbbe32b1ecfdafd1c072b35b83300452aafd1006c",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2022-03-609fdc63484f",
+      "stat_month": "2022-03",
+      "raw_content_sha256": "609fdc63484f15174c9e1e7d38ab8c071812fecb058bf4b4488884b8149b36a8",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2022-04-e8c98aa48ffb",
+      "stat_month": "2022-04",
+      "raw_content_sha256": "e8c98aa48ffbe216a58b047011ea049ac78f318146e71273cdc963e643e0efb3",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2022-05-12ae23bb2e0b",
+      "stat_month": "2022-05",
+      "raw_content_sha256": "12ae23bb2e0bd51989ec9c9cb1b5fc2af3024b8dce5fe2939ddb77b78a0253ac",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2022-06-69d339a2cd49",
+      "stat_month": "2022-06",
+      "raw_content_sha256": "69d339a2cd497fac6950d1a4a1d49a5ca31ab9505a8cece27978d0c962c57557",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2022-07-972419b173d9",
+      "stat_month": "2022-07",
+      "raw_content_sha256": "972419b173d9831ddcd55ba01c32db41d56e00b55d8d5cc59d14f1aa62e4fb46",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2022-08-6ff00b1d60ea",
+      "stat_month": "2022-08",
+      "raw_content_sha256": "6ff00b1d60ea13adb0e8121e3de2211ab06bad72f3daa2707a2438f5d35509fc",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2022-09-e442fb3d9508",
+      "stat_month": "2022-09",
+      "raw_content_sha256": "e442fb3d95082213be083b400798ca5e676995ac76bfcd098df3f912170150f4",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2022-10-dc8ea34f5f26",
+      "stat_month": "2022-10",
+      "raw_content_sha256": "dc8ea34f5f26d32eb76c352fb1312fc07d9d5078c412d00ffbf55b4d5947cfcb",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2022-11-aa66b080ee34",
+      "stat_month": "2022-11",
+      "raw_content_sha256": "aa66b080ee342e571abda58c88c4065f23f3ec1b5068e4ac53ac27ab3e4870d8",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2022-12-49094dfd0816",
+      "stat_month": "2022-12",
+      "raw_content_sha256": "49094dfd081630938a7962b6f167465a5b8699bf2d3781864aa7f1af75d6bc9c",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2023-01-89e148978356",
+      "stat_month": "2023-01",
+      "raw_content_sha256": "89e148978356cecc5c1264a277ea5671c4505bece59ab5fa305847a7cc007de9",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2023-02-2fff535c7f26",
+      "stat_month": "2023-02",
+      "raw_content_sha256": "2fff535c7f2698e0d427e2064ca125b32a6b450a2e82191830d01fa21a005af0",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2023-03-bd9fe390038a",
+      "stat_month": "2023-03",
+      "raw_content_sha256": "bd9fe390038a15a66c42b081fc7a8162324c4e8222b1ad5cc2019e98567a58cc",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2023-04-436a92125762",
+      "stat_month": "2023-04",
+      "raw_content_sha256": "436a92125762d611e2e54603dfdb590c968cdcb8811e0aa1fe066e0aae9e1e24",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2023-05-663221d4e2a8",
+      "stat_month": "2023-05",
+      "raw_content_sha256": "663221d4e2a88856bfae8192fe7179af194467782cf5c2e1fe75395b90cbd0e1",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2023-06-57ff37d1a51e",
+      "stat_month": "2023-06",
+      "raw_content_sha256": "57ff37d1a51e57ffa9c0d3358dbd558482a15c0e9192ba2c616333b65273fa4b",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2023-07-127b48a08e70",
+      "stat_month": "2023-07",
+      "raw_content_sha256": "127b48a08e707c34f2f658b2a98df9615bf78512e4b7a3a2ca515abca1a4bdf9",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2023-08-5db74ad34b4c",
+      "stat_month": "2023-08",
+      "raw_content_sha256": "5db74ad34b4c3feb9151817fef45d7b81a3e11d12fa665723ba31a365ee3ee09",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2023-09-5805802172d8",
+      "stat_month": "2023-09",
+      "raw_content_sha256": "5805802172d81a847302fb584ea723b79f26c009c780444d2a77b6e04bc303e9",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2023-10-e30720cd4672",
+      "stat_month": "2023-10",
+      "raw_content_sha256": "e30720cd4672348e08cffb114a16423d4420f94a9839f0a40b0777402b3dfff1",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2023-11-ac50d3af220b",
+      "stat_month": "2023-11",
+      "raw_content_sha256": "ac50d3af220bb844c694e7a4b3cd61701e41e85c57ded5da56594ea0164e77e5",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2023-12-875ff74e186e",
+      "stat_month": "2023-12",
+      "raw_content_sha256": "875ff74e186e6522499ffb4c8ffe737b6974c5f9e404c388b106217c4971d245",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2024-01-ba4afc3ae76d",
+      "stat_month": "2024-01",
+      "raw_content_sha256": "ba4afc3ae76df708fa8bb1d4957c0ec55c564202f1c6c28044b5878f64017e64",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2024-02-2267405f11cc",
+      "stat_month": "2024-02",
+      "raw_content_sha256": "2267405f11ccfd988ccba02ae3fde7e13f6a99b4480008389c00a133dc7829e4",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2024-03-0bfef9933721",
+      "stat_month": "2024-03",
+      "raw_content_sha256": "0bfef99337218f84d2f41865bb660db2c8cb1998a1dc1a169d20a28279bedae0",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2024-04-807bae944534",
+      "stat_month": "2024-04",
+      "raw_content_sha256": "807bae944534205d0a36a66557abe8b430ce48db685ed6df777b36bc2de96d4b",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2024-05-e4b1ae388879",
+      "stat_month": "2024-05",
+      "raw_content_sha256": "e4b1ae3888796991c2c14987e5a252601ddc6fb4a3929c8bf20c2ea00a005f4f",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2024-06-5f2ff89a0379",
+      "stat_month": "2024-06",
+      "raw_content_sha256": "5f2ff89a03799f0f5f064d2ac5de64ede109b75d4e3869e773c3857454d36889",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2024-07-077db9131cdc",
+      "stat_month": "2024-07",
+      "raw_content_sha256": "077db9131cdcb95f3564ae6232f712647f17f86f6445c85ca136a29b49a1796a",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2024-08-9de4b2d70e8c",
+      "stat_month": "2024-08",
+      "raw_content_sha256": "9de4b2d70e8cc8ac79a6d978d63c20c373cb3d9addd1acbdc4e33b31cb0ba7e1",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2024-09-c752274db99f",
+      "stat_month": "2024-09",
+      "raw_content_sha256": "c752274db99f0bd5829851f32479714835da96a4457501f07b6f8f815b946e26",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2024-10-e4d082e0f69e",
+      "stat_month": "2024-10",
+      "raw_content_sha256": "e4d082e0f69eefe99ba49fef866defd485f5c530c780077d397b86bae92d3a34",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2024-11-341467c7879c",
+      "stat_month": "2024-11",
+      "raw_content_sha256": "341467c7879c55870e0f4a1eee5b84ff16839eb47e1b58c06f17a9172a70da84",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2024-12-3b090b3990d4",
+      "stat_month": "2024-12",
+      "raw_content_sha256": "3b090b3990d4eff5eb8ebed4464d820e982b546b45e19f0b0e6747a71a5dc4e9",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2025-01-d37f38e93c76",
+      "stat_month": "2025-01",
+      "raw_content_sha256": "d37f38e93c7680770f8428eade6b2d0935ee60d985d2f8a6b0cf63c784f060ac",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2025-02-fe0678dd84e0",
+      "stat_month": "2025-02",
+      "raw_content_sha256": "fe0678dd84e0b1326baba9c7d04315daa52d62f99d5c3fbbf5b8f6d971674861",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2025-03-572c1b8a4ef8",
+      "stat_month": "2025-03",
+      "raw_content_sha256": "572c1b8a4ef80d29d0a5ce243df8e155640a8a63aa89124462ebf99e1cd48ce1",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2025-04-1f778f635a7a",
+      "stat_month": "2025-04",
+      "raw_content_sha256": "1f778f635a7a1e584ab4b86baee02c19c16cd584d83cfe5925d8b51acc372a5f",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2025-05-e5ac7071387c",
+      "stat_month": "2025-05",
+      "raw_content_sha256": "e5ac7071387cb88fa6bc2fb8efdb4d937004c438772255acd874d3e7131eae7c",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2025-06-c67933c1e17a",
+      "stat_month": "2025-06",
+      "raw_content_sha256": "c67933c1e17aa626e89b24b1f3584758fa6ce9d2a51246cb8743c66742c539c4",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2025-07-558cd5517927",
+      "stat_month": "2025-07",
+      "raw_content_sha256": "558cd551792765c8960dd27637e51319a3d431b55b77d1be34f24dfd788af16d",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2025-08-39db4a2f5fc3",
+      "stat_month": "2025-08",
+      "raw_content_sha256": "39db4a2f5fc347e066eaf81a8fdc704d6729aa95c62feb7278a28e98f67d9e01",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2025-09-39b1aa31944c",
+      "stat_month": "2025-09",
+      "raw_content_sha256": "39b1aa31944c8e51ee474a621becc9626189a52645983c83e543662f6573add7",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2025-10-cfd2e1ade8b6",
+      "stat_month": "2025-10",
+      "raw_content_sha256": "cfd2e1ade8b6dd141e1bbe1a1ca72a007028a3a62bcaaa81746d2849ad6a9bc6",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2025-11-fd14e4e25407",
+      "stat_month": "2025-11",
+      "raw_content_sha256": "fd14e4e254074ee5364b62afec363ffa7e8a45e015b9b91f37201bffed8fae81",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2025-12-6d8d0d60ebe5",
+      "stat_month": "2025-12",
+      "raw_content_sha256": "6d8d0d60ebe5431e80d5af837f858bed34486f209969814f9e90c66382b28ae8",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2026-01-62152837815a",
+      "stat_month": "2026-01",
+      "raw_content_sha256": "62152837815a5305083ca201f3d973eecb76483f1723e720abc2c0b1b63a312a",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2026-02-8eb32bee5eef",
+      "stat_month": "2026-02",
+      "raw_content_sha256": "8eb32bee5eef423e348bef31c85d513965fd695405efc02554c54ddddf17051b",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2026-03-8ef1ed129b84",
+      "stat_month": "2026-03",
+      "raw_content_sha256": "8ef1ed129b84ba766a84927bcb83ba176e8c25ed78287100232c688c9994fc3d",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2026-04-1b3ea998c4f4",
+      "stat_month": "2026-04",
+      "raw_content_sha256": "1b3ea998c4f4f4364e23c016053dc1512050941185f16da986af7931c903c608",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2026-05-9008eecf20b9",
+      "stat_month": "2026-05",
+      "raw_content_sha256": "9008eecf20b93b7d0dd9202ca2dbeb3c67b29d4da28bf3be7ab542c82630bb32",
+      "records_checked": 560,
+      "result": "passed"
+    },
+    {
+      "source_batch_id": "official-html-2026-06-4bb4edcce261",
+      "stat_month": "2026-06",
+      "raw_content_sha256": "4bb4edcce2610ec0651109a18a5bf620b762972ab7309e4bdec62a52e57f678c",
+      "records_checked": 560,
+      "result": "passed"
+    }
+  ]
+}

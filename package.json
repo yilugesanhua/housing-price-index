@@ -1,0 +1,73 @@
+{
+  "name": "housing-price-index",
+  "private": true,
+  "type": "module",
+  "workspaces": [
+    "apps/web",
+    "apps/miniprogram",
+    "packages/core",
+    "packages/design-tokens"
+  ],
+  "scripts": {
+    "dev": "npm --workspace apps/web run dev",
+    "dev:start": "node scripts/dev-server-manager.mjs start",
+    "dev:stop": "node scripts/dev-server-manager.mjs stop",
+    "dev:status": "node scripts/dev-server-manager.mjs status",
+    "lint": "npm --workspace apps/web run lint",
+    "design-tokens:generate": "npm --workspace packages/design-tokens run generate",
+    "design-tokens:check": "npm --workspace packages/design-tokens run check",
+    "typecheck": "npm --workspace apps/web run typecheck",
+    "test": "npm --workspace apps/web run test",
+    "test:release": "node --test scripts/release-readiness.test.mjs",
+    "test:miniprogram": "node --test scripts/miniprogram/*.test.mjs",
+    "test:e2e": "npm --workspace apps/web run test:e2e",
+    "validate:data": "node scripts/validate-data.mjs",
+    "typecheck:data": "tsc -p tsconfig.data.json --noEmit",
+    "data:discover": "tsx scripts/data/discover.ts",
+    "data:release-calendar": "tsx scripts/data/fetch-release-calendar.ts",
+    "data:check-latest": "npm run data:release-calendar && tsx scripts/data/check-latest.ts --calendar=work/monthly-data-check/release-calendar.json",
+    "data:validate-handoff": "node scripts/miniprogram/auto-update-gate.mjs",
+    "data:discover-historical": "tsx scripts/data/discover-historical.ts",
+    "data:import-search": "tsx scripts/data/import-search-discovery.ts",
+    "data:fetch": "tsx scripts/data/fetch-official.ts",
+    "data:fetch-all": "tsx scripts/data/fetch-discovered.ts",
+    "data:verify": "tsx scripts/data/verify-batch.ts",
+    "data:reparse": "tsx scripts/data/reparse.ts",
+    "data:validate-source": "tsx scripts/data/validate-source.ts",
+    "data:audit": "tsx scripts/data/audit-batches.ts",
+    "data:compress-raw": "node scripts/data/compress-raw-archives.mjs",
+    "data:publish": "tsx scripts/data/publish.ts",
+    "miniprogram:data": "tsx scripts/miniprogram/build-data.ts",
+    "miniprogram:data:prepare": "npm run miniprogram:data && npm run miniprogram:data:stage && npm run miniprogram:data:verify-remote && npm run test:miniprogram",
+    "miniprogram:data:stage": "node scripts/miniprogram/stage-remote-data.mjs",
+    "miniprogram:data:verify-remote": "node scripts/miniprogram/verify-remote-data.mjs",
+    "miniprogram:data:prepare-auto": "node scripts/miniprogram/prepare-auto-update.mjs",
+    "miniprogram:data:persist-candidate": "node scripts/miniprogram/candidate-persistence.mjs",
+    "miniprogram:data:bind-gate": "node scripts/miniprogram/bind-auto-gate.mjs",
+    "miniprogram:data:complete-auto": "node scripts/miniprogram/complete-auto-release.mjs",
+    "miniprogram:data:publish-audit": "node scripts/miniprogram/publish-private-audit.mjs",
+    "miniprogram:data:verify-official-source": "node scripts/miniprogram/verify-official-source.mjs",
+    "miniprogram:data:create-recovery-gate": "node scripts/miniprogram/create-recovery-gate.mjs",
+    "miniprogram:data:publish": "node scripts/miniprogram/publish-remote-data.mjs",
+    "miniprogram:data:rollback": "node scripts/miniprogram/rollback-remote-data.mjs",
+    "miniprogram:data:repair-current": "node scripts/miniprogram/repair-current-pointer.mjs",
+    "miniprogram:cloud:deploy": "tcb fn deploy getHousingDataManifest --force -e cloud1-d3gpdx70w5d05c68c",
+    "miniprogram:sync": "node scripts/miniprogram/sync-devtools-project.mjs",
+    "miniprogram:patch-f2": "node scripts/miniprogram/patch-wx-f2-canvas.mjs",
+    "test:data": "vitest run scripts/data",
+    "build": "npm --workspace apps/web run build",
+    "release:check": "node scripts/release-readiness.mjs",
+    "check": "npm run lint && npm run typecheck && npm run typecheck:data && npm run design-tokens:check && npm run test && npm run test:data && npm run test:miniprogram && npm run test:release && npm run validate:data && npm run build"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "devDependencies": {
+    "@cloudbase/cli": "^3.6.4",
+    "@types/node": "^26.1.1",
+    "tsx": "^4.23.1"
+  },
+  "dependencies": {
+    "cheerio": "^1.2.0"
+  }
+}

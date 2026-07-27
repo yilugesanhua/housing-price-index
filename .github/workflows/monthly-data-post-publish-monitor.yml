@@ -1,0 +1,73 @@
+name: monthly-data-post-publish-monitor
+
+on:
+  schedule:
+    - cron: "43 * * * *"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: housing-data-production-publish
+  cancel-in-progress: false
+
+jobs:
+  inspect:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      active: ${{ steps.window.outputs.active }}
+      dataset_version: ${{ steps.window.outputs.dataset_version }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: window
+        shell: bash
+        run: |
+          node -e "const fs=require('fs'); let v={}; try{v=JSON.parse(fs.readFileSync('data/releases/latest-auto-release.json','utf8'))}catch{}; const age=Date.now()-Date.parse(v.published_at||''); const active=v.status==='published'&&Number.isFinite(age)&&age>=0&&age<=24*60*60*1000; fs.appendFileSync(process.env.GITHUB_OUTPUT,'active='+active+'\ndataset_version='+(v.dataset_version||'')+'\n')"
+
+  monitor:
+    needs: inspect
+    if: needs.inspect.outputs.active == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: housing-data-production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Authenticate read-only CloudBase monitoring identity
+        env:
+          TENCENTCLOUD_MONITOR_SECRET_ID: ${{ secrets.TENCENTCLOUD_MONITOR_SECRET_ID }}
+          TENCENTCLOUD_MONITOR_SECRET_KEY: ${{ secrets.TENCENTCLOUD_MONITOR_SECRET_KEY }}
+        shell: bash
+        run: |
+          test -n "$TENCENTCLOUD_MONITOR_SECRET_ID"
+          test -n "$TENCENTCLOUD_MONITOR_SECRET_KEY"
+          npx tcb login --apiKeyId "$TENCENTCLOUD_MONITOR_SECRET_ID" --apiKey "$TENCENTCLOUD_MONITOR_SECRET_KEY" --json >/dev/null
+      - name: Verify cloud function, pointer, and all 70 remote shards
+        run: >-
+          node scripts/miniprogram/monitor-remote-release.mjs
+          --env=cloud1-d3gpdx70w5d05c68c
+          --dataset=${{ needs.inspect.outputs.dataset_version }}
+      - name: Add monitor result to task summary
+        if: always()
+        shell: bash
+        run: |
+          report="work/post-publish-monitor/${{ needs.inspect.outputs.dataset_version }}/monitor-report.json"
+          if [ -f "$report" ]; then
+            echo '```json' >> "$GITHUB_STEP_SUMMARY"
+            cat "$report" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Post-publish monitor failed before producing a report." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: housing-data-24h-monitor-${{ github.run_id }}
+          path: work/post-publish-monitor/
+          if-no-files-found: warn
+          retention-days: 90

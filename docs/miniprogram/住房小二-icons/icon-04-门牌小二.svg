@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="0 0 1024 1024" role="img" aria-labelledby="title desc">
+  <title id="title">住房小二图标方案四：门牌小二</title>
+  <desc id="desc">橙色背景，白色门牌与深青色汉字二组合，形成亲切的社区服务感。</desc>
+  <rect width="1024" height="1024" rx="224" fill="#D07A34"/>
+  <path d="M512 180 814 388v408c0 33-27 60-60 60H270c-33 0-60-27-60-60V388L512 180Z" fill="#FFF"/>
+  <rect x="310" y="410" width="404" height="318" rx="84" fill="#176C79"/>
+  <circle cx="512" cy="366" r="34" fill="#D07A34"/>
+  <rect x="390" y="492" width="244" height="46" rx="23" fill="#FFF"/>
+  <rect x="354" y="604" width="316" height="46" rx="23" fill="#FFF"/>
+</svg>

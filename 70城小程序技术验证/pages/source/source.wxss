@@ -1,0 +1,13 @@
+.page { height: 100vh; }
+.header { padding: 38rpx 28rpx 24rpx; }
+.title { display: block; font-size: 42rpx; font-weight: 700; }
+.subtitle, .body, .url { color: var(--color-muted); }
+.subtitle { display: block; margin-top: 10rpx; font-size: 24rpx; }
+.status-row { min-height: 92rpx; display: flex; align-items: center; gap: 14rpx; margin: 0 24rpx 22rpx; padding: 16rpx 22rpx; background: var(--color-surface); border: 1rpx solid var(--color-divider); border-radius: 12rpx; box-sizing: border-box; }.status-dot { width: 12rpx; height: 12rpx; flex: 0 0 auto; border-radius: 50%; background: var(--color-axis); }.status-row.current .status-dot { background: var(--color-down); }.status-row.stale .status-dot { background: var(--color-up); }.status-label, .status-reason { display: block; }.status-label { color: var(--color-ink); font-size: 24rpx; font-weight: 650; }.status-reason { margin-top: 4rpx; color: var(--color-muted); font-size: 20rpx; line-height: 1.45; }
+.section { margin: 0 24rpx 22rpx; padding: 28rpx; background: var(--color-surface); border: 1rpx solid var(--color-divider); border-radius: 16rpx; }
+.heading { display: block; font-size: 29rpx; font-weight: 650; }
+.body, .url { display: block; margin-top: 14rpx; font-size: 25rpx; line-height: 1.7; }
+.url { word-break: break-all; }
+button { width: auto; min-height: 68rpx; margin: 22rpx 0 0; padding: 0 24rpx; background: var(--color-accent); border-radius: 12rpx; color: var(--color-on-ink); font-size: 24rpx; line-height: 68rpx; }
+.secondary-button { background: var(--color-surface-subtle); border: 1rpx solid var(--color-divider); color: var(--color-accent-text); }
+button::after { border: 0; }
