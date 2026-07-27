@@ -91,6 +91,7 @@ GitHub Actions 是当前主方案。若后续因平台政策、可用性、公�
 - `.github/workflows/monthly-data-auto-publish.yml` 负责无云凭据的候选生成与受保护环境中的首次发布；两个作业权限隔离。
 - `.github/workflows/monthly-data-pending-publish.yml` 只重试默认分支中状态为 `ready` 的持久化候选，防止一次临时故障永久卡住更新。
 - `.github/workflows/monthly-data-post-publish-monitor.yml` 在发布后24小时使用独立只读身份复核完整远端版本，不拥有指针写权限。
+- 发布后监测直接使用腾讯云官方 COS SDK 与 SCF SDK，不使用 CloudBase CLI 的存储或函数命令，避免 CLI 内部预检查引入与实际读取、调用无关的附加权限。
 - 自动发布工作流只接受默认保护分支上、同一仓库只读发现工作流产生的结构化发现结果；必须重新核验官方 URL、统计月份和源文件哈希，不能信任事件参数直接发布。
 - 生产云凭据只配置在受保护的 GitHub Environment 中，仅自动发布与回滚作业可读取；Fork、Pull Request、任意分支和手动拼接 URL 均不得获得凭据。
 - 自动发布没有通用的 `--skip-validation` 或跳过门禁参数。CI 自动确认必须绑定 GitHub 运行 ID、固定提交 SHA、目标环境、完整 `dataset_version` 和门禁报告哈希，并写入审计记录。
@@ -364,6 +365,7 @@ npm run miniprogram:data:repair-current -- --env=cloud1-d3gpdx70w5d05c68c --data
 - 自动发布工作流使用环境并发锁，同一时间最多一个生产指针写操作；取消旧运行不得发生在 `current.json` 上传过程中。
 - 所有写操作保留云端审计日志；长期凭据不得进入客户端、版本归档和CI构件。
 - 远程数据只包含公开统计数据和必要来源信息，不上传用户位置或本地筛选状态。
+- 发布后监测身份的 COS 权限仅覆盖指定 Bucket 的 `housing-data/*`，SCF 权限仅覆盖 `cloud1-d3gpdx70w5d05c68c` 命名空间中的 `getHousingDataManifest`；监测脚本不得申请 TCB 环境描述权限或任何云端写权限。
 
 ## 实施顺序
 
