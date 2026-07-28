@@ -34,6 +34,17 @@ function assert(condition, message) {
   if (!condition) throw new Error(message)
 }
 
+function validateRemoteMonth(current, bundled) {
+  assert(current.dataset_as_of >= bundled.datasetAsOf, 'remote data is older than the bundled snapshot')
+}
+
+function validateRemoteSource(current, manifest, bundled) {
+  assert(
+    current.dataset_as_of > bundled.datasetAsOf || manifest.source_dataset_version === bundled.datasetVersion,
+    'remote data conflicts with the bundled snapshot for the same month',
+  )
+}
+
 function validateCurrent(current, config) {
   assert(current && DATASET_PATTERN.test(current.dataset_version || ''), 'remote current dataset version is invalid')
   assert(/^20\d{2}-(0[1-9]|1[0-2])$/.test(current.dataset_as_of || ''), 'remote current month is invalid')
@@ -129,7 +140,9 @@ function createDataRuntime({ wxApi = typeof wx === 'undefined' ? null : wx, bund
       const manifestText = readSync(`${root}/manifest.json`)
       assert(fileHash(manifestText) === pointer.manifestSha256, 'cached manifest hash mismatch')
       const current = validateCurrent(pointer.current, config)
+      validateRemoteMonth(current, bundled)
       const manifest = validateManifest(safeParse(manifestText), current, config)
+      validateRemoteSource(current, manifest, bundled)
       const bootstrapText = readSync(`${root}/bootstrap.json`)
       assert(fileHash(bootstrapText) === manifest.bootstrap_sha256, 'cached bootstrap hash mismatch')
       const bootstrap = validateBootstrap(safeParse(bootstrapText), manifest, config)
@@ -231,9 +244,11 @@ function createDataRuntime({ wxApi = typeof wx === 'undefined' ? null : wx, bund
         ? now() + config.releaseRetryMs
         : boundedNextCheck(current.next_check_at))
       if (remoteUnchanged) return { updated: false, source: activeSource, reason: 'current' }
+      validateRemoteMonth(current, bundled)
       assert(current.dataset_as_of >= activeSnapshot.datasetAsOf, 'remote data is older than the active snapshot')
       const manifestDownload = await downloadJson(current.manifest_file_id, current.manifest_sha256, undefined)
       const manifest = validateManifest(manifestDownload.data, current, config)
+      validateRemoteSource(current, manifest, bundled)
       const bootstrapDownload = await downloadJson(manifest.bootstrap_file_id, manifest.bootstrap_sha256, manifest.bootstrap_bytes)
       const bootstrap = validateBootstrap(bootstrapDownload.data, manifest, config)
       const cityIds = bootstrap.cityIds.filter((cityId) => !bootstrap.series[cityId])

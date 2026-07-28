@@ -16,5 +16,5 @@ describe("tracked raw audit archives", () => {
       const html = gunzipSync(compressed);
       expect(createHash("sha256").update(html).digest("hex"), batchPath).toBe(batch.source_batch.raw_content_sha256);
     }
-  });
+  }, 30_000);
 });

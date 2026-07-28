@@ -4,7 +4,7 @@ import * as cheerio from "cheerio";
 import type { CityId, PropertyType, SizeBand } from "../../packages/core/src/index";
 import { TARGET_CITIES, type ParsedBatch, type SourceBatch, type StandardRecord } from "./types";
 
-export const PARSER_VERSION = "official-html-v6-size-band-tables";
+export const PARSER_VERSION = "official-html-v7-product-housing-only";
 export const SCHEMA_VERSION = "1.0.0";
 
 const cityByNormalizedName = new Map<string, CityId>(
@@ -53,23 +53,23 @@ function parseIndex(value: string | undefined): { value: number | null; reason: 
 
 function tableTitle($: cheerio.CheerioAPI, table: any): string {
   const embeddedTitle = $(table).find("tr").first().text().replace(/\s+/g, "").trim();
-  if (embeddedTitle.includes("价格指数")) return embeddedTitle;
-  const directCandidate = $(table).prevAll("p").filter((_index, node) => $(node).text().includes("价格指数")).first().text().replace(/\s+/g, "").trim();
+  if (/价格(?:分类)?指数|分类价格指数/.test(embeddedTitle)) return embeddedTitle;
+  const directCandidate = $(table).prevAll("p").filter((_index, node) => /价格(?:分类)?指数|分类价格指数/.test($(node).text())).first().text().replace(/\s+/g, "").trim();
   if (directCandidate) return directCandidate;
   const parent = $(table).parent();
-  const candidate = parent.prevAll("p").filter((_index, node) => $(node).text().includes("价格指数")).first().text().replace(/\s+/g, "").trim();
+  const candidate = parent.prevAll("p").filter((_index, node) => /价格(?:分类)?指数|分类价格指数/.test($(node).text())).first().text().replace(/\s+/g, "").trim();
   if (candidate) return candidate;
   const documentNodes = $("body *").toArray();
   const tablePosition = documentNodes.indexOf(table);
   return $("body p").toArray().filter((node) => {
     const position = documentNodes.indexOf(node);
-    return position >= 0 && position < tablePosition && $(node).text().includes("价格指数");
+    return position >= 0 && position < tablePosition && /价格(?:分类)?指数|分类价格指数/.test($(node).text());
   }).map((node) => $(node).text().replace(/\s+/g, "").trim()).at(-1) ?? "";
 }
 
 function propertyTypeFromTitle(title: string): PropertyType | null {
-  if (/新建(?:商品)?住宅.*价格指数/.test(title)) return "new";
-  if (/二手住宅.*价格指数/.test(title)) return "resale";
+  if (/新建商品住宅(?:销售价格指数|价格指数|销售价格分类指数|分类价格指数)/.test(title)) return "new";
+  if (/二手住宅(?:销售价格指数|价格指数|销售价格分类指数|分类价格指数)/.test(title)) return "resale";
   return null;
 }
 
@@ -236,7 +236,19 @@ export function parseOfficialHtml(html: string, sourceBatch: SourceBatch): Parse
       }
     });
   });
-  const unique = new Map(records.map((record) => [recordKey(record), record]));
+  const unique = new Map<string, StandardRecord>();
+  for (const record of records) {
+    const key = recordKey(record);
+    const existing = unique.get(key);
+    if (existing) {
+      const { source_record_locator: _existingLocator, ...existingComparable } = existing;
+      const { source_record_locator: _recordLocator, ...recordComparable } = record;
+      if (JSON.stringify(existingComparable) !== JSON.stringify(recordComparable)) {
+        throw new Error(`Conflicting duplicate official record ${key}: ${existing.source_record_locator} versus ${record.source_record_locator}`);
+      }
+    }
+    unique.set(key, record);
+  }
   return { source_batch: sourceBatch, records: [...unique.values()] };
 }
 

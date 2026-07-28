@@ -90,4 +90,56 @@ describe("official HTML parser", () => {
     expect(parsed.records.find((record) => record.city_id === "shenzhen" && record.property_type === "resale")).toMatchObject({ mom_index: 101.3, yoy_index: 103 });
     expect(parsed.records.every((record) => record.ytd_missing_reason === "not-published-for-this-table")).toBe(true);
   });
+  it.each([
+    { productFirst: false, expectedTable: 1 },
+    { productFirst: true, expectedTable: 0 },
+  ])("uses only the new commodity housing table regardless of table order ($productFirst)", ({ productFirst, expectedTable }) => {
+    const plainHousing = `
+      <table>
+        <tr><th>表2：2017年1月70个大中城市新建住宅价格指数</th></tr>
+        <tr><th>城市</th><th>环比</th><th>同比</th></tr>
+        <tr><td>北京</td><td>88.8</td><td>77.7</td><td>上海</td><td>66.6</td><td>55.5</td></tr>
+      </table>`;
+    const productHousing = `
+      <table>
+        <tr><th>表3：2017年1月70个大中城市新建商品住宅价格指数</th></tr>
+        <tr><th>城市</th><th>环比</th><th>同比</th></tr>
+        <tr><td>北京</td><td>100.0</td><td>127.0</td><td>上海</td><td>100.1</td><td>128.0</td></tr>
+      </table>`;
+    const tables = productFirst ? `${productHousing}${plainHousing}` : `${plainHousing}${productHousing}`;
+    const html = `<html><head><meta name="ArticleTitle" content="2017年1月份70个大中城市商品住宅销售价格变动情况"></head><body>${tables}</body></html>`;
+    const parsed = parseOfficialHtml(html, {
+      ...sourceBatch,
+      source_batch_id: "official-html-2017-01-table-selection",
+      stat_month: "2017-01",
+      release_date: "2017-02-22",
+    });
+
+    expect(parsed.records).toHaveLength(2);
+    expect(parsed.records.find((record) => record.city_id === "beijing")).toMatchObject({
+      city_id: "beijing",
+      property_type: "new",
+      size_band: "all",
+      mom_index: 100,
+      yoy_index: 127,
+      source_record_locator: expect.stringContaining(`table[${expectedTable}]`),
+    });
+  });
+
+  it("rejects conflicting duplicate records from otherwise allowed tables", () => {
+    const table = (mom: string) => `
+      <table>
+        <tr><th>2017年1月70个大中城市新建商品住宅价格指数</th></tr>
+        <tr><th>城市</th><th>环比</th><th>同比</th></tr>
+        <tr><td>北京</td><td>${mom}</td><td>127.0</td><td>上海</td><td>100.1</td><td>128.0</td></tr>
+      </table>`;
+    const html = `<html><head><meta name="ArticleTitle" content="2017年1月份70个大中城市商品住宅销售价格变动情况"></head><body>${table("100.0")}${table("99.9")}</body></html>`;
+
+    expect(() => parseOfficialHtml(html, {
+      ...sourceBatch,
+      source_batch_id: "official-html-2017-01-conflicting-duplicate",
+      stat_month: "2017-01",
+      release_date: "2017-02-22",
+    })).toThrow(/Conflicting duplicate official record 2017-01\|beijing\|new\|all/);
+  });
 });

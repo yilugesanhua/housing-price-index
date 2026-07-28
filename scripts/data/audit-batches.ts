@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { globSync, readFileSync, writeFileSync } from "node:fs";
+import { globSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import * as cheerio from "cheerio";
 import { detectOfficialMetadata, normalizeCityName, recordKey } from "./official-parser";
@@ -16,8 +16,15 @@ interface AuditedBatch {
   errors: string[];
 }
 
-type AuditedTableKind = { propertyType: "new" | "resale" | null; isCategoryTable: boolean; title: string };
+type AuditedTableKind = { propertyType: "new" | "resale" | null; isCategoryTable: boolean; isAllowedTable: boolean; title: string };
 const auditedTableKindCache = new WeakMap<object, AuditedTableKind>();
+
+function writeJsonAtomicallySync(path: string, value: unknown): void {
+  const temporaryPath = `${path}.tmp`;
+  rmSync(temporaryPath, { force: true });
+  writeFileSync(temporaryPath, JSON.stringify(value, null, 2) + "\n", "utf8");
+  renameSync(temporaryPath, path);
+}
 
 function isOfficialReleaseUrl(value: string): boolean {
   try {
@@ -47,21 +54,27 @@ function auditedTableKind($: cheerio.CheerioAPI, table: any): AuditedTableKind {
     if (cached) return cached;
   }
   const embedded = tableElement.find("tr").first().text().replace(/\s+/g, "").trim();
-  const preceding = tableElement.prevAll("p").filter((_index: number, node: any) => $(node).text().includes("价格指数")).first().text().replace(/\s+/g, "").trim();
-  const parentPreceding = tableElement.parent().prevAll("p").filter((_index: number, node: any) => $(node).text().includes("价格指数")).first().text().replace(/\s+/g, "").trim();
+  const preceding = tableElement.prevAll("p").filter((_index: number, node: any) => /价格(?:分类)?指数|分类价格指数/.test($(node).text())).first().text().replace(/\s+/g, "").trim();
+  const parentPreceding = tableElement.parent().prevAll("p").filter((_index: number, node: any) => /价格(?:分类)?指数|分类价格指数/.test($(node).text())).first().text().replace(/\s+/g, "").trim();
   const documentNodes = $("body *").toArray();
   const tablePosition = tableNode ? documentNodes.indexOf(tableNode) : -1;
   const documentPreceding = $("body p").toArray().filter((node) => {
     const position = documentNodes.indexOf(node);
-    return position >= 0 && position < tablePosition && $(node).text().includes("价格指数");
+    return position >= 0 && position < tablePosition && /价格(?:分类)?指数|分类价格指数/.test($(node).text());
   }).map((node) => $(node).text().replace(/\s+/g, "").trim()).at(-1);
-  const title = embedded.includes("价格指数") ? embedded : (preceding || parentPreceding || documentPreceding || embedded);
-  const propertyType: AuditedTableKind["propertyType"] = /二手住宅.*价格指数/.test(title)
-    ? "resale"
-    : /新建(?:商品)?住宅.*价格指数/.test(title)
-      ? "new"
-      : null;
-  const result: AuditedTableKind = { propertyType, isCategoryTable: /分类|分套|90平方米|90m2|90㎡|90[-—至到]144|144.*以上/i.test(`${embedded}${title}`), title };
+  const title = /价格(?:分类)?指数|分类价格指数/.test(embedded) ? embedded : (preceding || parentPreceding || documentPreceding || embedded);
+  const newOverall = /新建商品住宅(?:销售)?价格指数/.test(title);
+  const resaleOverall = /二手住宅(?:销售)?价格指数/.test(title);
+  const newCategory = /新建商品住宅(?:销售价格分类指数|分类价格指数)/.test(title);
+  const resaleCategory = /二手住宅(?:销售价格分类指数|分类价格指数)/.test(title);
+  const propertyType: AuditedTableKind["propertyType"] = newOverall || newCategory ? "new" : resaleOverall || resaleCategory ? "resale" : null;
+  const isCategoryTable = /分类|分套|90平方米|90m2|90㎡|90[-—至到]144|144.*以上/i.test(`${embedded}${title}`);
+  const result: AuditedTableKind = {
+    propertyType,
+    isCategoryTable,
+    isAllowedTable: isCategoryTable ? newCategory || resaleCategory : newOverall || resaleOverall,
+    title,
+  };
   if (tableNode) auditedTableKindCache.set(tableNode, result);
   return result;
 }
@@ -81,6 +94,7 @@ function auditRecord(record: StandardRecord, tableRows: string[][][], tableKinds
   const cells = tableRows[tableIndex]?.[rowIndex];
   const tableKind = tableKinds[tableIndex];
   if (!cells || !tableKind) return [...errors, `${key}: locator does not resolve to one source row`];
+  if (!tableKind.isAllowedTable) errors.push(`${key}: source is not one of the four allowed official table types: ${tableKind.title.slice(0, 100)}`);
   if (tableKind.propertyType === null) errors.push(`${key}: source table type cannot be independently identified from title ${tableKind.title.slice(0, 100)}`);
   else if (tableKind.propertyType !== record.property_type && (record.size_band === "all" || !tableKind.isCategoryTable)) errors.push(`${key}: property_type=${record.property_type} does not match source table type ${tableKind.propertyType}`);
   if (record.size_band === "all" && tableKind.isCategoryTable) errors.push(`${key}: all-size record unexpectedly points to a category/size-band table`);
@@ -158,7 +172,7 @@ if (requestedPath === "--report-only") {
     result: "passed",
     batches: batches.map((batch) => ({ source_batch_id: batch.source_batch.source_batch_id, stat_month: batch.source_batch.stat_month, raw_content_sha256: batch.source_batch.raw_content_sha256, records_checked: batch.records.length, result: "passed" })),
   };
-  writeFileSync(resolve("data", "audit-report.json"), JSON.stringify(report, null, 2) + "\n", "utf8");
+  writeJsonAtomicallySync(resolve("data", "audit-report.json"), report);
   console.log(`Summarized ${report.record_count} verified records across ${report.batch_count} batches`);
   process.exit(0);
 }
@@ -196,7 +210,7 @@ if (errorCount > 0) {
     const parsed = JSON.parse(readFileSync(path, "utf8")) as ParsedBatch;
     parsed.source_batch.verification_status = "verified";
     parsed.source_batch.verification_method = FULL_RECORD_AUDIT_METHOD;
-    writeFileSync(path, JSON.stringify(parsed, null, 2) + "\n", "utf8");
+    writeJsonAtomicallySync(path, parsed);
   }
   if (requestedPath) {
     console.log(`Verified ${recordCount} records in ${requestedPath}`);
@@ -214,7 +228,7 @@ if (errorCount > 0) {
     result: "passed",
     batches: batchSummaries,
   };
-  writeFileSync(resolve("data", "audit-report.json"), JSON.stringify(report, null, 2) + "\n", "utf8");
+  writeJsonAtomicallySync(resolve("data", "audit-report.json"), report);
   console.log(`Verified ${report.record_count} records across ${report.batch_count} batches (${report.coverage_start} to ${report.coverage_end})`);
   }
 }

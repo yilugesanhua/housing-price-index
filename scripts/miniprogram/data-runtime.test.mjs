@@ -14,8 +14,8 @@ const { sha256, utf8Bytes } = require(resolve(root, 'apps/miniprogram/utils/sha2
 const { createDataRuntime, POINTER_KEY, CHECK_KEY } = require(resolve(root, 'apps/miniprogram/utils/data-runtime.js'))
 const { validateCurrent } = require(resolve(root, 'apps/miniprogram/cloudfunctions/getHousingDataManifest/validate-current.js'))
 
-function makeRelease(minimumAppVersion = versionConfig.version) {
-  return buildRemoteRelease(bundled, {
+function makeRelease(minimumAppVersion = versionConfig.version, snapshot = bundled) {
+  return buildRemoteRelease(snapshot, {
     cloudEnvId: config.cloudEnvId,
     storageBucket: config.storageBucket,
     minimumAppVersion,
@@ -205,6 +205,25 @@ test('cloud failure, older data, and incompatible app version keep the bundled f
   const futureRuntime = createDataRuntime({ wxApi: future.wxApi, bundled })
   assert.equal((await futureRuntime.refresh({ force: true })).reason, 'failed')
   assert.equal(futureRuntime.getSource(), 'bundled')
+})
+
+test('same-month remote conflicts cannot replace the audited bundled snapshot or hydrate from cache', async () => {
+  const conflictingSnapshot = { ...bundled, datasetVersion: '2026-06-000000000000' }
+  const release = makeRelease(versionConfig.version, conflictingSnapshot)
+  const mock = createWxMock(release)
+  const runtime = createDataRuntime({ wxApi: mock.wxApi, bundled })
+
+  assert.equal((await runtime.refresh({ force: true })).reason, 'failed')
+  assert.equal(runtime.getSource(), 'bundled')
+  assert.equal(mock.stats.downloads, 1)
+
+  const legacyRuntime = createDataRuntime({ wxApi: mock.wxApi, bundled: conflictingSnapshot })
+  assert.equal((await legacyRuntime.refresh({ force: true })).updated, true)
+  assert.equal(legacyRuntime.getSource(), 'remote')
+
+  const restored = createDataRuntime({ wxApi: mock.wxApi, bundled })
+  assert.equal(restored.getSource(), 'bundled')
+  assert.equal(restored.getSnapshot().datasetVersion, bundled.datasetVersion)
 })
 
 test('clearing the remote pointer returns to the independent bundled snapshot', async () => {

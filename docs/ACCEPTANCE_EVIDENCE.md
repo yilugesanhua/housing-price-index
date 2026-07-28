@@ -8,13 +8,13 @@
 
 | 验收范围 | 状态 | 权威证据 |
 |---|---|---|
-| 完整70城、2016-01至2026-06、新房/二手房、四档面积、环比/同比完整 | 已证明 | `data/audit-report.json`：126批次、70,560条、覆盖2016-01至2026-06、`full-record-audit-v3`且result=passed；`npm run validate:data` |
+| 完整70城、2016-01至2026-06、新房/二手房、四档面积、环比/同比完整 | 已证明 | `data/audit-report.json`：126批次、70,560条、覆盖2016-01至2026-06、`full-record-audit-v4`且result=passed；`npm run validate:data` |
 | 36/60/120个月且包含最新月份 | 已证明 | `packages/core/src/index.ts`的`getWindowRecords`；`apps/web/tests/core.test.ts`；E2E的36和120个月断言 |
 | 指数、变动率、null与缺失原因不变量 | 已证明 | `scripts/data/validate.ts`、`scripts/validate-data.mjs`、`apps/web/src/dataValidation.ts`及对应单测 |
 | 唯一键、月份连续、coverage_gaps | 已证明 | `scripts/validate-data.mjs`、`scripts/data/publish.ts`；当前`manifest.json`的`coverage_gaps=[]` |
 | 清单schema、版本、记录数、状态和检查时间 | 已证明 | `apps/web/public/data/manifest.json`；`scripts/validate-data.mjs`；前端运行时校验单测 |
 | 首屏摘要、市场快照、温度历史与城市分片，完整数据不进入浏览器加载路径 | 已证明 | schema 1.3.0清单、576条六城摘要、560条最新月快照、2,016条温度历史、发布后校验及E2E请求断言 |
-| 全部来源URL、抓取时间、SHA-256、表类型、总体/分类、批次和记录定位 | 已证明 | 126个`data/raw/**/*.batch.json`；`data/audit-report.json`的`full-record-audit-v3`；`scripts/data/audit-batches.ts` |
+| 全部来源URL、抓取时间、SHA-256、四类表白名单、总体/分类、批次和记录定位 | 已证明 | 126个`data/raw/**/*.batch.json`；`data/audit-report.json`的`full-record-audit-v4`；`scripts/data/audit-batches.ts` |
 | 原始归档可恢复且不进入生产包 | 已证明 | 126批次均有确定性`raw_archive_uri`并通过SHA-256回查；`apps/web/public/data/`仅有发布JSON |
 | 生产不引用unverified或sampled批次 | 已证明 | 126/126批次为verified；`publish.ts`要求当前完整审计报告覆盖同一批次、SHA和记录数 |
 | 修订不可变并保留旧值、新值和来源 | 已证明 | `data/normalized/revisions.json`当前保留36,792条追加修订；`publish.ts`追加修订而非覆盖，历史未删除 |

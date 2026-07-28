@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import { saveScreenshot } from "./save-screenshot";
 
 test("shows the published six-city overview and current data state", async ({ page }, testInfo) => {
   const dataRequests: string[] = [];
@@ -348,7 +349,7 @@ test("searches all 70 cities, adds one to the trend and keeps selected options d
   for (const group of cityOrdering) expect(group.cities).toEqual([...group.cities].sort());
   await expect(menu.locator(".city-add-option small")).toHaveCount(0);
   await expect(menu.getByRole("button", { name: /福州/ })).toBeDisabled();
-  if (testInfo.project.name === "mobile") await page.screenshot({ path: "../../docs/screenshots/city-picker-mobile.png", fullPage: false });
+  if (testInfo.project.name === "mobile") await saveScreenshot(page, "../../docs/screenshots/city-picker-mobile.png", { fullPage: false });
   await menu.getByRole("textbox", { name: "搜索城市" }).fill("wlmq");
   await menu.getByRole("button", { name: /乌鲁木齐/ }).click();
   await expect(picker.getByRole("button", { name: "乌鲁木齐", exact: true })).toHaveAttribute("aria-pressed", "true");

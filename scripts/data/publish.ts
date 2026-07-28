@@ -1,10 +1,11 @@
 import { createHash } from "node:crypto";
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import { recordKey } from "./official-parser";
 import { atomicReplaceDirectory } from "./atomic-publish";
 import { validateAuditReport, type AuditReport } from "./audit-report";
 import { addOneMonth, deriveDataStatus } from "./status";
+import { hasRevisableRecordChange } from "./revision";
 import { readBatches, validateRecords } from "./validate";
 import type { StandardRecord } from "./types";
 import { CITY_IDS, FEATURED_CITY_IDS, type CityId, type MarketBreadthPoint, type Metric, type PropertyType, type SizeBand } from "@housing/core";
@@ -42,6 +43,13 @@ function monthRange(start: string, end: string): string[] {
 
 async function readJson<T>(path: string, fallback: T): Promise<T> {
   try { return JSON.parse(await readFile(path, "utf8")) as T; } catch { return fallback; }
+}
+
+async function writeJsonAtomically(path: string, value: unknown): Promise<void> {
+  const temporaryPath = `${path}.tmp`;
+  await rm(temporaryPath, { force: true });
+  await writeFile(temporaryPath, JSON.stringify(value, null, 2) + "\n", "utf8");
+  await rename(temporaryPath, path);
 }
 
 const batches = await readBatches();
@@ -158,7 +166,8 @@ if (errors.length > 0) {
   for (const record of sortedRecords) {
     const key = recordKey(record);
     const previous = oldByKey.get(key);
-    if (!previous || JSON.stringify(previous) === JSON.stringify(record)) continue;
+    if (!previous) continue;
+    if (!hasRevisableRecordChange(previous, record)) continue;
     const prior = [...existingRevisions, ...newRevisions].filter((revision) => revision.record_key === key).at(-1);
     const revisionId = createHash("sha256").update(`${key}|${JSON.stringify(previous)}|${JSON.stringify(record)}|${generatedAt}`).digest("hex");
     newRevisions.push({ revision_id: revisionId, record_key: key, previous_value: previous, revised_value: record, detected_at: generatedAt, source_batch_id: record.source_batch_id, reason: "official-source-record-changed-during-publish", supersedes_revision_id: prior?.revision_id ?? null });
@@ -205,7 +214,7 @@ if (errors.length > 0) {
   });
 
   await mkdir(NORMALIZED_DIR, { recursive: true });
-  await writeFile(resolve(NORMALIZED_DIR, "records.json"), JSON.stringify({ dataset_version: datasetVersion, records: sortedRecords }, null, 2) + "\n", "utf8");
-  await writeFile(resolve(NORMALIZED_DIR, "revisions.json"), JSON.stringify([...existingRevisions, ...newRevisions], null, 2) + "\n", "utf8");
+  await writeJsonAtomically(resolve(NORMALIZED_DIR, "records.json"), { dataset_version: datasetVersion, records: sortedRecords });
+  await writeJsonAtomically(resolve(NORMALIZED_DIR, "revisions.json"), [...existingRevisions, ...newRevisions]);
   console.log(`Published ${sortedRecords.length} records as ${datasetVersion}; appended ${newRevisions.length} revision(s)`);
 }
