@@ -15,9 +15,10 @@ import {
   type CityId,
 } from "../../packages/core/src/index";
 import { evaluateLatestCheck, evaluateReleaseSchedule } from "../data/check-latest";
-import { parseOfficialHtml, recordKey, sha256 as sourceSha256 } from "../data/official-parser";
+import { FULL_RECORD_AUDIT_METHOD, FULL_RECORD_AUDIT_VERSION, validateAuditReport, type AuditReport } from "../data/audit-report";
+import { PARSER_VERSION, parseOfficialHtml, recordKey, sha256 as sourceSha256 } from "../data/official-parser";
 import { validateRecords } from "../data/validate";
-import type { SourceBatch, StandardRecord } from "../data/types";
+import type { ParsedBatch, SourceBatch, StandardRecord } from "../data/types";
 import { activatePointerWithRollback } from "./guarded-activation.mjs";
 import { buildRemoteRelease, sha256, stableJson, verifyReleaseAgainstSnapshot } from "./remote-data-lib.mjs";
 import { assertRehearsalKey, createTencentCloudClient } from "./tencent-cloud-sdk.mjs";
@@ -268,6 +269,14 @@ function createWxMock(release: any) {
 
 await rm(outputRoot, { recursive: true, force: true });
 await mkdir(outputRoot, { recursive: true });
+const auditReport = JSON.parse(await readFile(resolve(root, "data/audit-report.json"), "utf8")) as AuditReport;
+const auditedBatches: ParsedBatch[] = [];
+for await (const path of glob(resolve(root, "data/raw/**/*.batch.json").replaceAll("\\", "/"))) {
+  auditedBatches.push(JSON.parse(await readFile(path, "utf8")) as ParsedBatch);
+}
+assert.deepEqual(validateAuditReport(auditReport, auditedBatches), [], "current full-record audit report is invalid");
+assert(auditedBatches.every((batch) => batch.source_batch.parser_version === PARSER_VERSION), "source batches were not all produced by the current parser");
+const auditByBatchId = new Map(auditReport.batches.map((batch) => [batch.source_batch_id, batch]));
 const normalized = JSON.parse(await readFile(resolve(root, "data/normalized/records.json"), "utf8")) as { records: StandardRecord[] };
 const latestMonth = [...new Set(normalized.records.map((record) => record.stat_month))].sort().at(-1)!;
 const targetMonths = Array.from({ length: requestedMonths }, (_, index) => shiftMonth(latestMonth, index - requestedMonths + 1));
@@ -335,11 +344,35 @@ for (const [index, targetMonth] of targetMonths.entries()) {
 
   const baselineRecords = normalized.records.filter((record) => record.stat_month <= baselineMonth);
   const targetRecords = await timed(stages, "candidate_fail_closed_gates", async () => {
+    assert.equal(archive.source_batch.parser_version, PARSER_VERSION, `${targetMonth}: source batch parser is stale`);
+    assert.equal(archive.source_batch.verification_method, FULL_RECORD_AUDIT_METHOD, `${targetMonth}: source batch audit method is stale`);
+    const auditedBatch = auditByBatchId.get(archive.source_batch.source_batch_id);
+    assert(auditedBatch, `${targetMonth}: current audit report is missing the source batch`);
+    assert.deepEqual(auditedBatch, {
+      source_batch_id: archive.source_batch.source_batch_id,
+      stat_month: targetMonth,
+      raw_content_sha256: archive.source_batch.raw_content_sha256,
+      records_checked: 560,
+      result: "passed",
+    }, `${targetMonth}: source batch differs from the current audit report`);
     validateMonthlyCandidate(baselineRecords, archive.records, archive.source_batch);
     const normalizedTarget = new Map(normalized.records.filter((record) => record.stat_month === targetMonth).map((record) => [recordKey(record), record]));
     for (const record of archive.records) assert.deepEqual(record, normalizedTarget.get(recordKey(record)), `${targetMonth}: normalized target mismatch ${recordKey(record)}`);
     const merged = [...baselineRecords, ...archive.records].sort((a, b) => recordKey(a).localeCompare(recordKey(b)));
-    return { value: merged, evidence: { added_records: 560, city_count: 70, combinations_per_city: 8, historical_records_changed: 0 } };
+    return {
+      value: merged,
+      evidence: {
+        parser_version: PARSER_VERSION,
+        audit_version: FULL_RECORD_AUDIT_VERSION,
+        audited_batch_matched: true,
+        full_audit_batch_count: auditReport.batch_count,
+        full_audit_record_count: auditReport.record_count,
+        added_records: 560,
+        city_count: 70,
+        combinations_per_city: 8,
+        historical_records_changed: 0,
+      },
+    };
   });
 
   const packaged = await timed(stages, "candidate_package", async () => {
