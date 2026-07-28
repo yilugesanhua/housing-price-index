@@ -12,10 +12,10 @@
       <view class="intro-head">
         <text class="title">读懂你的城市住宅价格变化</text>
         <view class="location-entry {{locationStatus === 'locating' ? 'locating' : ''}}">
-          <view class="location-refresh" bindtap="locateCurrentCity" aria-label="重新定位当前城市" role="button">
+          <button class="location-refresh" bindtap="locateCurrentCity" aria-label="重新定位当前城市">
             <image class="location-pin" src="/assets/map-pin.svg" mode="aspectFit" aria-hidden="true" />
-          </view>
-          <picker class="location-picker" mode="selector" range="{{focusCityNames}}" value="{{focusCityIndex}}" bindchange="onFocusCityChange">
+          </button>
+          <picker class="location-picker" mode="selector" range="{{focusCityNames}}" value="{{focusCityIndex}}" bindchange="onFocusCityChange" aria-label="选择定位城市">
             <view class="location-city"><text>{{locationStatus === 'locating' ? '定位中' : focusCityName}}</text><view class="location-chevron" aria-hidden="true"></view></view>
           </picker>
         </view>
@@ -28,10 +28,10 @@
 
     <view class="analysis-nav {{analysisNavFixed ? 'is-fixed' : ''}}">
       <view class="scope-grid">
-        <picker mode="selector" range="{{propertyOptions}}" value="{{propertyIndex}}" bindchange="onPropertyChange"><view class="scope-control">{{propertyLabel}}<text>⌄</text></view></picker>
-        <picker mode="selector" range="{{metricOptions}}" value="{{metricIndex}}" bindchange="onMetricChange"><view class="scope-control">{{metricLabel}}<text>⌄</text></view></picker>
-        <picker mode="selector" range="{{sizeOptions}}" value="{{sizeIndex}}" bindchange="onSizeChange"><view class="scope-control">{{sizeLabel}}<text>⌄</text></view></picker>
-        <picker mode="selector" range="{{rangeOptions}}" value="{{rangeIndex}}" bindchange="onRangeChange"><view class="scope-control">{{rangeLabel}}<text>⌄</text></view></picker>
+        <picker mode="selector" range="{{propertyOptions}}" value="{{propertyIndex}}" bindchange="onPropertyChange" aria-label="选择住宅类型"><view class="scope-control">{{propertyLabel}}<text>⌄</text></view></picker>
+        <picker mode="selector" range="{{metricOptions}}" value="{{metricIndex}}" bindchange="onMetricChange" aria-label="选择统计指标"><view class="scope-control">{{metricLabel}}<text>⌄</text></view></picker>
+        <picker mode="selector" range="{{sizeOptions}}" value="{{sizeIndex}}" bindchange="onSizeChange" aria-label="选择面积范围"><view class="scope-control">{{sizeLabel}}<text>⌄</text></view></picker>
+        <picker mode="selector" range="{{rangeOptions}}" value="{{rangeIndex}}" bindchange="onRangeChange" aria-label="选择时间范围"><view class="scope-control">{{rangeLabel}}<text>⌄</text></view></picker>
       </view>
       <view class="nav-row">
         <button class="nav-button {{activeSection === 'overview' ? 'active' : ''}}" data-target="overview" bindtap="jumpTo">城市概览</button>
@@ -115,7 +115,7 @@
       <view class="exact-section" wx:if="{{showExactData}}">
         <button class="exact-toggle" bindtap="toggleExact">{{exactOpen ? '收起精确数据' : '查看精确数据'}}<text>{{exactOpen ? '⌃' : '⌄'}}</text></button>
         <view wx:if="{{exactOpen}}" class="exact-content">
-          <picker mode="selector" range="{{exactMonthLabels}}" value="{{exactMonthIndex}}" bindchange="onExactMonthChange"><view class="exact-month">统计月份：{{exactMonth}} <text>⌄</text></view></picker>
+          <picker mode="selector" range="{{exactMonthLabels}}" value="{{exactMonthIndex}}" bindchange="onExactMonthChange" aria-label="选择精确数据统计月份"><view class="exact-month">统计月份：{{exactMonth}} <text>⌄</text></view></picker>
           <view class="exact-city" wx:for="{{exactData}}" wx:key="id"><text class="exact-city-name">{{item.name}}</text><view><text><text class="field-label">原始指数</text>{{item.index}}</text><text><text class="field-label">{{metricLabel}}变动率</text>{{item.change}}</text><text><text class="field-label">累计值</text>{{item.cumulative}}</text><text><text class="field-label">发布日期</text>{{item.releaseDate}}</text></view></view>
         </view>
       </view>
@@ -133,7 +133,7 @@
 <view class="backdrop" wx:if="{{pickerOpen}}" bindtap="closePicker">
   <view class="sheet" catchtap="stopPropagation">
     <view class="sheet-head"><view><text class="sheet-title">选择趋势城市</text><text class="sheet-note">已选 {{state.cities.length}} / 3</text></view><button class="close-button" bindtap="closePicker">完成</button></view>
-    <input class="search" value="{{searchText}}" bindinput="onSearch" placeholder="搜索中文、拼音或首字母…" />
+    <input class="search" value="{{searchText}}" bindinput="onSearch" placeholder="搜索中文、拼音或首字母…" aria-label="搜索趋势城市" />
     <scroll-view class="city-list" scroll-y>
       <block wx:for="{{cityOptions}}" wx:key="id"><text class="city-group" wx:if="{{item.showGroup}}">{{item.group}}</text><button class="city-option {{item.selected ? 'selected' : ''}}" data-id="{{item.id}}" disabled="{{item.disabled}}" bindtap="toggleCity"><text>{{item.name}}</text><text>{{item.selected ? '已选' : ''}}</text></button></block>
       <text class="no-result" wx:if="{{!cityOptions.length}}">没有匹配的城市</text>

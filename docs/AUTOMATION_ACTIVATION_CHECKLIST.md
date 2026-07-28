@@ -23,7 +23,7 @@
 
 除身份验证、真机操作和最终确认外，其余仓库初始化、工作流配置、环境变量录入、测试执行和结果核对由Codex完成。
 
-双真机逐项操作与证据格式见 [`MINIPROGRAM_V2_2_0_DEVICE_TEST.md`](MINIPROGRAM_V2_2_0_DEVICE_TEST.md)。
+双真机逐项操作与证据格式见 [`MINIPROGRAM_V2_3_0_DEVICE_TEST.md`](MINIPROGRAM_V2_3_0_DEVICE_TEST.md)。
 
 ## GitHub配置目标
 
