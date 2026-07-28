@@ -249,3 +249,76 @@ export function verifyReleaseAgainstSnapshot(snapshot, release) {
   check(JSON.stringify(release.bootstrap.breadthSeries) === JSON.stringify(expectedBootstrap.breadthSeries), 'breadth series mismatch')
   return errors
 }
+
+export function verifyReleaseIntegrity(release) {
+  const errors = []
+  const check = (condition, message) => { if (!condition) errors.push(message) }
+  const { bootstrap, bootstrapText, manifest, manifestText, current, currentText, cities } = release
+
+  check(bootstrap?.remoteFormat === REMOTE_FORMAT, 'bootstrap format mismatch')
+  check(bootstrap?.remoteSchemaVersion === REMOTE_SCHEMA_VERSION, 'bootstrap remote schema mismatch')
+  check(manifest?.format === REMOTE_FORMAT, 'manifest format mismatch')
+  check(manifest?.remote_schema_version === REMOTE_SCHEMA_VERSION, 'manifest remote schema mismatch')
+  check(current?.dataset_version === manifest?.dataset_version, 'current dataset version mismatch')
+  check(bootstrap?.datasetVersion === manifest?.dataset_version, 'bootstrap dataset version mismatch')
+  check(current?.dataset_as_of === manifest?.dataset_as_of, 'current dataset month mismatch')
+  check(bootstrap?.datasetAsOf === manifest?.dataset_as_of, 'bootstrap dataset month mismatch')
+  check(manifest?.bootstrap_sha256 === sha256(bootstrapText), 'bootstrap SHA-256 mismatch')
+  check(manifest?.bootstrap_bytes === byteLength(bootstrapText), 'bootstrap byte size mismatch')
+  check(current?.manifest_sha256 === sha256(manifestText), 'manifest SHA-256 mismatch')
+  check(byteLength(currentText) <= SIZE_LIMITS.current, 'current.json exceeds 8KB')
+  check(byteLength(manifestText) <= SIZE_LIMITS.manifest, 'manifest.json exceeds 16KB')
+  check(byteLength(bootstrapText) <= SIZE_LIMITS.bootstrap, 'bootstrap.json exceeds 2MB')
+  check(release.totalBytes <= SIZE_LIMITS.release, 'remote release exceeds 4MB')
+
+  const bootstrapCityIds = Array.isArray(bootstrap?.cityIds) ? bootstrap.cityIds : []
+  const manifestCityIds = Object.keys(manifest?.city_files || {})
+  const shardCityIds = Object.keys(cities || {})
+  check(bootstrapCityIds.length === 70 && new Set(bootstrapCityIds).size === 70, 'bootstrap must contain 70 unique city IDs')
+  check(manifestCityIds.length === 70, 'manifest must contain 70 city shards')
+  check(shardCityIds.length === 70, 'release must contain 70 city shards')
+  check(JSON.stringify([...manifestCityIds].sort()) === JSON.stringify([...bootstrapCityIds].sort()), 'manifest city IDs differ from bootstrap')
+  check(JSON.stringify([...shardCityIds].sort()) === JSON.stringify([...bootstrapCityIds].sort()), 'shard city IDs differ from bootstrap')
+
+  const reconstructedSeries = { ...(bootstrap?.series ? clone(bootstrap.series) : {}) }
+  for (const cityId of bootstrapCityIds) {
+    const item = cities?.[cityId]
+    check(Boolean(item), `missing city shard: ${cityId}`)
+    if (!item) continue
+    check(item.data?.datasetVersion === manifest?.dataset_version, `${cityId}: dataset version mismatch`)
+    check(item.data?.cityId === cityId, `${cityId}: city ID mismatch`)
+    check(item.sha256 === sha256(item.text), `${cityId}: SHA-256 mismatch`)
+    check(item.bytes === byteLength(item.text), `${cityId}: byte size mismatch`)
+    check(item.bytes <= SIZE_LIMITS.city, `${cityId}: shard exceeds 40KB`)
+    check(manifest?.city_files?.[cityId]?.sha256 === item.sha256, `${cityId}: manifest SHA-256 mismatch`)
+    check(manifest?.city_files?.[cityId]?.bytes === item.bytes, `${cityId}: manifest byte size mismatch`)
+    if (bootstrap?.series?.[cityId]) {
+      check(JSON.stringify(bootstrap.series[cityId]) === JSON.stringify(item.data?.series), `${cityId}: bootstrap and shard series differ`)
+    }
+    reconstructedSeries[cityId] = item.data?.series
+  }
+
+  const reconstructedSnapshot = { ...bootstrap, series: reconstructedSeries }
+  try {
+    validateBundledSnapshot(reconstructedSnapshot)
+    const expectedBootstrap = buildBootstrap(reconstructedSnapshot)
+    check(JSON.stringify(bootstrap.latestSeries) === JSON.stringify(expectedBootstrap.latestSeries), 'latest series mismatch')
+    check(JSON.stringify(bootstrap.breadthSeries) === JSON.stringify(expectedBootstrap.breadthSeries), 'breadth series mismatch')
+  } catch (error) {
+    errors.push(`reconstructed snapshot invalid: ${error.message}`)
+  }
+  return errors
+}
+
+export function classifyRemoteFreshness(remoteManifest, bundledSnapshot) {
+  if (remoteManifest.dataset_as_of > bundledSnapshot.datasetAsOf) {
+    return { freshness_status: 'newer_month', client_action: 'eligible_after_full_validation' }
+  }
+  if (remoteManifest.dataset_as_of < bundledSnapshot.datasetAsOf) {
+    return { freshness_status: 'stale_month', client_action: 'keep_bundled_snapshot' }
+  }
+  if (remoteManifest.source_dataset_version === bundledSnapshot.datasetVersion) {
+    return { freshness_status: 'matches_bundled_source', client_action: 'eligible_after_full_validation' }
+  }
+  return { freshness_status: 'known_stale_source', client_action: 'reject_remote_and_keep_bundled_snapshot' }
+}

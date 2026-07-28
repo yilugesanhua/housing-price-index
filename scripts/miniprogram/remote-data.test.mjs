@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 import { resolve } from 'node:path'
 import test from 'node:test'
-import { buildRemoteRelease, clientNextCheckAt, REMOTE_FORMAT, sha256, SIZE_LIMITS, stableJson, verifyReleaseAgainstSnapshot } from './remote-data-lib.mjs'
+import { buildRemoteRelease, classifyRemoteFreshness, clientNextCheckAt, REMOTE_FORMAT, sha256, SIZE_LIMITS, stableJson, verifyReleaseAgainstSnapshot, verifyReleaseIntegrity } from './remote-data-lib.mjs'
 
 const root = resolve(import.meta.dirname, '../..')
 const require = createRequire(import.meta.url)
@@ -71,4 +71,34 @@ test('remote mini program release rejects manifest and bootstrap hash mismatches
   const errors = verifyReleaseAgainstSnapshot(snapshot, candidate).join('\n')
   assert.match(errors, /bootstrap SHA-256 mismatch/)
   assert.match(errors, /manifest SHA-256 mismatch/)
+})
+
+test('integrity monitoring accepts an internally exact older source but marks it stale', () => {
+  const candidate = release()
+  candidate.manifest.source_dataset_version = '2026-06-679ea146d4e2'
+  candidate.manifestText = stableJson(candidate.manifest)
+  candidate.current.manifest_sha256 = sha256(candidate.manifestText)
+  candidate.currentText = stableJson(candidate.current)
+  assert.deepEqual(verifyReleaseIntegrity(candidate), [])
+  assert.deepEqual(classifyRemoteFreshness(candidate.manifest, snapshot), {
+    freshness_status: 'known_stale_source',
+    client_action: 'reject_remote_and_keep_bundled_snapshot',
+  })
+  assert.match(verifyReleaseAgainstSnapshot(snapshot, candidate).join('\n'), /manifest source dataset version mismatch/)
+})
+
+test('integrity monitoring still rejects a self-inconsistent city shard', () => {
+  const candidate = release()
+  candidate.cities.fuzhou.data.series.n_a[0] = 999
+  candidate.cities.fuzhou.text = stableJson(candidate.cities.fuzhou.data)
+  candidate.cities.fuzhou.sha256 = sha256(candidate.cities.fuzhou.text)
+  candidate.cities.fuzhou.bytes = Buffer.byteLength(candidate.cities.fuzhou.text)
+  candidate.manifest.city_files.fuzhou = {
+    sha256: candidate.cities.fuzhou.sha256,
+    bytes: candidate.cities.fuzhou.bytes,
+  }
+  candidate.manifestText = stableJson(candidate.manifest)
+  candidate.current.manifest_sha256 = sha256(candidate.manifestText)
+  candidate.currentText = stableJson(candidate.current)
+  assert.match(verifyReleaseIntegrity(candidate).join('\n'), /fuzhou: bootstrap and shard series differ/)
 })

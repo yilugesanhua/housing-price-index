@@ -81,6 +81,16 @@ test('remote monitor invokes SCF directly without CloudBase CLI preflight permis
   assert.doesNotMatch(monitor, /tcb login/)
 })
 
+test('remote monitor separates immutable release integrity from bundled snapshot freshness', async () => {
+  const script = await readFile(resolve(root, 'scripts/miniprogram/monitor-remote-release.mjs'), 'utf8')
+  assert.match(script, /--integrity-only/)
+  assert.match(script, /classifyRemoteFreshness/)
+  assert.match(script, /publish_audit_matched: true/)
+  assert.match(script, /current-pointer-repair-/)
+  assert.match(script, /repair\.before_sha256 !== expectedCurrentSha256/)
+  assert.match(script, /production_pointer_untouched: true/)
+})
+
 test('only the publish job receives the protected environment and credentials', () => {
   const prepare = publisher.slice(publisher.indexOf('  prepare:'), publisher.indexOf('  publish:'))
   const publish = publisher.slice(publisher.indexOf('  publish:'))
