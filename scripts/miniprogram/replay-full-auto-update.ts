@@ -83,6 +83,14 @@ const issues: ReplayIssue[] = [
     resolution: "Let the COS SDK enforce and cancel request timeouts, use 180 seconds for complete bootstrap transfers, retain 60 seconds for ordinary objects, and retry only after the prior request has ended.",
     verification: "Restart the cloud annual replay from month 1; all 12 months and the following production read-only monitor must pass.",
   },
+  {
+    id: "REPLAY-005",
+    detected_in: "cloud-year-run-30367683647",
+    severity: "fixed",
+    problem: "The V7/V4 annual replay passed 10 rounds but the 45-minute job limit canceled round 11 before the final-only report was written.",
+    resolution: "Persist a report checkpoint after every completed round and allow 75 minutes for 12 conservative full-cloud readbacks without weakening validation or increasing object concurrency.",
+    verification: "Restart the cloud annual replay from month 1; all 12 months, the uploaded report artifact, and the following production read-only monitor must pass.",
+  },
 ];
 
 function digest(value: unknown): string {
@@ -106,6 +114,27 @@ async function timed<T>(stages: StageReport[], name: string, action: () => Promi
   stages.push(report);
   allStages.push(report);
   return result.value;
+}
+
+async function writeReplayCheckpoint(replayItems: Array<Record<string, unknown>>, targetMonth: string | null): Promise<void> {
+  const checkpoint = {
+    format: "housing-full-auto-update-year-replay-v2",
+    status: "running",
+    run_id: runId,
+    cloud_run_id: useCloud ? cloudRunId : null,
+    active_target_month: targetMonth,
+    completed_replay_count: replayItems.length,
+    production_pointer_untouched: true,
+    production_release_prefix_untouched: true,
+    automatic_release_enabled: false,
+    replays: replayItems,
+    issues,
+    checked_at: new Date().toISOString(),
+  };
+  await Promise.all([
+    writeFile(resolve(outputRoot, "report.json"), `${JSON.stringify(checkpoint, null, 2)}\n`, "utf8"),
+    writeFile(resolve(outputRoot, "issues.json"), `${JSON.stringify(issues, null, 2)}\n`, "utf8"),
+  ]);
 }
 
 async function retryCloud<T>(label: string, action: () => Promise<T>): Promise<T> {
@@ -269,6 +298,7 @@ function createWxMock(release: any) {
 
 await rm(outputRoot, { recursive: true, force: true });
 await mkdir(outputRoot, { recursive: true });
+await writeReplayCheckpoint([], null);
 const auditReport = JSON.parse(await readFile(resolve(root, "data/audit-report.json"), "utf8")) as AuditReport;
 const auditedBatches: ParsedBatch[] = [];
 for await (const path of glob(resolve(root, "data/raw/**/*.batch.json").replaceAll("\\", "/"))) {
@@ -496,6 +526,7 @@ for (const [index, targetMonth] of targetMonths.entries()) {
     issues_detected: issues.filter((issue) => issue.detected_in === targetMonth).map((issue) => issue.id),
     stages,
   });
+  await writeReplayCheckpoint(replays, targetMonth);
   console.log(`Replay ${replayNumber}/${requestedMonths} passed: ${baselineMonth} -> ${targetMonth}`);
 }
 } catch (error) {
