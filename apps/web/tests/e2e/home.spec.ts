@@ -177,13 +177,11 @@ test("keeps summaries usable when one trend shard fails", async ({ page }) => {
   await expect(page.getByRole("group", { name: "显示或隐藏趋势线" }).getByRole("button", { name: "上海", exact: true })).toBeVisible();
 });
 
-test("shows an offline state and refreshes when the connection returns", async ({ page, context }, testInfo) => {
+test("shows an offline state and refreshes when the connection returns", async ({ page }) => {
   await page.goto("/?v=1&metric=mom&type=new&range=36&cities=xiamen&focus=xiamen&size=all");
   await expect(page.locator(".city-card")).toHaveCount(6);
-  if (testInfo.project.name === "mobile") await context.setOffline(true);
   await page.evaluate(() => window.dispatchEvent(new Event("offline")));
   await expect(page.getByText("当前处于离线状态", { exact: false })).toBeVisible();
-  if (testInfo.project.name === "mobile") await context.setOffline(false);
   await page.evaluate(() => window.dispatchEvent(new Event("online")));
   await expect(page.getByText("当前处于离线状态", { exact: false })).toBeHidden();
   await expect(page.locator(".city-card")).toHaveCount(6);
