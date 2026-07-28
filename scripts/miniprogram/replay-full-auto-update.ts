@@ -71,7 +71,15 @@ const issues: ReplayIssue[] = [
     detected_in: "cloud-year-run-30287408324",
     severity: "fixed",
     problem: "The first cloud annual replay passed 10 months, then an unbounded COS request stalled until the 20-minute job limit canceled the process.",
-    resolution: "Limit object operations to batches of 10, enforce a 60-second timeout with three idempotent attempts, and raise the annual rehearsal job limit to 45 minutes.",
+    resolution: "Limit object operations to batches of 10, use SDK-enforced request cancellation with three idempotent attempts, and raise the annual rehearsal job limit to 45 minutes.",
+    verification: "Restart the cloud annual replay from month 1; all 12 months and the following production read-only monitor must pass.",
+  },
+  {
+    id: "REPLAY-004",
+    detected_in: "cloud-year-run-30326077602",
+    severity: "fixed",
+    problem: "The complete 70-city bootstrap exceeded the former 60-second wrapper timeout; the wrapper stopped waiting without canceling the COS request, so retries could overlap.",
+    resolution: "Let the COS SDK enforce and cancel request timeouts, use 180 seconds for complete bootstrap transfers, retain 60 seconds for ordinary objects, and retry only after the prior request has ended.",
     verification: "Restart the cloud annual replay from month 1; all 12 months and the following production read-only monitor must pass.",
   },
 ];
@@ -102,19 +110,11 @@ async function timed<T>(stages: StageReport[], name: string, action: () => Promi
 async function retryCloud<T>(label: string, action: () => Promise<T>): Promise<T> {
   let latestError: unknown;
   for (let attempt = 1; attempt <= 3; attempt += 1) {
-    let timer: NodeJS.Timeout | undefined;
     try {
-      return await Promise.race([
-        action(),
-        new Promise<never>((_resolve, reject) => {
-          timer = setTimeout(() => reject(new Error(`${label} timed out after 60 seconds (attempt ${attempt}/3)`)), 60_000);
-        }),
-      ]);
+      return await action();
     } catch (error) {
       latestError = error;
       if (attempt < 3) console.warn(`[replay:cloud] ${label} failed; retrying (${attempt}/3): ${error instanceof Error ? error.message : String(error)}`);
-    } finally {
-      if (timer) clearTimeout(timer);
     }
   }
   throw latestError;

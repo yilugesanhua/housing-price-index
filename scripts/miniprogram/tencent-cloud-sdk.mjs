@@ -6,6 +6,8 @@ import TencentCloudScf from 'tencentcloud-sdk-nodejs-scf'
 export const DEFAULT_CLOUD_ENV_ID = 'cloud1-d3gpdx70w5d05c68c'
 export const STORAGE_BUCKET_ID = '636c-cloud1-d3gpdx70w5d05c68c-1456861154'
 export const STORAGE_REGION = 'ap-shanghai'
+export const DEFAULT_COS_TIMEOUT_MS = 60_000
+export const LARGE_TRANSFER_COS_TIMEOUT_MS = 180_000
 
 const missingCodes = new Set(['NoSuchKey', 'NotFound', 'ResourceNotFound'])
 
@@ -27,6 +29,10 @@ export function assertRehearsalKey(key, runId) {
   return key
 }
 
+export function cosTimeoutForKey(key) {
+  return /(?:^|\/)bootstrap\.json$/.test(key) ? LARGE_TRANSFER_COS_TIMEOUT_MS : DEFAULT_COS_TIMEOUT_MS
+}
+
 export function createTencentCloudClient({
   secretId = process.env.TENCENTCLOUD_SECRET_ID,
   secretKey = process.env.TENCENTCLOUD_SECRET_KEY,
@@ -37,12 +43,14 @@ export function createTencentCloudClient({
   if (!secretId || !secretKey) throw new Error('Tencent Cloud publisher credentials are required')
   if (!/^cloud[\w-]+$/.test(cloudEnvId)) throw new Error('Invalid CloudBase environment ID')
 
-  const cos = new COS({ SecretId: secretId, SecretKey: secretKey })
+  const cos = new COS({ SecretId: secretId, SecretKey: secretKey, Timeout: DEFAULT_COS_TIMEOUT_MS })
+  const largeTransferCos = new COS({ SecretId: secretId, SecretKey: secretKey, Timeout: LARGE_TRANSFER_COS_TIMEOUT_MS })
   const ScfClient = TencentCloudScf.scf.v20180416.Client
   const scf = new ScfClient({ credential: { secretId, secretKey }, region })
 
   const callCos = (method, key, extra = {}) => new Promise((resolveCall, reject) => {
-    cos[method]({ Bucket: bucket, Region: region, Key: key, ...extra }, (error, data) => {
+    const client = cosTimeoutForKey(key) === LARGE_TRANSFER_COS_TIMEOUT_MS ? largeTransferCos : cos
+    client[method]({ Bucket: bucket, Region: region, Key: key, ...extra }, (error, data) => {
       if (error) reject(cloudError(method, key, error))
       else resolveCall(data)
     })
