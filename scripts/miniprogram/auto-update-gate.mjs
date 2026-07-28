@@ -29,7 +29,7 @@ function calendarText(calendar) {
 export function validateDiscoveryGate({ handoff, discoveryReportText, freshReport, freshCalendar, trigger }) {
   assert(handoff?.format === 'housing-data-discovery-handoff-v1' && handoff.status === 'update_available', 'handoff format or status is invalid')
   assert(trigger.workflow_name === 'monthly-data-check', 'triggering workflow is not the read-only discovery workflow')
-  assert(trigger.conclusion === 'failure', 'discovery workflow must signal a detected update')
+  assert(trigger.conclusion === 'success', 'discovery workflow did not complete successfully')
   assert(trigger.event === 'schedule' || trigger.event === 'workflow_dispatch', 'discovery event is not trusted')
   assert(trigger.head_branch === trigger.default_branch, 'discovery did not run on the default branch')
   assert(/^[a-f0-9]{40}$/.test(trigger.head_sha || ''), 'trigger commit SHA is invalid')

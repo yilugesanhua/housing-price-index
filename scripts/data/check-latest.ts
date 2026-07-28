@@ -111,13 +111,13 @@ export function evaluateReleaseSchedule(calendar: ReleaseCalendar, manifest: Man
   const millisecondsUntilRelease = scheduledTime - now.getTime();
   const daysUntilRelease = Math.ceil(millisecondsUntilRelease / 86_400_000);
   const earlyPollingMs = 30 * 60 * 1000;
-  const overdueMs = 6 * 60 * 60 * 1000;
+  const overdueMs = 60 * 60 * 1000;
   if (millisecondsUntilRelease > earlyPollingMs) {
     return { should_check_official: false, release_window: "waiting", scheduled_release_at: nextEntry.scheduled_at, expected_stat_month: nextEntry.expected_stat_month, days_until_release: daysUntilRelease };
   }
   return {
     should_check_official: true,
-    release_window: now.getTime() - scheduledTime > overdueMs ? "overdue" : "active",
+    release_window: now.getTime() - scheduledTime >= overdueMs ? "overdue" : "active",
     scheduled_release_at: nextEntry.scheduled_at,
     expected_stat_month: nextEntry.expected_stat_month,
     days_until_release: daysUntilRelease,
@@ -169,7 +169,7 @@ export function evaluateLatestCheck(discovery: Discovery, manifest: Manifest, no
   const officialReleaseDetected = Boolean(decision?.expected_stat_month && latestPage && latestPage.stat_month >= decision.expected_stat_month);
   if (status === "current" && decision?.release_window === "overdue" && !officialReleaseDetected) {
     status = "anomaly";
-    reasons.push(`已超过预告发布时间6小时，仍未发现 ${decision.expected_stat_month} 正式发布页；可能延期或官方页面结构已变化`);
+    reasons.push(`已超过预告发布时间1小时，仍未发现 ${decision.expected_stat_month} 正式发布页；可能延期或官方页面结构已变化`);
   } else if (status === "current" && decision?.release_window === "active" && !officialReleaseDetected) {
     reasons.push(`已进入 ${decision.expected_stat_month} 发布窗口，尚未发现正式发布页，将按计划继续检查`);
   }

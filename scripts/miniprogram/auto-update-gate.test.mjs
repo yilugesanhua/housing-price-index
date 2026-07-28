@@ -22,7 +22,7 @@ const report = {
 }
 const reportText = `${JSON.stringify(report, null, 2)}\n`
 const calendarText = JSON.stringify({ year: calendar.year, source_urls: calendar.source_urls, raw_content_sha256: calendar.raw_content_sha256, entries: calendar.entries })
-const trigger = { workflow_name: 'monthly-data-check', conclusion: 'failure', event: 'schedule', head_branch: 'main', default_branch: 'main', head_sha: 'b'.repeat(40), run_id: '123' }
+const trigger = { workflow_name: 'monthly-data-check', conclusion: 'success', event: 'schedule', head_branch: 'main', default_branch: 'main', head_sha: 'b'.repeat(40), run_id: '123' }
 const handoff = {
   format: 'housing-data-discovery-handoff-v1',
   status: 'update_available',

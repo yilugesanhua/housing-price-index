@@ -46,13 +46,13 @@ describe("monthly official data check", () => {
     expect(decision.expected_stat_month).toBe("2026-07");
   });
 
-  it("checks around the scheduled time and alerts after a six-hour delay", () => {
+  it("checks around the scheduled time and alerts one hour after release", () => {
     const active = evaluateReleaseSchedule(calendar, manifest, new Date("2026-08-17T01:15:00.000Z"));
     expect(active.release_window).toBe("active");
     expect(active.should_check_official).toBe(true);
 
-    const overdue = evaluateReleaseSchedule(calendar, manifest, new Date("2026-08-17T08:00:00.000Z"));
-    const result = evaluateLatestCheck({ pages: [page("2026-06")] }, manifest, new Date("2026-08-17T08:00:00.000Z"), overdue);
+    const overdue = evaluateReleaseSchedule(calendar, manifest, new Date("2026-08-17T02:30:00.000Z"));
+    const result = evaluateLatestCheck({ pages: [page("2026-06")] }, manifest, new Date("2026-08-17T02:30:00.000Z"), overdue);
     expect(overdue.release_window).toBe("overdue");
     expect(result.status).toBe("anomaly");
     expect(result.official_release_detected).toBe(false);

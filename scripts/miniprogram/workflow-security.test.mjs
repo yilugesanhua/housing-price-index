@@ -19,8 +19,24 @@ test('discovery workflow remains read-only and has no production environment', (
 test('publisher is triggered only by the named discovery workflow', () => {
   assert.match(publisher, /workflow_run:\s+workflows: \[monthly-data-check\]/)
   assert.doesNotMatch(publisher, /pull_request:|workflow_dispatch:/)
+  assert.match(publisher, /workflow_run\.conclusion == 'success'/)
+  assert.match(publisher, /needs\.inspect\.outputs\.update_available == 'true'/)
+  assert.match(publisher, /Distinguish a verified update from a normal no-update check/)
   assert.match(publisher, /Require successful ordinary CI for the base commit/)
   assert.match(publisher, /actions\/workflows\/ci\.yml\/runs/)
+})
+
+test('discovery schedule concentrates checks around the official 09:30 release', () => {
+  assert.match(discovery, /cron: "27,32,37,42,47,52,57 1 10-22 \* \*"/)
+  assert.match(discovery, /cron: "2,7,12,17,22,27,30 2 10-22 \* \*"/)
+  assert.match(discovery, /cron: "0 4,8 10-22 \* \*"/)
+  assert.doesNotMatch(discovery, /7,37 0-9 10-22/)
+})
+
+test('a discovered update succeeds while genuine discovery anomalies fail', () => {
+  assert.match(discovery, /2\)\s+echo "result=update_available"/)
+  assert.match(discovery, /Official discovery failed with exit \$status/)
+  assert.doesNotMatch(discovery, /continue-on-error: true/)
 })
 
 test('production pointer writes are serialized and never cancelled', () => {

@@ -5,8 +5,11 @@ on:
   schedule:
     # 北京时间每天09:00同步官方发布预告；是否检查正式发布列表由预告日期和时间决定。
     - cron: "0 1 * * *"
-    # 北京时间每月10日至22日08:07-17:37每30分钟唤醒；非预告窗口只同步日程，不抓正式发布列表。
-    - cron: "7,37 0-9 10-22 * *"
+    # 北京时间每月10日至22日09:27-10:27每5分钟唤醒；脚本只在已核验发布日期访问正式发布列表。
+    - cron: "27,32,37,42,47,52,57 1 10-22 * *"
+    - cron: "2,7,12,17,22,27,30 2 10-22 * *"
+    # 官方偶发延迟时仅在北京时间12:00和16:00各补查一次，不持续高频轮询。
+    - cron: "0 4,8 10-22 * *"
 
 permissions:
   contents: read
@@ -28,8 +31,24 @@ jobs:
       - run: npm ci
       - id: latest
         name: Sync release calendar and compare official and published months
-        continue-on-error: true
-        run: npm run data:check-latest
+        shell: bash
+        run: |
+          set +e
+          npm run data:check-latest
+          status=$?
+          set -e
+          case "$status" in
+            0)
+              echo "result=no_update" >> "$GITHUB_OUTPUT"
+              ;;
+            2)
+              echo "result=update_available" >> "$GITHUB_OUTPUT"
+              ;;
+            *)
+              echo "Official discovery failed with exit $status."
+              exit "$status"
+              ;;
+          esac
       - name: Add report to job summary
         if: always()
         run: |
@@ -45,8 +64,8 @@ jobs:
           path: work/monthly-data-check/
           if-no-files-found: warn
           retention-days: 30
-      - name: Trigger repository notification on update or failure
+      - name: Trigger repository notification on discovery failure
         if: steps.latest.outcome == 'failure'
         run: |
-          echo "发现新月份、预告逾期或官方页面结构异常；请查看本次任务摘要和报告。"
+          echo "发布预告逾期、官方页面结构异常或发现程序失败；请查看本次任务摘要和报告。"
           exit 1
