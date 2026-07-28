@@ -3,6 +3,7 @@ import { createHash } from 'node:crypto'
 export const REMOTE_FORMAT = 'housing-miniprogram-data'
 export const REMOTE_SCHEMA_VERSION = '1.0.0'
 export const SERIES_CODES = ['n_a', 'n_s', 'n_m', 'n_l', 'r_a', 'r_s', 'r_m', 'r_l']
+const COMPLETE_BOOTSTRAP_MINIMUM_APP_VERSION = [2, 3, 0]
 export const SIZE_LIMITS = Object.freeze({
   current: 8 * 1024,
   manifest: 16 * 1024,
@@ -13,6 +14,18 @@ export const SIZE_LIMITS = Object.freeze({
 
 export function stableJson(value) {
   return `${JSON.stringify(value)}\n`
+}
+
+function requiresCompleteBootstrap(version) {
+  const match = /^v(\d+)\.(\d+)\.(\d+)$/.exec(version || '')
+  if (!match) return true
+  const parts = match.slice(1).map(Number)
+  for (let index = 0; index < parts.length; index += 1) {
+    if (parts[index] !== COMPLETE_BOOTSTRAP_MINIMUM_APP_VERSION[index]) {
+      return parts[index] > COMPLETE_BOOTSTRAP_MINIMUM_APP_VERSION[index]
+    }
+  }
+  return true
 }
 
 export function sha256(value) {
@@ -222,7 +235,9 @@ export function verifyReleaseAgainstSnapshot(snapshot, release) {
     reconstructedSeries[cityId] = item.data.series
   }
   for (const cityId of snapshot.cityIds) {
-    check(JSON.stringify(release.bootstrap.series[cityId]) === JSON.stringify(snapshot.series[cityId]), `${cityId}: full bootstrap series differ from bundled snapshot`)
+    if (requiresCompleteBootstrap(release.manifest.minimum_app_version)) {
+      check(JSON.stringify(release.bootstrap.series[cityId]) === JSON.stringify(snapshot.series[cityId]), `${cityId}: full bootstrap series differ from bundled snapshot`)
+    }
     check(JSON.stringify(reconstructedSeries[cityId]) === JSON.stringify(snapshot.series[cityId]), `${cityId}: reconstructed series differ from bundled snapshot`)
   }
   for (const cityId of snapshot.cityIds) {

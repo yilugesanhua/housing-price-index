@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 import { resolve } from 'node:path'
 import test from 'node:test'
-import { buildRemoteRelease, clientNextCheckAt, REMOTE_FORMAT, SIZE_LIMITS, verifyReleaseAgainstSnapshot } from './remote-data-lib.mjs'
+import { buildRemoteRelease, clientNextCheckAt, REMOTE_FORMAT, sha256, SIZE_LIMITS, stableJson, verifyReleaseAgainstSnapshot } from './remote-data-lib.mjs'
 
 const root = resolve(import.meta.dirname, '../..')
 const require = createRequire(import.meta.url)
@@ -29,6 +29,24 @@ test('remote mini program release is compact and exactly reconstructs bundled da
   assert.ok(candidate.manifest.bootstrap_bytes <= SIZE_LIMITS.bootstrap)
   assert.ok(candidate.totalBytes <= SIZE_LIMITS.release)
   assert.deepEqual(verifyReleaseAgainstSnapshot(snapshot, candidate), [])
+})
+
+test('legacy sharded releases reconstruct all cities while v2.3 requires a complete bootstrap', () => {
+  const legacy = release()
+  legacy.manifest.minimum_app_version = 'v2.2.0'
+  legacy.bootstrap.series = Object.fromEntries(snapshot.featuredCityIds.map((cityId) => [cityId, legacy.bootstrap.series[cityId]]))
+  legacy.bootstrapText = stableJson(legacy.bootstrap)
+  legacy.manifest.bootstrap_sha256 = sha256(legacy.bootstrapText)
+  legacy.manifest.bootstrap_bytes = Buffer.byteLength(legacy.bootstrapText)
+  legacy.manifestText = stableJson(legacy.manifest)
+  legacy.current.manifest_sha256 = sha256(legacy.manifestText)
+  legacy.currentText = stableJson(legacy.current)
+  legacy.totalBytes = Buffer.byteLength(legacy.bootstrapText) + Buffer.byteLength(legacy.manifestText)
+    + Object.values(legacy.cities).reduce((sum, item) => sum + item.bytes, 0)
+  assert.deepEqual(verifyReleaseAgainstSnapshot(snapshot, legacy), [])
+
+  legacy.manifest.minimum_app_version = 'v2.3.0'
+  assert.match(verifyReleaseAgainstSnapshot(snapshot, legacy).join('\n'), /full bootstrap series differ/)
 })
 
 test('client check time follows the next official release by ten minutes', () => {
