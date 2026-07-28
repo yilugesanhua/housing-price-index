@@ -102,7 +102,8 @@ test('first online launch atomically activates remote data and valid cache hydra
   assert.equal(runtime.getSource(), 'remote')
   assert.equal(runtime.hasCity('taiyuan'), true)
   assert.equal(mock.storage.get(POINTER_KEY).datasetVersion, release.current.dataset_version)
-  assert.deepEqual(mock.storage.get(POINTER_KEY).cachedCityIds, ['taiyuan'])
+  assert.equal(mock.storage.get(POINTER_KEY).cachedCityIds.length, 70)
+  assert.equal(mock.stats.downloads, 2)
 
   const restored = createDataRuntime({ wxApi: mock.wxApi, bundled })
   assert.equal(restored.getSource(), 'remote')
@@ -135,7 +136,7 @@ test('unchanged remote data retries shortly when the official check time is alre
   assert.equal(mock.storage.get(CHECK_KEY).nextCheckAt, now + config.releaseRetryMs)
 })
 
-test('remote city shard downloads on demand and is added to the active pointer', async () => {
+test('all 70 city histories are local after update and city switching makes no download', async () => {
   const release = makeRelease()
   const mock = createWxMock(release)
   const runtime = createDataRuntime({ wxApi: mock.wxApi, bundled })
@@ -144,8 +145,27 @@ test('remote city shard downloads on demand and is added to the active pointer',
 
   await runtime.ensureCities(['haikou'])
   assert.equal(runtime.hasCity('haikou'), true)
-  assert.equal(mock.stats.downloads, before + 1)
-  assert.deepEqual(mock.storage.get(POINTER_KEY).cachedCityIds, ['haikou'])
+  assert.equal(mock.stats.downloads, before)
+  assert.equal(mock.storage.get(POINTER_KEY).cachedCityIds.length, 70)
+})
+
+test('a legacy sharded release is bulk-cached once instead of downloading on city selection', async () => {
+  const release = makeRelease()
+  release.bootstrap.series = Object.fromEntries(release.bootstrap.featuredCityIds.map((cityId) => [cityId, release.bootstrap.series[cityId]]))
+  release.bootstrapText = `${JSON.stringify(release.bootstrap)}\n`
+  release.manifest.bootstrap_sha256 = sha256(utf8Bytes(release.bootstrapText))
+  release.manifest.bootstrap_bytes = utf8Bytes(release.bootstrapText).byteLength
+  release.manifestText = `${JSON.stringify(release.manifest)}\n`
+  release.current.manifest_sha256 = sha256(utf8Bytes(release.manifestText))
+  const mock = createWxMock(release)
+  const runtime = createDataRuntime({ wxApi: mock.wxApi, bundled })
+
+  assert.equal((await runtime.refresh({ force: true })).updated, true)
+  assert.equal(mock.stats.downloads, 66)
+  assert.equal(Object.keys(runtime.getSnapshot().series).length, 70)
+  const downloadsAfterUpdate = mock.stats.downloads
+  await runtime.ensureCities(['taiyuan', 'haikou', 'xining'])
+  assert.equal(mock.stats.downloads, downloadsAfterUpdate)
 })
 
 test('corrupt manifest and interrupted cache writes never activate a remote pointer', async () => {

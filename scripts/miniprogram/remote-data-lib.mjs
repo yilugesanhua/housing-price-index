@@ -6,9 +6,9 @@ export const SERIES_CODES = ['n_a', 'n_s', 'n_m', 'n_l', 'r_a', 'r_s', 'r_m', 'r
 export const SIZE_LIMITS = Object.freeze({
   current: 8 * 1024,
   manifest: 16 * 1024,
-  bootstrap: 300 * 1024,
+  bootstrap: 2 * 1024 * 1024,
   city: 40 * 1024,
-  release: 2 * 1024 * 1024,
+  release: 4 * 1024 * 1024,
 })
 
 export function stableJson(value) {
@@ -69,7 +69,7 @@ export function validateBundledSnapshot(snapshot) {
 
 export function buildBootstrap(snapshot) {
   validateBundledSnapshot(snapshot)
-  const series = Object.fromEntries(snapshot.featuredCityIds.map((cityId) => [cityId, clone(snapshot.series[cityId])]))
+  const series = Object.fromEntries(snapshot.cityIds.map((cityId) => [cityId, clone(snapshot.series[cityId])]))
   const latestSeries = Object.fromEntries(snapshot.cityIds.map((cityId) => [cityId, Object.fromEntries(SERIES_CODES.map((code) => [code, snapshot.series[cityId][code].slice(-4)]))]))
   const breadthSeries = {}
   for (const code of SERIES_CODES) {
@@ -203,8 +203,8 @@ export function verifyReleaseAgainstSnapshot(snapshot, release) {
   check(release.current.manifest_sha256 === sha256(release.manifestText), 'manifest SHA-256 mismatch')
   check(byteLength(release.currentText) <= SIZE_LIMITS.current, 'current.json exceeds 8KB')
   check(byteLength(release.manifestText) <= SIZE_LIMITS.manifest, 'manifest.json exceeds 16KB')
-  check(byteLength(release.bootstrapText) <= SIZE_LIMITS.bootstrap, 'bootstrap.json exceeds 300KB')
-  check(release.totalBytes <= SIZE_LIMITS.release, 'remote release exceeds 2MB')
+  check(byteLength(release.bootstrapText) <= SIZE_LIMITS.bootstrap, 'bootstrap.json exceeds 2MB')
+  check(release.totalBytes <= SIZE_LIMITS.release, 'remote release exceeds 4MB')
   check(Object.keys(release.cities).length === 70, 'release must contain 70 city shards')
   const reconstructedSeries = { ...clone(release.bootstrap.series) }
   for (const cityId of snapshot.cityIds) {
@@ -222,6 +222,7 @@ export function verifyReleaseAgainstSnapshot(snapshot, release) {
     reconstructedSeries[cityId] = item.data.series
   }
   for (const cityId of snapshot.cityIds) {
+    check(JSON.stringify(release.bootstrap.series[cityId]) === JSON.stringify(snapshot.series[cityId]), `${cityId}: full bootstrap series differ from bundled snapshot`)
     check(JSON.stringify(reconstructedSeries[cityId]) === JSON.stringify(snapshot.series[cityId]), `${cityId}: reconstructed series differ from bundled snapshot`)
   }
   for (const cityId of snapshot.cityIds) {

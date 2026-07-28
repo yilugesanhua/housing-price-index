@@ -3,7 +3,7 @@ const dataConfig = require('../config/data.js')
 const versionConfig = require('../config/version.js')
 const { sha256, utf8Bytes } = require('./sha256.js')
 
-const POINTER_KEY = 'housing-data-pointer-v3'
+const POINTER_KEY = 'housing-data-pointer-v4'
 const CHECK_KEY = 'housing-data-check-v3'
 const DATASET_PATTERN = /^20\d{2}-(0[1-9]|1[0-2])-[a-f0-9]{12}$/
 const SHA_PATTERN = /^[a-f0-9]{64}$/
@@ -82,6 +82,9 @@ function validateBootstrap(bootstrap, manifest, config) {
     for (const code of SERIES_CODES) assert(Array.isArray(bootstrap.latestSeries[cityId][code]) && bootstrap.latestSeries[cityId][code].length === 4, `remote latest series is invalid: ${cityId}/${code}`)
   }
   for (const cityId of bootstrap.featuredCityIds) validateSeries(bootstrap.series?.[cityId], 120, cityId)
+  for (const cityId of bootstrap.cityIds) {
+    if (bootstrap.series?.[cityId]) validateSeries(bootstrap.series[cityId], 120, cityId)
+  }
   for (const code of SERIES_CODES) {
     for (const metric of ['mom', 'yoy']) assert(Array.isArray(bootstrap.breadthSeries?.[`${code}_${metric}`]) && bootstrap.breadthSeries[`${code}_${metric}`].length === 480, `remote breadth series is invalid: ${code}/${metric}`)
   }
@@ -138,6 +141,7 @@ function createDataRuntime({ wxApi = typeof wx === 'undefined' ? null : wx, bund
         bootstrap.series[cityId] = validateCityShard(safeParse(text), manifest, cityId, config).series
         cities.push(cityId)
       }
+      for (const cityId of bootstrap.cityIds) assert(bootstrap.series[cityId], `cached full city history is missing: ${cityId}`)
       activeSnapshot = bootstrap
       activeSource = 'remote'
       activeManifest = manifest
@@ -199,7 +203,7 @@ function createDataRuntime({ wxApi = typeof wx === 'undefined' ? null : wx, bund
     return manifest.city_file_id_template.replace('{city_id}', cityId)
   }
 
-  async function cacheRelease(current, manifestDownload, bootstrapDownload, cityDownloads) {
+  async function cacheRelease(current, manifestDownload, bootstrapDownload, cityDownloads, cityIds) {
     const root = versionRoot(current.dataset_version)
     await mkdir(`${root}/cities`)
     await writeFile(`${root}/manifest.json`, manifestDownload.text)
@@ -209,7 +213,7 @@ function createDataRuntime({ wxApi = typeof wx === 'undefined' ? null : wx, bund
       datasetVersion: current.dataset_version,
       manifestSha256: current.manifest_sha256,
       current,
-      cachedCityIds: Object.keys(cityDownloads),
+      cachedCityIds: [...cityIds],
     }
     wxApi.setStorageSync(POINTER_KEY, pointer)
   }
@@ -232,19 +236,24 @@ function createDataRuntime({ wxApi = typeof wx === 'undefined' ? null : wx, bund
       const manifest = validateManifest(manifestDownload.data, current, config)
       const bootstrapDownload = await downloadJson(manifest.bootstrap_file_id, manifest.bootstrap_sha256, manifest.bootstrap_bytes)
       const bootstrap = validateBootstrap(bootstrapDownload.data, manifest, config)
-      const cityIds = [...new Set(requiredCityIds)].filter((cityId) => bootstrap.cityMap[cityId] && !bootstrap.series[cityId])
-      const cityDownloads = Object.fromEntries(await Promise.all(cityIds.map(async (cityId) => {
-        const file = manifest.city_files[cityId]
-        const item = await downloadJson(cityFileId(manifest, cityId), file.sha256, file.bytes)
-        validateCityShard(item.data, manifest, cityId, config)
-        return [cityId, item]
-      })))
+      const cityIds = bootstrap.cityIds.filter((cityId) => !bootstrap.series[cityId])
+      const cityDownloads = {}
+      for (let offset = 0; offset < cityIds.length; offset += 8) {
+        const batch = await Promise.all(cityIds.slice(offset, offset + 8).map(async (cityId) => {
+          const file = manifest.city_files[cityId]
+          const item = await downloadJson(cityFileId(manifest, cityId), file.sha256, file.bytes)
+          validateCityShard(item.data, manifest, cityId, config)
+          return [cityId, item]
+        }))
+        for (const [cityId, item] of batch) cityDownloads[cityId] = item
+      }
       for (const [cityId, item] of Object.entries(cityDownloads)) bootstrap.series[cityId] = item.data.series
-      await cacheRelease(current, manifestDownload, bootstrapDownload, cityDownloads)
+      for (const cityId of bootstrap.cityIds) assert(bootstrap.series[cityId], `remote full city history is missing: ${cityId}`)
+      await cacheRelease(current, manifestDownload, bootstrapDownload, cityDownloads, bootstrap.cityIds)
       activeSnapshot = bootstrap
       activeSource = 'remote'
       activeManifest = manifest
-      cachedCityIds = Object.keys(cityDownloads)
+      cachedCityIds = [...bootstrap.cityIds]
       return { updated: true, source: activeSource, datasetVersion: activeSnapshot.datasetVersion }
     } catch (error) {
       console.error('[data:update] refresh failed', error)

@@ -25,6 +25,7 @@ test('remote mini program release is compact and exactly reconstructs bundled da
   assert.equal(candidate.manifest.source_dataset_version, snapshot.datasetVersion)
   assert.match(candidate.manifest.dataset_version, /^2026-06-[a-f0-9]{12}$/)
   assert.equal(Object.keys(candidate.cities).length, 70)
+  assert.equal(Object.keys(candidate.bootstrap.series).length, 70)
   assert.ok(candidate.manifest.bootstrap_bytes <= SIZE_LIMITS.bootstrap)
   assert.ok(candidate.totalBytes <= SIZE_LIMITS.release)
   assert.deepEqual(verifyReleaseAgainstSnapshot(snapshot, candidate), [])

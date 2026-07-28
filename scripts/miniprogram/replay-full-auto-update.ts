@@ -232,6 +232,7 @@ function createWxMock(release: any) {
   const storage = new Map<string, any>();
   const remote = cloudFiles(release);
   let tempIndex = 0;
+  const stats = { downloads: 0 };
   const fs = {
     readFileSync(filePath: string, encoding?: string) {
       const value = files.get(filePath);
@@ -252,6 +253,7 @@ function createWxMock(release: any) {
       cloud: {
         callFunction({ success }: any) { success({ result: { current: structuredClone(release.current) } }); },
         downloadFile({ fileID, success, fail }: any) {
+          stats.downloads += 1;
           const value = remote.get(fileID);
           if (value === undefined) return fail(new Error(`remote file missing: ${fileID}`));
           const tempFilePath = `/temp/${tempIndex += 1}`;
@@ -260,6 +262,7 @@ function createWxMock(release: any) {
         },
       },
     },
+    stats,
   };
 }
 
@@ -349,7 +352,7 @@ for (const [index, targetMonth] of targetMonths.entries()) {
     const release = buildRemoteRelease(targetBuilt.snapshot, {
       cloudEnvId,
       storageBucket,
-      minimumAppVersion: "v2.2.0",
+      minimumAppVersion: "v2.3.0",
       nextCheckAt,
       sourceBatchIds: [archive.source_batch.source_batch_id],
     });
@@ -426,14 +429,19 @@ for (const [index, targetMonth] of targetMonths.entries()) {
     const runtime = createDataRuntime({ wxApi: mock.wxApi, bundled: packaged.baselineSnapshot, config });
     assert.equal(runtime.getSnapshot().datasetAsOf, baselineMonth);
     assert.equal(runtime.getSource(), "bundled");
-    const refreshed = await runtime.refresh({ requiredCityIds: ["taiyuan"], force: true });
+    const refreshed = await runtime.refresh({ force: true });
     assert.equal(refreshed.updated, true);
     assert.equal(runtime.getSource(), "remote");
     assert.equal(runtime.getSnapshot().datasetAsOf, targetMonth);
     assert.equal(runtime.hasCity("taiyuan"), true);
-    await runtime.ensureCities(["haikou"]);
+    assert.equal(Object.keys(runtime.getSnapshot().series).length, 70);
+    assert.equal(mock.stats.downloads, 2);
+    const downloadsAfterRefresh = mock.stats.downloads;
+    await runtime.ensureCities(["taiyuan", "haikou", "xining"]);
     assert.equal(runtime.hasCity("haikou"), true);
-    return { value: null, evidence: { before_month: baselineMonth, after_month: targetMonth, source_after_refresh: "remote", selected_city_loaded: "taiyuan", on_demand_city_loaded: "haikou" } };
+    assert.equal(runtime.hasCity("xining"), true);
+    assert.equal(mock.stats.downloads, downloadsAfterRefresh);
+    return { value: null, evidence: { before_month: baselineMonth, after_month: targetMonth, source_after_refresh: "remote", local_city_history_count: 70, update_download_count: downloadsAfterRefresh, city_switch_download_count: 0 } };
   });
 
   if (packaged.paddingMonths.length > 0) {
