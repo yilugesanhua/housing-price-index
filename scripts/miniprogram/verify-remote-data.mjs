@@ -16,12 +16,18 @@ const currentText = await readFile(resolve(inputRoot, 'current.candidate.json'),
 const bootstrap = JSON.parse(bootstrapText)
 const manifest = JSON.parse(manifestText)
 const current = JSON.parse(currentText)
+let revisionManifest = null
+let revisionManifestText = null
+if (manifest.release_type === 'historical_correction') {
+  revisionManifestText = await readFile(resolve(inputRoot, 'revision-manifest.json'), 'utf8')
+  revisionManifest = JSON.parse(revisionManifestText)
+}
 const cities = Object.fromEntries(await Promise.all(snapshot.cityIds.map(async (cityId) => {
   const text = await readFile(resolve(inputRoot, 'cities', `${cityId}.json`), 'utf8')
   return [cityId, { data: JSON.parse(text), text, sha256: sha256(text), bytes: byteLength(text), fileId: manifest.city_file_id_template?.replace('{city_id}', cityId) }]
 })))
-const totalBytes = byteLength(bootstrapText) + byteLength(manifestText) + Object.values(cities).reduce((sum, item) => sum + item.bytes, 0)
-const release = { bootstrap, bootstrapText, manifest, manifestText, current, currentText, cities, totalBytes }
+const totalBytes = byteLength(bootstrapText) + byteLength(manifestText) + (revisionManifestText ? byteLength(revisionManifestText) : 0) + Object.values(cities).reduce((sum, item) => sum + item.bytes, 0)
+const release = { bootstrap, bootstrapText, manifest, manifestText, revisionManifest, revisionManifestText, current, currentText, cities, totalBytes }
 const errors = integrityOnly ? verifyReleaseIntegrity(release) : verifyReleaseAgainstSnapshot(snapshot, release)
 if (errors.length) {
   console.error('Remote release verification failed:')

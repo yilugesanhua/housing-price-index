@@ -1,0 +1,150 @@
+name: historical-data-correction
+
+on:
+  workflow_dispatch:
+    inputs:
+      request_path:
+        description: Version-controlled request under data/corrections/
+        required: true
+        type: string
+      revision_id_confirmation:
+        description: Type the exact revision_id from the request
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: housing-data-production-publish
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    outputs:
+      dataset_version: ${{ steps.gate.outputs.dataset_version }}
+      revision_id: ${{ steps.gate.outputs.revision_id }}
+      supersedes_source: ${{ steps.request.outputs.supersedes_source }}
+      request_sha256: ${{ steps.request.outputs.request_sha256 }}
+      gate_report_sha256: ${{ steps.gate.outputs.gate_report_sha256 }}
+      commit_sha: ${{ steps.identity.outputs.commit_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+      - id: identity
+        shell: bash
+        run: |
+          test "$(git branch --show-current)" = "${{ github.event.repository.default_branch }}"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          echo "commit_sha=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+      - id: request
+        env:
+          REQUEST_PATH: ${{ inputs.request_path }}
+          CONFIRMATION: ${{ inputs.revision_id_confirmation }}
+        shell: bash
+        run: |
+          [[ "$REQUEST_PATH" =~ ^data/corrections/[a-z0-9-]+\.json$ ]]
+          test -f "$REQUEST_PATH"
+          node -e "const fs=require('fs'),c=require('./'+process.env.REQUEST_PATH); if(c.revision_id!==process.env.CONFIRMATION||c.approval_status!=='approved') throw Error('revision confirmation or approval mismatch'); fs.appendFileSync(process.env.GITHUB_OUTPUT,'supersedes_source='+c.supersedes_source_dataset_version+'\nrequest_sha256='+require('crypto').createHash('sha256').update(fs.readFileSync(process.env.REQUEST_PATH)).digest('hex')+'\n')"
+      - name: Require successful ordinary CI for this exact commit
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const runs = await github.paginate(github.rest.actions.listWorkflowRunsForRepo, { owner: context.repo.owner, repo: context.repo.repo, head_sha: context.sha, status: 'success', per_page: 100 })
+            if (!runs.some((run) => run.name === 'ci' && run.head_sha === context.sha && run.event === 'push')) core.setFailed(`No successful ordinary CI push run found for ${context.sha}`)
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Re-audit and validate all production records
+        run: |
+          npm run data:audit
+          npm run validate:data
+          npm run test:miniprogram
+      - name: Stage the immutable correction package
+        env:
+          REQUEST_PATH: ${{ inputs.request_path }}
+        run: |
+          npm run data:release-calendar
+          npm run miniprogram:data:stage -- --env=cloud1-d3gpdx70w5d05c68c "--correction=$REQUEST_PATH" "--commit=$GITHUB_SHA" "--run-id=$GITHUB_RUN_ID"
+          npm run miniprogram:data:verify-remote
+      - id: gate
+        env:
+          COMMIT_SHA: ${{ steps.identity.outputs.commit_sha }}
+          REQUEST_PATH: ${{ inputs.request_path }}
+        shell: bash
+        run: |
+          result="$(npm run --silent miniprogram:data:prepare-historical-correction -- "--request=$REQUEST_PATH" "--commit=$COMMIT_SHA" "--run-id=$GITHUB_RUN_ID" --env=cloud1-d3gpdx70w5d05c68c)"
+          node -e "const v=JSON.parse(process.argv[1]),fs=require('fs'); fs.appendFileSync(process.env.GITHUB_OUTPUT,'dataset_version='+v.dataset_version+'\nrevision_id='+v.revision_id+'\ngate_report_sha256='+v.gate_report_sha256+'\n')" "$result"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: historical-correction-${{ github.run_id }}
+          path: |
+            work/historical-correction/gate-report.json
+            work/miniprogram-data/
+            data/audit-report.json
+            ${{ inputs.request_path }}
+          if-no-files-found: error
+          retention-days: 365
+
+  publish:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: housing-data-production
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.commit_sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Verify immutable default-branch head
+        shell: bash
+        run: |
+          git fetch origin "${{ github.event.repository.default_branch }}"
+          test "$(git rev-parse HEAD)" = "${{ needs.prepare.outputs.commit_sha }}"
+          test "$(git rev-parse origin/${{ github.event.repository.default_branch }})" = "${{ needs.prepare.outputs.commit_sha }}"
+      - uses: actions/download-artifact@v4
+        with:
+          name: historical-correction-${{ github.run_id }}
+          path: work/correction-artifact
+      - name: Restore attested candidate
+        shell: bash
+        run: |
+          mkdir -p work/historical-correction work/miniprogram-data
+          cp work/correction-artifact/work/historical-correction/gate-report.json work/historical-correction/gate-report.json
+          cp -R work/correction-artifact/work/miniprogram-data/. work/miniprogram-data/
+      - name: Upload, read back, and atomically activate correction
+        env:
+          TENCENTCLOUD_SECRET_ID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
+          TENCENTCLOUD_SECRET_KEY: ${{ secrets.TENCENTCLOUD_SECRET_KEY }}
+          CI_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          CI_COMMIT_SHA: ${{ needs.prepare.outputs.commit_sha }}
+          CI_RUN_ID: ${{ github.run_id }}
+          CI_PRODUCTION_ENVIRONMENT: housing-data-production
+          CI_CLOUD_ENV_ID: cloud1-d3gpdx70w5d05c68c
+          CI_DATASET_VERSION: ${{ needs.prepare.outputs.dataset_version }}
+          CI_GATE_REPORT_SHA256: ${{ needs.prepare.outputs.gate_report_sha256 }}
+          CI_GATE_REPORT_PATH: work/historical-correction/gate-report.json
+          CI_REVISION_ID: ${{ needs.prepare.outputs.revision_id }}
+          CI_SUPERSEDES_SOURCE_DATASET_VERSION: ${{ needs.prepare.outputs.supersedes_source }}
+          CI_CORRECTION_REQUEST_SHA256: ${{ needs.prepare.outputs.request_sha256 }}
+        run: npm run miniprogram:data:publish -- --env=cloud1-d3gpdx70w5d05c68c --dataset=${{ needs.prepare.outputs.dataset_version }}
+      - name: Persist immutable publication and revocation audits
+        shell: bash
+        run: |
+          git config user.name "housing-data-automation"
+          git config user.email "housing-data-automation@users.noreply.github.com"
+          git add -- data/releases/
+          git commit -m "data: record audited historical correction [skip ci]"
+          git push origin "HEAD:${{ github.event.repository.default_branch }}"

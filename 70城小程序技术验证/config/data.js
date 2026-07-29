@@ -5,6 +5,8 @@ module.exports = Object.freeze({
   manifestFunctionName: 'getHousingDataManifest',
   remoteFormat: 'housing-miniprogram-data',
   remoteSchemaMajor: 1,
+  monthlyMinimumAppVersion: 'v2.3.0',
+  correctionMinimumAppVersion: 'v2.4.0',
   releaseRetryMs: 15 * 60 * 1000,
   failureRetryMs: 60 * 60 * 1000,
   maximumCheckDelayMs: 31 * 24 * 60 * 60 * 1000,

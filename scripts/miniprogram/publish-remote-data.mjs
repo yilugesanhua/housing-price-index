@@ -31,6 +31,7 @@ const cloudRoot = `housing-data/releases/${datasetVersion}`
 const plan = [
   ['putObject', `${cloudRoot}/bootstrap.json`],
   ['putObject', `${cloudRoot}/cities/<70-city-files>.json`],
+  ...(manifest.release_type === 'historical_correction' ? [['putObject', `${cloudRoot}/revision-manifest.json`]] : []),
   ['putObject', `${cloudRoot}/manifest.json`],
   ['putObject', 'housing-data/current.json', 'after full verification'],
 ]
@@ -80,7 +81,21 @@ if (ciGate?.gate_type === 'manual_corrected_release') {
     throw new Error(`Corrected release precondition failed: active source dataset is ${activeManifest.source_dataset_version || 'missing'}`)
   }
 }
-const previousDatasetVersion = await rollbackVersionOrNull(root, previous?.dataset_version, cloudEnvId)
+if (ciGate?.gate_type === 'historical_data_correction') {
+  if (!previous?.dataset_version || previous.dataset_as_of !== manifest.dataset_as_of) throw new Error('Historical correction precondition failed: active month differs from correction month')
+  const alreadyActive = previous.dataset_version === datasetVersion
+  const activeManifestPath = resolve(localRoot, 'active-manifest-before-historical-correction.json')
+  await rm(activeManifestPath, { force: true })
+  await cloud.downloadObject(`housing-data/releases/${previous.dataset_version}/manifest.json`, activeManifestPath)
+  const activeManifestText = await readFile(activeManifestPath, 'utf8')
+  if (sha256(activeManifestText) !== previous.manifest_sha256) throw new Error('Historical correction precondition failed: active manifest hash differs from current.json')
+  const activeManifest = JSON.parse(activeManifestText)
+  if (!alreadyActive && activeManifest.source_dataset_version !== ciGate.supersedes_source_dataset_version) throw new Error('Historical correction precondition failed: active source is not the approved superseded source')
+  if (alreadyActive && (activeManifest.source_dataset_version !== ciGate.source_dataset_version || previous.superseded_source_dataset_version !== ciGate.supersedes_source_dataset_version)) throw new Error('Historical correction idempotent recovery metadata is invalid')
+  if (manifest.release_type !== 'historical_correction' || manifest.revision_id !== ciGate.revision_id || manifest.supersedes_source_dataset_version !== activeManifest.source_dataset_version) throw new Error('Historical correction manifest does not match the release gate')
+}
+let previousDatasetVersion = await rollbackVersionOrNull(root, previous?.dataset_version, cloudEnvId)
+if (ciGate?.gate_type === 'historical_data_correction') previousDatasetVersion = null
 if (previous?.dataset_version && !previousDatasetVersion) {
   console.warn(`Current remote version ${previous.dataset_version} is not an eligible rollback target; previous_dataset_version will be null`)
 }
@@ -97,6 +112,7 @@ if (previousDatasetVersion && previousDatasetVersion !== datasetVersion) {
 if (!releaseAlreadyUploaded) {
   await cloud.uploadFile(resolve(localRoot, 'bootstrap.json'), `${cloudRoot}/bootstrap.json`)
   await cloud.uploadDirectory(resolve(localRoot, 'cities'), `${cloudRoot}/cities`)
+  if (manifest.release_type === 'historical_correction') await cloud.uploadFile(resolve(localRoot, 'revision-manifest.json'), `${cloudRoot}/revision-manifest.json`)
   await cloud.uploadFile(resolve(localRoot, 'manifest.json'), `${cloudRoot}/manifest.json`)
 }
 
@@ -107,6 +123,7 @@ async function verifyCompleteRemoteRelease(label) {
   const downloadedRoot = verifyRoot
   await cloud.downloadObject(`${cloudRoot}/manifest.json`, resolve(downloadedRoot, 'manifest.json'))
   await cloud.downloadObject(`${cloudRoot}/bootstrap.json`, resolve(downloadedRoot, 'bootstrap.json'))
+  if (manifest.release_type === 'historical_correction') await cloud.downloadObject(`${cloudRoot}/revision-manifest.json`, resolve(downloadedRoot, 'revision-manifest.json'))
   await mkdir(resolve(downloadedRoot, 'cities'), { recursive: true })
   for (const cityId of Object.keys(manifest.city_files)) {
     const cityPath = resolve(downloadedRoot, 'cities', `${cityId}.json`)
@@ -133,6 +150,25 @@ async function writeOrVerifyPublishAudit(audit) {
   }
 }
 
+async function writeOrVerifyCorrectionAudit(supersededDatasetVersion, recordedAt) {
+  if (ciGate?.gate_type !== 'historical_data_correction' || !supersededDatasetVersion) return
+  const correctionAudit = {
+    status: 'superseded_by_audited_historical_correction', dataset_version: supersededDatasetVersion,
+    source_dataset_version: ciGate.supersedes_source_dataset_version, superseded_by_dataset_version: datasetVersion,
+    revision_id: ciGate.revision_id, rollback_allowed: false,
+    reason: 'superseded by an approved and fully audited historical correction', recorded_at: recordedAt,
+    cloud_env_id: cloudEnvId, commit_sha: process.env.CI_COMMIT_SHA, github_run_id: process.env.GITHUB_RUN_ID,
+  }
+  const path = resolve(auditDir, `${supersededDatasetVersion}.correction.json`)
+  try {
+    const existingAudit = JSON.parse(await readFile(path, 'utf8'))
+    if (existingAudit.dataset_version !== supersededDatasetVersion || existingAudit.superseded_by_dataset_version !== datasetVersion || existingAudit.revision_id !== ciGate.revision_id || existingAudit.rollback_allowed !== false) throw new Error('Existing correction audit differs from the active correction')
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw error
+    await writeFile(path, `${JSON.stringify(correctionAudit, null, 2)}\n`, { encoding: 'utf8', flag: 'wx' })
+  }
+}
+
 console.log(JSON.stringify({
   target_env: cloudEnvId,
   dataset_version: datasetVersion,
@@ -151,6 +187,7 @@ if (previous?.dataset_version === datasetVersion) {
   await verifyCompleteRemoteRelease('remote-verify-idempotent')
   const idempotentAudit = { ...report, status: 'published', published_at: previous.published_at, previous_dataset_version: previous.previous_dataset_version, current_sha256: sha256(stableJson(previous)), github_run_id: ciMode ? process.env.GITHUB_RUN_ID : null, commit_sha: ciMode ? process.env.CI_COMMIT_SHA : null, idempotent_recovery: true }
   await writeOrVerifyPublishAudit(idempotentAudit)
+  await writeOrVerifyCorrectionAudit(previous.superseded_dataset_version, previous.published_at)
   console.log(`Dataset ${datasetVersion} is already active and passed the full idempotent guard`)
   process.exit(0)
 }
@@ -165,6 +202,10 @@ if (!ciMode) {
 const current = JSON.parse(await readFile(resolve(localRoot, 'current.candidate.json'), 'utf8'))
 current.published_at = new Date().toISOString()
 current.previous_dataset_version = previousDatasetVersion
+if (ciGate?.gate_type === 'historical_data_correction') {
+  current.superseded_dataset_version = previous.dataset_version
+  current.superseded_source_dataset_version = ciGate.supersedes_source_dataset_version
+}
 const confirmedCurrentPath = resolve(localRoot, 'current.confirmed.json')
 const confirmedCurrentText = stableJson(current)
 await writeFile(confirmedCurrentPath, confirmedCurrentText, 'utf8')
@@ -205,4 +246,5 @@ await activatePointerWithRollback({
 })
 const audit = { ...report, status: 'published', published_at: current.published_at, previous_dataset_version: current.previous_dataset_version, current_sha256: sha256(confirmedCurrentText), github_run_id: ciMode ? process.env.GITHUB_RUN_ID : null, commit_sha: ciMode ? process.env.CI_COMMIT_SHA : null }
 await writeOrVerifyPublishAudit(audit)
+await writeOrVerifyCorrectionAudit(previous?.dataset_version, current.published_at)
 console.log(`Published ${datasetVersion}; current.json round-trip verification passed`)

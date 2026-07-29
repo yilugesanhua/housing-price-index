@@ -1,7 +1,8 @@
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { resolve } from 'node:path'
-import { buildRemoteRelease, clientNextCheckAt, verifyReleaseAgainstSnapshot } from './remote-data-lib.mjs'
+import { buildRemoteRelease, clientNextCheckAt, sha256, verifyReleaseAgainstSnapshot } from './remote-data-lib.mjs'
+import { loadAndValidateHistoricalCorrection } from './historical-correction-lib.mjs'
 
 const root = resolve(import.meta.dirname, '../..')
 const require = createRequire(import.meta.url)
@@ -14,9 +15,18 @@ const sourceBatchIds = publishedData.records.filter((record) => record.stat_mont
 const dataConfig = require(resolve(root, 'apps/miniprogram/config/data.js'))
 const calendarPath = process.argv.find((argument) => argument.startsWith('--calendar='))?.slice('--calendar='.length) || resolve(root, 'work/monthly-data-check/release-calendar.json')
 const explicitNextCheckAt = process.argv.find((argument) => argument.startsWith('--next-check-at='))?.slice('--next-check-at='.length)
+const correctionPath = process.argv.find((argument) => argument.startsWith('--correction='))?.slice('--correction='.length)
+const commitSha = process.argv.find((argument) => argument.startsWith('--commit='))?.slice('--commit='.length)
+const githubRunId = process.argv.find((argument) => argument.startsWith('--run-id='))?.slice('--run-id='.length)
 const nextCheckAt = explicitNextCheckAt || clientNextCheckAt(JSON.parse(await readFile(resolve(calendarPath), 'utf8')), snapshot.datasetAsOf)
 if (!Number.isFinite(Date.parse(nextCheckAt || ''))) throw new Error('Invalid --next-check-at value')
-const release = buildRemoteRelease(snapshot, { cloudEnvId, storageBucket: dataConfig.storageBucket, minimumAppVersion: versionConfig.version, nextCheckAt, sourceBatchIds })
+let correction = correctionPath ? await loadAndValidateHistoricalCorrection({ root, requestPath: resolve(root, correctionPath) }) : null
+if (correction) {
+  if (!/^[a-f0-9]{40}$/.test(commitSha || '') || !/^\d+$/.test(githubRunId || '')) throw new Error('Correction staging requires valid --commit and --run-id')
+  correction = { ...correction, audit_report_sha256: sha256(await readFile(resolve(root, 'data/audit-report.json'))), commit_sha: commitSha, github_run_id: githubRunId }
+}
+const minimumAppVersion = correction ? dataConfig.correctionMinimumAppVersion : dataConfig.monthlyMinimumAppVersion
+const release = buildRemoteRelease(snapshot, { cloudEnvId, storageBucket: dataConfig.storageBucket, minimumAppVersion, nextCheckAt, sourceBatchIds, correction })
 const outputRoot = resolve(root, 'work/miniprogram-data', release.manifest.dataset_version)
 const errors = verifyReleaseAgainstSnapshot(snapshot, release)
 if (errors.length) throw new Error(`Remote release validation failed:\n- ${errors.join('\n- ')}`)
@@ -26,12 +36,19 @@ await mkdir(resolve(outputRoot, 'cities'), { recursive: true })
 await writeFile(resolve(outputRoot, 'bootstrap.json'), release.bootstrapText, 'utf8')
 await writeFile(resolve(outputRoot, 'manifest.json'), release.manifestText, 'utf8')
 await writeFile(resolve(outputRoot, 'current.candidate.json'), release.currentText, 'utf8')
+if (release.revisionManifestText) await writeFile(resolve(outputRoot, 'revision-manifest.json'), release.revisionManifestText, 'utf8')
 await Promise.all(Object.entries(release.cities).map(([cityId, item]) => writeFile(resolve(outputRoot, 'cities', `${cityId}.json`), item.text, 'utf8')))
 const report = {
   status: 'staged',
   cloud_env_id: cloudEnvId,
   storage_bucket: dataConfig.storageBucket,
   app_version: versionConfig.version,
+  minimum_app_version: minimumAppVersion,
+  release_type: release.manifest.release_type,
+  revision_id: release.manifest.revision_id || null,
+  supersedes_source_dataset_version: release.manifest.supersedes_source_dataset_version || null,
+  revision_manifest_sha256: release.manifest.revision_manifest_sha256 || null,
+  revision_manifest_bytes: release.manifest.revision_manifest_bytes || null,
   dataset_version: release.manifest.dataset_version,
   source_dataset_version: snapshot.datasetVersion,
   dataset_as_of: snapshot.datasetAsOf,

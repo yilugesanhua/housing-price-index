@@ -30,8 +30,11 @@ function requireEqual(actual, expected, label) {
 export function validateCiReleaseAuthorization({ env, datasetVersion, cloudEnvId, gateReportText, checkedOutSha = env.GITHUB_SHA }) {
   requireEqual(env.GITHUB_ACTIONS, 'true', 'GitHub Actions marker')
   const correctedRelease = env.GITHUB_EVENT_NAME === 'workflow_dispatch' && env.GITHUB_WORKFLOW === CORRECTED_RELEASE.workflow
+  const historicalCorrection = env.GITHUB_EVENT_NAME === 'workflow_dispatch' && env.GITHUB_WORKFLOW === 'historical-data-correction'
   const allowedWorkflow = correctedRelease
     ? CORRECTED_RELEASE.workflowFile
+    : historicalCorrection
+      ? 'historical-data-correction.yml'
     : env.GITHUB_EVENT_NAME === 'workflow_run' && env.GITHUB_WORKFLOW === 'monthly-data-auto-publish'
       ? 'monthly-data-auto-publish.yml'
       : env.GITHUB_EVENT_NAME === 'schedule' && env.GITHUB_WORKFLOW === 'monthly-data-pending-publish'
@@ -64,6 +67,12 @@ export function validateCiReleaseAuthorization({ env, datasetVersion, cloudEnvId
     requireEqual(gate.expected_current_source_dataset_version, CORRECTED_RELEASE.expectedCurrentSourceDatasetVersion, 'expected current source dataset version')
     requireEqual(env.CI_EXPECTED_CURRENT_DATASET_VERSION, CORRECTED_RELEASE.expectedCurrentDatasetVersion, 'attested current dataset version')
     requireEqual(env.CI_EXPECTED_CURRENT_SOURCE_DATASET_VERSION, CORRECTED_RELEASE.expectedCurrentSourceDatasetVersion, 'attested current source dataset version')
+  } else if (historicalCorrection) {
+    requireEqual(gate.gate_type, 'historical_data_correction', 'historical correction gate type')
+    requireEqual(gate.github_run_id, env.GITHUB_RUN_ID, 'historical correction run ID')
+    requireEqual(gate.revision_id, env.CI_REVISION_ID, 'historical correction revision ID')
+    requireEqual(gate.supersedes_source_dataset_version, env.CI_SUPERSEDES_SOURCE_DATASET_VERSION, 'historical correction superseded source')
+    requireEqual(gate.request_sha256, env.CI_CORRECTION_REQUEST_SHA256, 'historical correction request SHA-256')
   } else {
     requireEqual(env.AUTOMATIC_RELEASE_ENABLED, 'true', 'production enable flag')
     requireEqual(String(gate.discovery_run_id), env.CI_DISCOVERY_RUN_ID, 'discovery run ID')

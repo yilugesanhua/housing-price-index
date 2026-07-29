@@ -3,12 +3,16 @@ import { createHash } from 'node:crypto'
 export const REMOTE_FORMAT = 'housing-miniprogram-data'
 export const REMOTE_SCHEMA_VERSION = '1.0.0'
 export const SERIES_CODES = ['n_a', 'n_s', 'n_m', 'n_l', 'r_a', 'r_s', 'r_m', 'r_l']
+export const RELEASE_TYPES = Object.freeze({ monthly: 'monthly_update', correction: 'historical_correction' })
+export const CORRECTION_FORMAT = 'housing-historical-correction'
+export const CORRECTION_SCHEMA_VERSION = '1.0.0'
 const COMPLETE_BOOTSTRAP_MINIMUM_APP_VERSION = [2, 3, 0]
 export const SIZE_LIMITS = Object.freeze({
   current: 8 * 1024,
   manifest: 16 * 1024,
   bootstrap: 2 * 1024 * 1024,
   city: 40 * 1024,
+  revisionManifest: 512 * 1024,
   release: 4 * 1024 * 1024,
 })
 
@@ -129,12 +133,13 @@ export function buildCityShard(snapshot, cityId) {
   }
 }
 
-export function buildRemoteRelease(snapshot, { cloudEnvId, storageBucket, minimumAppVersion, nextCheckAt, sourceBatchIds = [] }) {
+export function buildRemoteRelease(snapshot, { cloudEnvId, storageBucket, minimumAppVersion, nextCheckAt, sourceBatchIds = [], correction = null }) {
   validateBundledSnapshot(snapshot)
   assert(/^cloud[\w-]+$/.test(cloudEnvId), 'invalid cloud environment ID')
   assert(/^[a-z0-9-]+$/.test(storageBucket), 'invalid cloud storage bucket')
   assert(/^v\d+\.\d+\.\d+$/.test(minimumAppVersion), 'invalid minimum app version')
   assert(Number.isFinite(Date.parse(nextCheckAt || '')), 'invalid client next check time')
+  if (correction) validateCorrectionDescriptor(correction, snapshot)
   const batches = [...new Set(sourceBatchIds)].sort()
   const releaseHash = sha256(stableJson({
     sourceDatasetVersion: snapshot.datasetVersion,
@@ -145,6 +150,18 @@ export function buildRemoteRelease(snapshot, { cloudEnvId, storageBucket, minimu
     minimumAppVersion,
     nextCheckAt,
     sourceBatchIds: batches,
+    correction: correction ? {
+      revisionId: correction.revision_id,
+      supersedesSourceDatasetVersion: correction.supersedes_source_dataset_version,
+      sourceVersionChain: correction.source_version_chain,
+      revokedSourceDatasetVersions: correction.revoked_source_dataset_versions,
+      changes: correction.changes,
+      auditReportSha256: correction.audit_report_sha256,
+      commitSha: correction.commit_sha,
+      githubRunId: correction.github_run_id,
+      approvedAt: correction.approved_at,
+      approvedBy: correction.approved_by,
+    } : null,
   })).slice(0, 12)
   const datasetVersion = `${snapshot.datasetAsOf}-${releaseHash}`
   const releaseSnapshot = { ...snapshot, datasetVersion }
@@ -160,6 +177,32 @@ export function buildRemoteRelease(snapshot, { cloudEnvId, storageBucket, minimu
     sha256: cities[cityId].sha256,
     bytes: cities[cityId].bytes,
   }]))
+  const revisionManifest = correction ? {
+    format: CORRECTION_FORMAT,
+    schema_version: CORRECTION_SCHEMA_VERSION,
+    revision_id: correction.revision_id,
+    revision_type: correction.revision_type,
+    approval_status: correction.approval_status,
+    dataset_as_of: snapshot.datasetAsOf,
+    supersedes_source_dataset_version: correction.supersedes_source_dataset_version,
+    source_dataset_version: snapshot.datasetVersion,
+    source_version_chain: clone(correction.source_version_chain),
+    revoked_source_dataset_versions: clone(correction.revoked_source_dataset_versions),
+    reason: correction.reason,
+    official_urls: clone(correction.official_urls),
+    source_batch_ids: clone(correction.source_batch_ids),
+    parser_version: correction.parser_version,
+    audit_version: correction.audit_version,
+    audit_report_sha256: correction.audit_report_sha256,
+    commit_sha: correction.commit_sha,
+    github_run_id: correction.github_run_id,
+    approved_at: correction.approved_at,
+    approved_by: correction.approved_by,
+    changes: clone(correction.changes),
+    changed_record_count: new Set(correction.changes.map((item) => item.record_key)).size,
+    changed_field_count: correction.changes.length,
+  } : null
+  const revisionManifestText = revisionManifest ? stableJson(revisionManifest) : null
   const manifest = {
     format: REMOTE_FORMAT,
     remote_schema_version: REMOTE_SCHEMA_VERSION,
@@ -182,8 +225,17 @@ export function buildRemoteRelease(snapshot, { cloudEnvId, storageBucket, minimu
     minimum_app_version: minimumAppVersion,
     validation_status: 'passed',
     source_batch_ids: batches,
+    release_type: correction ? RELEASE_TYPES.correction : RELEASE_TYPES.monthly,
     release_note: `更新国家统计局70城住宅价格指数至${snapshot.datasetAsOf}`,
   }
+  if (revisionManifest) Object.assign(manifest, {
+    revision_id: revisionManifest.revision_id,
+    supersedes_source_dataset_version: revisionManifest.supersedes_source_dataset_version,
+    revision_manifest_file_id: `${releaseRoot}/revision-manifest.json`,
+    revision_manifest_sha256: sha256(revisionManifestText),
+    revision_manifest_bytes: byteLength(revisionManifestText),
+    changed_record_count: revisionManifest.changed_record_count,
+  })
   const manifestText = stableJson(manifest)
   const current = {
     dataset_version: datasetVersion,
@@ -196,8 +248,68 @@ export function buildRemoteRelease(snapshot, { cloudEnvId, storageBucket, minimu
     next_check_at: nextCheckAt,
   }
   const currentText = stableJson(current)
-  const totalBytes = byteLength(bootstrapText) + byteLength(manifestText) + Object.values(cities).reduce((sum, item) => sum + item.bytes, 0)
-  return { bootstrap, bootstrapText, cities, manifest, manifestText, current, currentText, totalBytes }
+  const totalBytes = byteLength(bootstrapText) + byteLength(manifestText) + (revisionManifestText ? byteLength(revisionManifestText) : 0) + Object.values(cities).reduce((sum, item) => sum + item.bytes, 0)
+  return { bootstrap, bootstrapText, cities, manifest, manifestText, revisionManifest, revisionManifestText, current, currentText, totalBytes }
+}
+
+export function validateCorrectionDescriptor(correction, snapshot = null) {
+  assert(correction && typeof correction === 'object', 'correction descriptor is required')
+  assert(/^revision-[a-z0-9][a-z0-9-]{5,80}$/.test(correction.revision_id || ''), 'invalid correction revision ID')
+  assert(correction.revision_type === 'historical_data_correction', 'invalid correction revision type')
+  assert(correction.approval_status === 'approved', 'correction is not approved')
+  const sourcePattern = /^20\d{2}-(0[1-9]|1[0-2])-[a-f0-9]{12}$/
+  assert(sourcePattern.test(correction.supersedes_source_dataset_version || ''), 'invalid superseded source dataset version')
+  assert(sourcePattern.test(correction.source_dataset_version || ''), 'invalid correction source dataset version')
+  if (snapshot) {
+    assert(correction.dataset_as_of === snapshot.datasetAsOf, 'correction month differs from snapshot')
+    assert(correction.source_dataset_version === snapshot.datasetVersion, 'correction source differs from snapshot')
+  }
+  assert(Array.isArray(correction.source_version_chain) && correction.source_version_chain.length >= 2, 'correction source chain is invalid')
+  assert(correction.source_version_chain.at(-2) === correction.supersedes_source_dataset_version, 'correction source chain does not directly supersede the prior source')
+  assert(correction.source_version_chain.at(-1) === correction.source_dataset_version, 'correction source chain does not end at new source')
+  assert(new Set(correction.source_version_chain).size === correction.source_version_chain.length, 'correction source chain contains duplicates')
+  assert(Array.isArray(correction.revoked_source_dataset_versions) && correction.revoked_source_dataset_versions.includes(correction.supersedes_source_dataset_version), 'superseded source is not revoked')
+  assert(correction.revoked_source_dataset_versions.every((value) => correction.source_version_chain.includes(value) && value !== correction.source_dataset_version), 'correction revocation list is invalid')
+  assert(typeof correction.reason === 'string' && correction.reason.trim().length >= 10, 'correction reason is too short')
+  assert(Array.isArray(correction.official_urls) && correction.official_urls.length > 0 && correction.official_urls.every((url) => /^https:\/\/(?:www\.)?stats\.gov\.cn\//.test(url)), 'correction official URLs are invalid')
+  assert(Array.isArray(correction.source_batch_ids) && correction.source_batch_ids.length > 0, 'correction source batches are missing')
+  assert(typeof correction.parser_version === 'string' && correction.parser_version.length > 0, 'correction parser version is missing')
+  assert(typeof correction.audit_version === 'string' && correction.audit_version.length > 0, 'correction audit version is missing')
+  if (correction.audit_report_sha256 !== undefined) assert(/^[a-f0-9]{64}$/.test(correction.audit_report_sha256), 'correction audit report hash is invalid')
+  if (correction.commit_sha !== undefined) assert(/^[a-f0-9]{40}$/.test(correction.commit_sha), 'correction commit SHA is invalid')
+  if (correction.github_run_id !== undefined) assert(/^\d+$/.test(String(correction.github_run_id)), 'correction GitHub run ID is invalid')
+  assert(Number.isFinite(Date.parse(correction.approved_at || '')) && typeof correction.approved_by === 'string' && correction.approved_by.trim(), 'correction approval metadata is invalid')
+  assert(Array.isArray(correction.changes) && correction.changes.length > 0, 'correction changes are missing')
+  const keys = correction.changes.map((item) => `${item.record_key}|${item.field}`)
+  assert(new Set(keys).size === keys.length, 'correction contains duplicate changed fields')
+  for (const item of correction.changes) {
+    assert(/^20\d{2}-(0[1-9]|1[0-2])\|[a-z]+\|(new|resale)\|(all|le90|90_144|gt144)$/.test(item.record_key || ''), `invalid correction record key: ${item.record_key}`)
+    assert(typeof item.field === 'string' && item.field.length > 0, `invalid correction field: ${item.record_key}`)
+    assert(/^https:\/\/(?:www\.)?stats\.gov\.cn\//.test(item.source_url || ''), `invalid correction source URL: ${item.record_key}`)
+    assert(typeof item.source_record_locator === 'string' && item.source_record_locator.length > 0, `missing correction source locator: ${item.record_key}`)
+  }
+  return correction
+}
+
+export function verifyRevisionManifest(manifest, revisionManifest) {
+  const errors = []
+  const check = (condition, message) => { if (!condition) errors.push(message) }
+  if ((manifest?.release_type || RELEASE_TYPES.monthly) !== RELEASE_TYPES.correction) {
+    check(!revisionManifest, 'monthly release must not contain a revision manifest')
+    return errors
+  }
+  try { validateCorrectionDescriptor(revisionManifest) } catch (error) { errors.push(error.message) }
+  check(revisionManifest?.format === CORRECTION_FORMAT, 'revision manifest format mismatch')
+  check(revisionManifest?.schema_version === CORRECTION_SCHEMA_VERSION, 'revision manifest schema mismatch')
+  check(revisionManifest?.revision_id === manifest?.revision_id, 'revision ID mismatch')
+  check(revisionManifest?.dataset_as_of === manifest?.dataset_as_of, 'revision month mismatch')
+  check(revisionManifest?.source_dataset_version === manifest?.source_dataset_version, 'revision source dataset mismatch')
+  check(revisionManifest?.supersedes_source_dataset_version === manifest?.supersedes_source_dataset_version, 'superseded source dataset mismatch')
+  check(revisionManifest?.changed_record_count === manifest?.changed_record_count, 'changed record count mismatch')
+  check(/^[a-f0-9]{64}$/.test(revisionManifest?.audit_report_sha256 || ''), 'revision audit report hash is invalid')
+  check(/^[a-f0-9]{40}$/.test(revisionManifest?.commit_sha || ''), 'revision commit SHA is invalid')
+  check(/^\d+$/.test(String(revisionManifest?.github_run_id || '')), 'revision GitHub run ID is invalid')
+  return errors
 }
 
 export function verifyReleaseAgainstSnapshot(snapshot, release) {
@@ -214,6 +326,13 @@ export function verifyReleaseAgainstSnapshot(snapshot, release) {
   check(release.manifest.bootstrap_sha256 === sha256(release.bootstrapText), 'bootstrap SHA-256 mismatch')
   check(release.manifest.bootstrap_bytes === byteLength(release.bootstrapText), 'bootstrap byte size mismatch')
   check(release.current.manifest_sha256 === sha256(release.manifestText), 'manifest SHA-256 mismatch')
+  check([undefined, RELEASE_TYPES.monthly, RELEASE_TYPES.correction].includes(release.manifest.release_type), 'manifest release type is invalid')
+  for (const error of verifyRevisionManifest(release.manifest, release.revisionManifest)) errors.push(error)
+  if (release.revisionManifestText) {
+    check(release.manifest.revision_manifest_sha256 === sha256(release.revisionManifestText), 'revision manifest SHA-256 mismatch')
+    check(release.manifest.revision_manifest_bytes === byteLength(release.revisionManifestText), 'revision manifest byte size mismatch')
+    check(byteLength(release.revisionManifestText) <= SIZE_LIMITS.revisionManifest, 'revision-manifest.json exceeds 512KB')
+  }
   check(byteLength(release.currentText) <= SIZE_LIMITS.current, 'current.json exceeds 8KB')
   check(byteLength(release.manifestText) <= SIZE_LIMITS.manifest, 'manifest.json exceeds 16KB')
   check(byteLength(release.bootstrapText) <= SIZE_LIMITS.bootstrap, 'bootstrap.json exceeds 2MB')
@@ -253,7 +372,7 @@ export function verifyReleaseAgainstSnapshot(snapshot, release) {
 export function verifyReleaseIntegrity(release) {
   const errors = []
   const check = (condition, message) => { if (!condition) errors.push(message) }
-  const { bootstrap, bootstrapText, manifest, manifestText, current, currentText, cities } = release
+  const { bootstrap, bootstrapText, manifest, manifestText, revisionManifest, revisionManifestText, current, currentText, cities } = release
 
   check(bootstrap?.remoteFormat === REMOTE_FORMAT, 'bootstrap format mismatch')
   check(bootstrap?.remoteSchemaVersion === REMOTE_SCHEMA_VERSION, 'bootstrap remote schema mismatch')
@@ -266,6 +385,13 @@ export function verifyReleaseIntegrity(release) {
   check(manifest?.bootstrap_sha256 === sha256(bootstrapText), 'bootstrap SHA-256 mismatch')
   check(manifest?.bootstrap_bytes === byteLength(bootstrapText), 'bootstrap byte size mismatch')
   check(current?.manifest_sha256 === sha256(manifestText), 'manifest SHA-256 mismatch')
+  check([undefined, RELEASE_TYPES.monthly, RELEASE_TYPES.correction].includes(manifest?.release_type), 'manifest release type is invalid')
+  for (const error of verifyRevisionManifest(manifest, revisionManifest)) errors.push(error)
+  if (revisionManifestText) {
+    check(manifest?.revision_manifest_sha256 === sha256(revisionManifestText), 'revision manifest SHA-256 mismatch')
+    check(manifest?.revision_manifest_bytes === byteLength(revisionManifestText), 'revision manifest byte size mismatch')
+    check(byteLength(revisionManifestText) <= SIZE_LIMITS.revisionManifest, 'revision-manifest.json exceeds 512KB')
+  }
   check(byteLength(currentText) <= SIZE_LIMITS.current, 'current.json exceeds 8KB')
   check(byteLength(manifestText) <= SIZE_LIMITS.manifest, 'manifest.json exceeds 16KB')
   check(byteLength(bootstrapText) <= SIZE_LIMITS.bootstrap, 'bootstrap.json exceeds 2MB')
@@ -319,6 +445,9 @@ export function classifyRemoteFreshness(remoteManifest, bundledSnapshot) {
   }
   if (remoteManifest.source_dataset_version === bundledSnapshot.datasetVersion) {
     return { freshness_status: 'matches_bundled_source', client_action: 'eligible_after_full_validation' }
+  }
+  if (remoteManifest.release_type === RELEASE_TYPES.correction) {
+    return { freshness_status: 'audited_historical_correction', client_action: 'eligible_after_revision_chain_validation' }
   }
   return { freshness_status: 'known_stale_source', client_action: 'reject_remote_and_keep_bundled_snapshot' }
 }

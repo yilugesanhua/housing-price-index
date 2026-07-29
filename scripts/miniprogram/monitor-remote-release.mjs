@@ -76,6 +76,7 @@ if (manifest.dataset_version !== audit.dataset_version
   throw new Error('Monitored manifest metadata no longer matches the immutable publish audit')
 }
 await downloadObject(`${cloudRoot}/bootstrap.json`, resolve(outputRoot, 'bootstrap.json'))
+if (manifest.release_type === 'historical_correction') await downloadObject(`${cloudRoot}/revision-manifest.json`, resolve(outputRoot, 'revision-manifest.json'))
 for (const cityId of Object.keys(manifest.city_files || {})) {
   await downloadObject(`${cloudRoot}/cities/${cityId}.json`, resolve(outputRoot, 'cities', `${cityId}.json`))
 }

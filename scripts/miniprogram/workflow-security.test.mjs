@@ -11,6 +11,7 @@ const monitor = await readFile(resolve(root, '.github/workflows/monthly-data-pos
 const rehearsal = await readFile(resolve(root, '.github/workflows/cloud-write-rehearsal.yml'), 'utf8')
 const fullReplay = await readFile(resolve(root, '.github/workflows/full-auto-update-replay.yml'), 'utf8')
 const correctedPublisher = await readFile(resolve(root, '.github/workflows/manual-corrected-data-publish.yml'), 'utf8')
+const historicalCorrection = await readFile(resolve(root, '.github/workflows/historical-data-correction.yml'), 'utf8')
 
 test('discovery workflow remains read-only and has no production environment', () => {
   assert.match(discovery, /permissions:\s+contents: read/)
@@ -159,4 +160,17 @@ test('manual corrected-data publication is narrowly locked and leaves monthly au
   assert.match(correctedPublisher, /data:audit/)
   assert.match(correctedPublisher, /verify-remote-data\.mjs/)
   assert.doesNotMatch(correctedPublisher, /AUTOMATIC_RELEASE_ENABLED/)
+})
+
+test('generic historical correction requires a reviewed request, full audit, protected environment, and immutable evidence', () => {
+  assert.match(historicalCorrection, /workflow_dispatch:/)
+  assert.match(historicalCorrection, /data\/corrections\//)
+  assert.match(historicalCorrection, /revision_id_confirmation/)
+  assert.match(historicalCorrection, /Require successful ordinary CI for this exact commit/)
+  assert.match(historicalCorrection, /data:audit/)
+  assert.match(historicalCorrection, /miniprogram:data:prepare-historical-correction/)
+  assert.match(historicalCorrection, /environment: housing-data-production/)
+  assert.match(historicalCorrection, /CI_SUPERSEDES_SOURCE_DATASET_VERSION/)
+  assert.match(historicalCorrection, /Persist immutable publication and revocation audits/)
+  assert.doesNotMatch(historicalCorrection, /AUTOMATIC_RELEASE_ENABLED/)
 })

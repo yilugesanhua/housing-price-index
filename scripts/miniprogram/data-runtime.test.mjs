@@ -11,7 +11,7 @@ const bundled = require(resolve(root, 'apps/miniprogram/data/snapshot.js'))
 const config = require(resolve(root, 'apps/miniprogram/config/data.js'))
 const versionConfig = require(resolve(root, 'apps/miniprogram/config/version.js'))
 const { sha256, utf8Bytes } = require(resolve(root, 'apps/miniprogram/utils/sha256.js'))
-const { createDataRuntime, POINTER_KEY, CHECK_KEY } = require(resolve(root, 'apps/miniprogram/utils/data-runtime.js'))
+const { createDataRuntime, POINTER_KEY, CHECK_KEY, REVOKED_SOURCES_KEY } = require(resolve(root, 'apps/miniprogram/utils/data-runtime.js'))
 const { validateCurrent } = require(resolve(root, 'apps/miniprogram/cloudfunctions/getHousingDataManifest/validate-current.js'))
 
 function makeRelease(minimumAppVersion = versionConfig.version, snapshot = bundled) {
@@ -28,6 +28,7 @@ function cloudFiles(release) {
   return new Map([
     [release.current.manifest_file_id, release.manifestText],
     [release.manifest.bootstrap_file_id, release.bootstrapText],
+    ...(release.revisionManifestText ? [[release.manifest.revision_manifest_file_id, release.revisionManifestText]] : []),
     ...Object.values(release.cities).map((item) => [release.manifest.city_file_id_template.replace('{city_id}', item.data.cityId), item.text]),
   ])
 }
@@ -60,7 +61,10 @@ function createWxMock(release, options = {}) {
       env: { USER_DATA_PATH: '/user' },
       getFileSystemManager: () => fs,
       getStorageSync: (key) => storage.get(key),
-      setStorageSync: (key, value) => storage.set(key, structuredClone(value)),
+      setStorageSync: (key, value) => {
+        if (options.failStorage?.(key)) throw new Error(`storage failure: ${key}`)
+        storage.set(key, structuredClone(value))
+      },
       removeStorageSync: (key) => storage.delete(key),
       cloud: {
         callFunction({ success, fail }) {
@@ -82,6 +86,29 @@ function createWxMock(release, options = {}) {
     storage,
     stats,
   }
+}
+
+function correctionRelease() {
+  const corrected = { ...bundled, datasetVersion: '2026-06-222222222222' }
+  return buildRemoteRelease(corrected, {
+    cloudEnvId: config.cloudEnvId,
+    storageBucket: config.storageBucket,
+    minimumAppVersion: config.correctionMinimumAppVersion,
+    nextCheckAt: '2026-08-17T01:40:00.000Z',
+    sourceBatchIds: ['official-html-test-corrected'],
+    correction: {
+      revision_id: 'revision-2026-06-audited-fix', revision_type: 'historical_data_correction', approval_status: 'approved',
+      dataset_as_of: '2026-06', supersedes_source_dataset_version: bundled.datasetVersion, source_dataset_version: corrected.datasetVersion,
+      source_version_chain: [bundled.datasetVersion, corrected.datasetVersion], revoked_source_dataset_versions: [bundled.datasetVersion],
+      reason: '国家统计局官方原始表经全量复核后的历史数据修订', official_urls: ['https://www.stats.gov.cn/source'],
+      source_batch_ids: ['official-html-test-corrected'], parser_version: 'official-html-v7-product-housing-only', audit_version: 'full-record-audit-v4',
+      audit_report_sha256: 'a'.repeat(64), commit_sha: 'b'.repeat(40), github_run_id: '12345',
+      approved_at: '2026-07-20T00:00:00Z', approved_by: 'data-owner', changes: [{
+        record_key: '2026-06|fuzhou|new|all', field: 'mom_index', old_value: 99.8, new_value: 99.9,
+        source_url: 'https://www.stats.gov.cn/source', source_record_locator: 'table[0] row[1]',
+      }],
+    },
+  })
 }
 
 test('mini program SHA-256 matches standard UTF-8 vectors and staged bytes', () => {
@@ -224,6 +251,82 @@ test('same-month remote conflicts cannot replace the audited bundled snapshot or
   const restored = createDataRuntime({ wxApi: mock.wxApi, bundled })
   assert.equal(restored.getSource(), 'bundled')
   assert.equal(restored.getSnapshot().datasetVersion, bundled.datasetVersion)
+})
+
+test('same-month conflict is rejected against a newer active remote month, not only against bundled data', async () => {
+  const newer = structuredClone(bundled)
+  newer.months = [...newer.months.slice(1), '2026-07']
+  newer.releaseDates = [...newer.releaseDates.slice(1), '2026-08-17']
+  newer.datasetAsOf = '2026-07'
+  newer.datasetVersion = '2026-07-111111111111'
+  newer.releaseDate = '2026-08-17'
+  const first = makeRelease(versionConfig.version, newer)
+  const mock = createWxMock(first)
+  const runtime = createDataRuntime({ wxApi: mock.wxApi, bundled })
+  assert.equal((await runtime.refresh({ force: true })).updated, true)
+
+  const conflicting = { ...newer, datasetVersion: '2026-07-222222222222' }
+  const second = makeRelease(versionConfig.version, conflicting)
+  const secondMock = createWxMock(second, { files: mock.files, storage: mock.storage })
+  const restored = createDataRuntime({ wxApi: secondMock.wxApi, bundled })
+  assert.equal(restored.getSnapshot().datasetVersion, first.current.dataset_version)
+  assert.equal((await restored.refresh({ force: true })).reason, 'failed')
+  assert.equal(restored.getSnapshot().datasetVersion, first.current.dataset_version)
+})
+
+test('valid same-month audited correction activates atomically and revokes the superseded source', async () => {
+  const release = correctionRelease()
+  const mock = createWxMock(release)
+  const runtime = createDataRuntime({ wxApi: mock.wxApi, bundled })
+  const result = await runtime.refresh({ force: true })
+  assert.equal(result.updated, true)
+  assert.equal(runtime.getSource(), 'remote')
+  assert.equal(mock.stats.downloads, 3)
+  assert.deepEqual(mock.storage.get(REVOKED_SOURCES_KEY), [bundled.datasetVersion])
+  assert.equal(mock.storage.get(POINTER_KEY).cachedCityIds.length, 70)
+  const restored = createDataRuntime({ wxApi: mock.wxApi, bundled })
+  assert.equal(restored.getSource(), 'remote')
+})
+
+test('broken correction chains, damaged revision manifests, and revoked downgrades are rejected', async () => {
+  const broken = correctionRelease()
+  broken.revisionManifest.source_version_chain = ['2026-06-333333333333', broken.manifest.source_dataset_version]
+  broken.revisionManifestText = `${JSON.stringify(broken.revisionManifest)}\n`
+  broken.manifest.revision_manifest_sha256 = createHash('sha256').update(broken.revisionManifestText).digest('hex')
+  broken.manifest.revision_manifest_bytes = Buffer.byteLength(broken.revisionManifestText)
+  broken.manifestText = `${JSON.stringify(broken.manifest)}\n`
+  broken.current.manifest_sha256 = createHash('sha256').update(broken.manifestText).digest('hex')
+  const brokenMock = createWxMock(broken)
+  assert.equal((await createDataRuntime({ wxApi: brokenMock.wxApi, bundled }).refresh({ force: true })).reason, 'failed')
+
+  const damaged = correctionRelease()
+  const damagedFiles = cloudFiles(damaged)
+  damagedFiles.set(damaged.manifest.revision_manifest_file_id, `${damaged.revisionManifestText} `)
+  const damagedMock = createWxMock(damaged, { remote: damagedFiles })
+  assert.equal((await createDataRuntime({ wxApi: damagedMock.wxApi, bundled }).refresh({ force: true })).reason, 'failed')
+
+  const monthly = makeRelease()
+  const revoked = createWxMock(monthly)
+  revoked.storage.set(REVOKED_SOURCES_KEY, [bundled.datasetVersion])
+  const revokedRuntime = createDataRuntime({ wxApi: revoked.wxApi, bundled })
+  assert.equal(revokedRuntime.getSource(), 'unavailable')
+  assert.equal(revokedRuntime.getSnapshot().dataStatus, 'unavailable')
+  assert.equal(revokedRuntime.getSnapshot().series.fuzhou.n_a.every((value) => value === null), true)
+  assert.equal((await revokedRuntime.refresh({ force: true })).reason, 'failed')
+})
+
+test('failed correction activation does not persist revocations or replace the previous pointer', async () => {
+  const ordinary = makeRelease()
+  const mock = createWxMock(ordinary)
+  const runtime = createDataRuntime({ wxApi: mock.wxApi, bundled })
+  await runtime.refresh({ force: true })
+  const previousPointer = structuredClone(mock.storage.get(POINTER_KEY))
+  const correction = correctionRelease()
+  const failing = createWxMock(correction, { files: mock.files, storage: mock.storage, failStorage: (key) => key === REVOKED_SOURCES_KEY })
+  const failingRuntime = createDataRuntime({ wxApi: failing.wxApi, bundled })
+  assert.equal((await failingRuntime.refresh({ force: true })).reason, 'failed')
+  assert.deepEqual(mock.storage.get(POINTER_KEY), previousPointer)
+  assert.equal(mock.storage.has(REVOKED_SOURCES_KEY), false)
 })
 
 test('clearing the remote pointer returns to the independent bundled snapshot', async () => {

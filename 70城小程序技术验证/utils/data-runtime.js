@@ -5,6 +5,7 @@ const { sha256, utf8Bytes } = require('./sha256.js')
 
 const POINTER_KEY = 'housing-data-pointer-v4'
 const CHECK_KEY = 'housing-data-check-v3'
+const REVOKED_SOURCES_KEY = 'housing-data-revoked-sources-v1'
 const DATASET_PATTERN = /^20\d{2}-(0[1-9]|1[0-2])-[a-f0-9]{12}$/
 const SHA_PATTERN = /^[a-f0-9]{64}$/
 const SERIES_CODES = ['n_a', 'n_s', 'n_m', 'n_l', 'r_a', 'r_s', 'r_m', 'r_l']
@@ -30,6 +31,20 @@ function clone(value) {
   return JSON.parse(JSON.stringify(value))
 }
 
+function unavailableSnapshot(bundled) {
+  const snapshot = clone(bundled)
+  for (const cityId of snapshot.cityIds || []) {
+    for (const code of SERIES_CODES) {
+      if (Array.isArray(snapshot.series?.[cityId]?.[code])) snapshot.series[cityId][code] = snapshot.series[cityId][code].map(() => null)
+      if (Array.isArray(snapshot.latestSeries?.[cityId]?.[code])) snapshot.latestSeries[cityId][code] = snapshot.latestSeries[cityId][code].map(() => null)
+    }
+  }
+  for (const key of Object.keys(snapshot.breadthSeries || {})) snapshot.breadthSeries[key] = snapshot.breadthSeries[key].map(() => null)
+  snapshot.dataStatus = 'unavailable'
+  snapshot.statusReason = 'known-revoked-source-has-no-valid-cache'
+  return snapshot
+}
+
 function assert(condition, message) {
   if (!condition) throw new Error(message)
 }
@@ -38,11 +53,13 @@ function validateRemoteMonth(current, bundled) {
   assert(current.dataset_as_of >= bundled.datasetAsOf, 'remote data is older than the bundled snapshot')
 }
 
-function validateRemoteSource(current, manifest, bundled) {
-  assert(
-    current.dataset_as_of > bundled.datasetAsOf || manifest.source_dataset_version === bundled.datasetVersion,
-    'remote data conflicts with the bundled snapshot for the same month',
-  )
+function validateRemoteSource(current, manifest, bundled, revisionManifest = null, activeSourceVersion = bundled.datasetVersion, activeDatasetAsOf = bundled.datasetAsOf) {
+  if (current.dataset_as_of > activeDatasetAsOf || manifest.source_dataset_version === activeSourceVersion) return
+  assert(manifest.release_type === 'historical_correction' && revisionManifest, 'remote data conflicts with the bundled snapshot for the same month')
+  const chain = revisionManifest.source_version_chain
+  const activeIndex = chain.indexOf(activeSourceVersion)
+  assert(activeIndex >= 0 && activeIndex < chain.length - 1, 'correction source chain does not supersede the active source')
+  assert(chain.at(-1) === manifest.source_dataset_version, 'correction source chain does not end at the remote source')
 }
 
 function validateCurrent(current, config) {
@@ -66,6 +83,7 @@ function validateManifest(manifest, current, config) {
   assert(major(manifest.remote_schema_version) === config.remoteSchemaMajor, 'remote manifest schema is unsupported')
   assert(manifest.dataset_version === current.dataset_version && manifest.dataset_as_of === current.dataset_as_of, 'remote manifest version is inconsistent')
   assert(manifest.validation_status === 'passed', 'remote manifest has not passed validation')
+  assert([undefined, 'monthly_update', 'historical_correction'].includes(manifest.release_type), 'remote release type is invalid')
   assert(compareVersions(versionConfig.version, manifest.minimum_app_version) >= 0, 'remote data requires a newer mini program version')
   assert(SHA_PATTERN.test(manifest.bootstrap_sha256 || '') && Number.isInteger(manifest.bootstrap_bytes), 'remote bootstrap metadata is invalid')
   const root = `cloud://${config.cloudEnvId}.${config.storageBucket}/housing-data/releases/${current.dataset_version}/`
@@ -76,7 +94,41 @@ function validateManifest(manifest, current, config) {
     assert(/^[a-z]+$/.test(cityId), `remote city ID is invalid: ${cityId}`)
     assert(SHA_PATTERN.test(file.sha256 || '') && Number.isInteger(file.bytes), `remote city file metadata is invalid: ${cityId}`)
   }
+  if (manifest.release_type === 'historical_correction') {
+    assert(/^revision-[a-z0-9][a-z0-9-]{5,80}$/.test(manifest.revision_id || ''), 'remote revision ID is invalid')
+    assert(DATASET_PATTERN.test(manifest.supersedes_source_dataset_version || ''), 'remote superseded source is invalid')
+    assert(manifest.revision_manifest_file_id === `${root}revision-manifest.json`, 'remote revision manifest path is invalid')
+    assert(SHA_PATTERN.test(manifest.revision_manifest_sha256 || '') && Number.isInteger(manifest.revision_manifest_bytes), 'remote revision manifest metadata is invalid')
+  }
   return manifest
+}
+
+function validateRevisionManifest(revision, manifest) {
+  assert(revision?.format === 'housing-historical-correction' && revision.schema_version === '1.0.0', 'remote revision manifest format is invalid')
+  assert(revision.revision_id === manifest.revision_id && revision.revision_type === 'historical_data_correction', 'remote revision identity is invalid')
+  assert(revision.approval_status === 'approved', 'remote revision is not approved')
+  assert(revision.dataset_as_of === manifest.dataset_as_of && revision.source_dataset_version === manifest.source_dataset_version, 'remote revision dataset is inconsistent')
+  assert(revision.supersedes_source_dataset_version === manifest.supersedes_source_dataset_version, 'remote revision superseded source is inconsistent')
+  assert(Array.isArray(revision.source_version_chain) && revision.source_version_chain.length >= 2, 'remote revision source chain is invalid')
+  assert(revision.source_version_chain.at(-2) === revision.supersedes_source_dataset_version && revision.source_version_chain.at(-1) === revision.source_dataset_version, 'remote revision source chain endpoints are invalid')
+  assert(new Set(revision.source_version_chain).size === revision.source_version_chain.length, 'remote revision source chain contains duplicates')
+  assert(Array.isArray(revision.revoked_source_dataset_versions) && revision.revoked_source_dataset_versions.includes(revision.supersedes_source_dataset_version), 'remote revision revocations are invalid')
+  assert(revision.revoked_source_dataset_versions.every((value) => revision.source_version_chain.includes(value) && value !== revision.source_dataset_version), 'remote revision revokes an invalid source')
+  assert(typeof revision.reason === 'string' && revision.reason.trim().length >= 10, 'remote revision reason is invalid')
+  assert(Array.isArray(revision.official_urls) && revision.official_urls.length > 0 && revision.official_urls.every((url) => /^https:\/\/(?:www\.)?stats\.gov\.cn\//.test(url)), 'remote revision official URLs are invalid')
+  assert(Array.isArray(revision.source_batch_ids) && revision.source_batch_ids.length > 0, 'remote revision source batches are invalid')
+  assert(typeof revision.parser_version === 'string' && revision.parser_version && typeof revision.audit_version === 'string' && revision.audit_version, 'remote revision audit metadata is invalid')
+  assert(SHA_PATTERN.test(revision.audit_report_sha256 || '') && /^[a-f0-9]{40}$/.test(revision.commit_sha || '') && /^\d+$/.test(String(revision.github_run_id || '')), 'remote revision build identity is invalid')
+  assert(Number.isFinite(Date.parse(revision.approved_at || '')) && typeof revision.approved_by === 'string' && revision.approved_by, 'remote revision approval metadata is invalid')
+  assert(Array.isArray(revision.changes) && revision.changes.length > 0, 'remote revision changes are missing')
+  const keys = revision.changes.map((item) => `${item.record_key}|${item.field}`)
+  assert(new Set(keys).size === keys.length, 'remote revision contains duplicate changed fields')
+  assert(new Set(revision.changes.map((item) => item.record_key)).size === manifest.changed_record_count, 'remote revision changed record count is inconsistent')
+  for (const item of revision.changes) {
+    assert(/^20\d{2}-(0[1-9]|1[0-2])\|[a-z]+\|(new|resale)\|(all|le90|90_144|gt144)$/.test(item.record_key || ''), 'remote revision record key is invalid')
+    assert(typeof item.field === 'string' && item.field && /^https:\/\/(?:www\.)?stats\.gov\.cn\//.test(item.source_url || '') && typeof item.source_record_locator === 'string' && item.source_record_locator, 'remote revision change evidence is invalid')
+  }
+  return revision
 }
 
 function validateBootstrap(bootstrap, manifest, config) {
@@ -114,6 +166,7 @@ function createDataRuntime({ wxApi = typeof wx === 'undefined' ? null : wx, bund
   let activeSnapshot = bundled
   let activeSource = 'bundled'
   let activeManifest = null
+  let activeRevisionManifest = null
   let cachedCityIds = []
   const fs = wxApi && typeof wxApi.getFileSystemManager === 'function' ? wxApi.getFileSystemManager() : null
   const userRoot = wxApi?.env?.USER_DATA_PATH ? `${wxApi.env.USER_DATA_PATH}/housing-data` : ''
@@ -131,6 +184,13 @@ function createDataRuntime({ wxApi = typeof wx === 'undefined' ? null : wx, bund
     return sha256(utf8Bytes(text))
   }
 
+  function getRevokedSources() {
+    try {
+      const value = wxApi?.getStorageSync?.(REVOKED_SOURCES_KEY)
+      return Array.isArray(value) ? value.filter((item) => DATASET_PATTERN.test(item)) : []
+    } catch (_) { return [] }
+  }
+
   function hydrateCache() {
     if (!fs || !wxApi?.getStorageSync || !userRoot) return false
     try {
@@ -142,7 +202,14 @@ function createDataRuntime({ wxApi = typeof wx === 'undefined' ? null : wx, bund
       const current = validateCurrent(pointer.current, config)
       validateRemoteMonth(current, bundled)
       const manifest = validateManifest(safeParse(manifestText), current, config)
-      validateRemoteSource(current, manifest, bundled)
+      assert(!getRevokedSources().includes(manifest.source_dataset_version), 'cached source has been revoked')
+      let revisionManifest = null
+      if (manifest.release_type === 'historical_correction') {
+        const revisionText = readSync(`${root}/revision-manifest.json`)
+        assert(fileHash(revisionText) === manifest.revision_manifest_sha256, 'cached revision manifest hash mismatch')
+        revisionManifest = validateRevisionManifest(safeParse(revisionText), manifest)
+      }
+      validateRemoteSource(current, manifest, bundled, revisionManifest)
       const bootstrapText = readSync(`${root}/bootstrap.json`)
       assert(fileHash(bootstrapText) === manifest.bootstrap_sha256, 'cached bootstrap hash mismatch')
       const bootstrap = validateBootstrap(safeParse(bootstrapText), manifest, config)
@@ -158,6 +225,7 @@ function createDataRuntime({ wxApi = typeof wx === 'undefined' ? null : wx, bund
       activeSnapshot = bootstrap
       activeSource = 'remote'
       activeManifest = manifest
+      activeRevisionManifest = revisionManifest
       cachedCityIds = cities
       return true
     } catch (error) {
@@ -166,7 +234,11 @@ function createDataRuntime({ wxApi = typeof wx === 'undefined' ? null : wx, bund
     }
   }
 
-  hydrateCache()
+  const cacheHydrated = hydrateCache()
+  if (!cacheHydrated && getRevokedSources().includes(bundled.datasetVersion)) {
+    activeSnapshot = unavailableSnapshot(bundled)
+    activeSource = 'unavailable'
+  }
 
   function getSchedule() {
     try { return wxApi?.getStorageSync?.(CHECK_KEY) || null } catch (_) { return null }
@@ -216,10 +288,11 @@ function createDataRuntime({ wxApi = typeof wx === 'undefined' ? null : wx, bund
     return manifest.city_file_id_template.replace('{city_id}', cityId)
   }
 
-  async function cacheRelease(current, manifestDownload, bootstrapDownload, cityDownloads, cityIds) {
+  async function cacheRelease(current, manifestDownload, revisionDownload, bootstrapDownload, cityDownloads, cityIds) {
     const root = versionRoot(current.dataset_version)
     await mkdir(`${root}/cities`)
     await writeFile(`${root}/manifest.json`, manifestDownload.text)
+    if (revisionDownload) await writeFile(`${root}/revision-manifest.json`, revisionDownload.text)
     await writeFile(`${root}/bootstrap.json`, bootstrapDownload.text)
     await Promise.all(Object.entries(cityDownloads).map(([cityId, download]) => writeFile(`${root}/cities/${cityId}.json`, download.text)))
     const pointer = {
@@ -228,7 +301,21 @@ function createDataRuntime({ wxApi = typeof wx === 'undefined' ? null : wx, bund
       current,
       cachedCityIds: [...cityIds],
     }
-    wxApi.setStorageSync(POINTER_KEY, pointer)
+    const previousPointer = wxApi.getStorageSync(POINTER_KEY)
+    const previousRevocations = getRevokedSources()
+    try {
+      wxApi.setStorageSync(POINTER_KEY, pointer)
+      if (revisionDownload) {
+        const revoked = [...new Set([...previousRevocations, ...revisionDownload.data.revoked_source_dataset_versions])]
+        wxApi.setStorageSync(REVOKED_SOURCES_KEY, revoked)
+      }
+    } catch (error) {
+      if (previousPointer) wxApi.setStorageSync(POINTER_KEY, previousPointer)
+      else wxApi.removeStorageSync(POINTER_KEY)
+      if (previousRevocations.length) wxApi.setStorageSync(REVOKED_SOURCES_KEY, previousRevocations)
+      else wxApi.removeStorageSync(REVOKED_SOURCES_KEY)
+      throw error
+    }
   }
 
   async function refresh({ requiredCityIds = [], force = false } = {}) {
@@ -248,7 +335,15 @@ function createDataRuntime({ wxApi = typeof wx === 'undefined' ? null : wx, bund
       assert(current.dataset_as_of >= activeSnapshot.datasetAsOf, 'remote data is older than the active snapshot')
       const manifestDownload = await downloadJson(current.manifest_file_id, current.manifest_sha256, undefined)
       const manifest = validateManifest(manifestDownload.data, current, config)
-      validateRemoteSource(current, manifest, bundled)
+      assert(!getRevokedSources().includes(manifest.source_dataset_version), 'remote source has been revoked')
+      let revisionDownload = null
+      let revisionManifest = null
+      if (manifest.release_type === 'historical_correction') {
+        revisionDownload = await downloadJson(manifest.revision_manifest_file_id, manifest.revision_manifest_sha256, manifest.revision_manifest_bytes)
+        revisionManifest = validateRevisionManifest(revisionDownload.data, manifest)
+      }
+      const activeSourceVersion = activeManifest?.source_dataset_version || bundled.datasetVersion
+      validateRemoteSource(current, manifest, bundled, revisionManifest, activeSourceVersion, activeSnapshot.datasetAsOf)
       const bootstrapDownload = await downloadJson(manifest.bootstrap_file_id, manifest.bootstrap_sha256, manifest.bootstrap_bytes)
       const bootstrap = validateBootstrap(bootstrapDownload.data, manifest, config)
       const cityIds = bootstrap.cityIds.filter((cityId) => !bootstrap.series[cityId])
@@ -264,10 +359,11 @@ function createDataRuntime({ wxApi = typeof wx === 'undefined' ? null : wx, bund
       }
       for (const [cityId, item] of Object.entries(cityDownloads)) bootstrap.series[cityId] = item.data.series
       for (const cityId of bootstrap.cityIds) assert(bootstrap.series[cityId], `remote full city history is missing: ${cityId}`)
-      await cacheRelease(current, manifestDownload, bootstrapDownload, cityDownloads, bootstrap.cityIds)
+      await cacheRelease(current, manifestDownload, revisionDownload, bootstrapDownload, cityDownloads, bootstrap.cityIds)
       activeSnapshot = bootstrap
       activeSource = 'remote'
       activeManifest = manifest
+      activeRevisionManifest = revisionManifest
       cachedCityIds = [...bootstrap.cityIds]
       return { updated: true, source: activeSource, datasetVersion: activeSnapshot.datasetVersion }
     } catch (error) {
@@ -311,13 +407,15 @@ function createDataRuntime({ wxApi = typeof wx === 'undefined' ? null : wx, bund
     ensureCities,
     clearRemoteCachePointer() {
       try { wxApi?.removeStorageSync?.(POINTER_KEY) } catch (_) {}
-      activeSnapshot = bundled
-      activeSource = 'bundled'
+      const bundledRevoked = getRevokedSources().includes(bundled.datasetVersion)
+      activeSnapshot = bundledRevoked ? unavailableSnapshot(bundled) : bundled
+      activeSource = bundledRevoked ? 'unavailable' : 'bundled'
       activeManifest = null
+      activeRevisionManifest = null
       cachedCityIds = []
     },
   }
 }
 
 const runtime = createDataRuntime()
-module.exports = { ...runtime, createDataRuntime, validateCurrent, validateManifest, validateBootstrap, validateCityShard, POINTER_KEY, CHECK_KEY }
+module.exports = { ...runtime, createDataRuntime, validateCurrent, validateManifest, validateRevisionManifest, validateBootstrap, validateCityShard, POINTER_KEY, CHECK_KEY, REVOKED_SOURCES_KEY }

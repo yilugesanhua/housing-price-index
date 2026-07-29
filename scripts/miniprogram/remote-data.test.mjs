@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 import { resolve } from 'node:path'
 import test from 'node:test'
-import { buildRemoteRelease, classifyRemoteFreshness, clientNextCheckAt, REMOTE_FORMAT, sha256, SIZE_LIMITS, stableJson, verifyReleaseAgainstSnapshot, verifyReleaseIntegrity } from './remote-data-lib.mjs'
+import { buildRemoteRelease, classifyRemoteFreshness, clientNextCheckAt, REMOTE_FORMAT, RELEASE_TYPES, sha256, SIZE_LIMITS, stableJson, verifyReleaseAgainstSnapshot, verifyReleaseIntegrity } from './remote-data-lib.mjs'
 
 const root = resolve(import.meta.dirname, '../..')
 const require = createRequire(import.meta.url)
@@ -23,12 +23,44 @@ test('remote mini program release is compact and exactly reconstructs bundled da
   const candidate = release()
   assert.equal(candidate.manifest.format, REMOTE_FORMAT)
   assert.equal(candidate.manifest.source_dataset_version, snapshot.datasetVersion)
+  assert.equal(candidate.manifest.release_type, RELEASE_TYPES.monthly)
   assert.match(candidate.manifest.dataset_version, /^2026-06-[a-f0-9]{12}$/)
   assert.equal(Object.keys(candidate.cities).length, 70)
   assert.equal(Object.keys(candidate.bootstrap.series).length, 70)
   assert.ok(candidate.manifest.bootstrap_bytes <= SIZE_LIMITS.bootstrap)
   assert.ok(candidate.totalBytes <= SIZE_LIMITS.release)
   assert.deepEqual(verifyReleaseAgainstSnapshot(snapshot, candidate), [])
+})
+
+test('legacy monthly package without release_type remains compatible', () => {
+  const candidate = release()
+  delete candidate.manifest.release_type
+  candidate.manifestText = stableJson(candidate.manifest)
+  candidate.current.manifest_sha256 = sha256(candidate.manifestText)
+  candidate.currentText = stableJson(candidate.current)
+  assert.deepEqual(verifyReleaseIntegrity(candidate), [])
+})
+
+test('historical correction binds an audited revision manifest into the release', () => {
+  const corrected = { ...snapshot, datasetVersion: '2026-06-222222222222' }
+  const candidate = buildRemoteRelease(corrected, {
+    cloudEnvId: 'cloud1-d3gpdx70w5d05c68c', storageBucket: '636c-cloud1-d3gpdx70w5d05c68c-1456861154',
+    minimumAppVersion: 'v2.4.0', nextCheckAt: '2026-08-17T01:40:00.000Z', sourceBatchIds: ['official-html-corrected'],
+    correction: {
+      revision_id: 'revision-2026-06-audited-fix', revision_type: 'historical_data_correction', approval_status: 'approved', dataset_as_of: '2026-06',
+      supersedes_source_dataset_version: snapshot.datasetVersion, source_dataset_version: corrected.datasetVersion,
+      source_version_chain: [snapshot.datasetVersion, corrected.datasetVersion], revoked_source_dataset_versions: [snapshot.datasetVersion],
+      reason: '国家统计局官方原始表经全量复核后的历史数据修订', official_urls: ['https://www.stats.gov.cn/source'], source_batch_ids: ['official-html-corrected'],
+      parser_version: 'official-html-v7-product-housing-only', audit_version: 'full-record-audit-v4', approved_at: '2026-07-20T00:00:00Z', approved_by: 'data-owner',
+      audit_report_sha256: 'a'.repeat(64), commit_sha: 'b'.repeat(40), github_run_id: '12345',
+      changes: [{ record_key: '2026-06|fuzhou|new|all', field: 'mom_index', old_value: 99.8, new_value: 99.9, source_url: 'https://www.stats.gov.cn/source', source_record_locator: 'table[0] row[1]' }],
+    },
+  })
+  assert.equal(candidate.manifest.release_type, RELEASE_TYPES.correction)
+  assert.equal(candidate.manifest.revision_manifest_sha256, sha256(candidate.revisionManifestText))
+  assert.deepEqual(verifyReleaseAgainstSnapshot(corrected, candidate), [])
+  candidate.revisionManifestText += ' '
+  assert.match(verifyReleaseIntegrity(candidate).join('\n'), /revision manifest SHA-256 mismatch/)
 })
 
 test('legacy sharded releases reconstruct all cities while v2.3 requires a complete bootstrap', () => {

@@ -122,3 +122,22 @@ test('rejects arbitrary workflow_dispatch publication', () => {
     checkedOutSha: validEnv.CI_COMMIT_SHA,
   }), /workflow\/event identity mismatch/)
 })
+
+test('accepts only an attested generic historical correction workflow', () => {
+  const correctionGate = {
+    status: 'passed', gate_type: 'historical_data_correction', revision_id: 'revision-2026-06-audited-fix',
+    dataset_version: datasetVersion, source_dataset_version: '2026-07-222222222222',
+    supersedes_source_dataset_version: '2026-07-111111111111', cloud_env_id: cloudEnvId,
+    commit_sha: validEnv.CI_COMMIT_SHA, github_run_id: validEnv.GITHUB_RUN_ID, request_sha256: 'f'.repeat(64),
+  }
+  const text = `${JSON.stringify(correctionGate)}\n`
+  const env = {
+    ...validEnv, GITHUB_EVENT_NAME: 'workflow_dispatch', GITHUB_WORKFLOW: 'historical-data-correction',
+    GITHUB_WORKFLOW_REF: 'owner/repo/.github/workflows/historical-data-correction.yml@refs/heads/main',
+    CI_GATE_REPORT_SHA256: sha256(text), CI_REVISION_ID: correctionGate.revision_id,
+    CI_SUPERSEDES_SOURCE_DATASET_VERSION: correctionGate.supersedes_source_dataset_version,
+    CI_CORRECTION_REQUEST_SHA256: correctionGate.request_sha256, AUTOMATIC_RELEASE_ENABLED: 'false',
+  }
+  assert.equal(validateCiReleaseAuthorization({ env, datasetVersion, cloudEnvId, gateReportText: text, checkedOutSha: env.CI_COMMIT_SHA }).gate_type, 'historical_data_correction')
+  assert.throws(() => validateCiReleaseAuthorization({ env: { ...env, CI_REVISION_ID: 'wrong' }, datasetVersion, cloudEnvId, gateReportText: text, checkedOutSha: env.CI_COMMIT_SHA }), /revision ID mismatch/)
+})
