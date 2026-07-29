@@ -10,6 +10,7 @@ const recovery = await readFile(resolve(root, '.github/workflows/monthly-data-pe
 const monitor = await readFile(resolve(root, '.github/workflows/monthly-data-post-publish-monitor.yml'), 'utf8')
 const rehearsal = await readFile(resolve(root, '.github/workflows/cloud-write-rehearsal.yml'), 'utf8')
 const fullReplay = await readFile(resolve(root, '.github/workflows/full-auto-update-replay.yml'), 'utf8')
+const correctedPublisher = await readFile(resolve(root, '.github/workflows/manual-corrected-data-publish.yml'), 'utf8')
 
 test('discovery workflow remains read-only and has no production environment', () => {
   assert.match(discovery, /permissions:\s+contents: read/)
@@ -145,4 +146,17 @@ test('full historical replay can write only below its numeric rehearsal prefix',
   assert.match(script, /writeReplayCheckpoint\(replays, targetMonth\)/)
   assert.match(script, /requestedMonths.*12/)
   assert.match(script, /for \(const \[index, targetMonth\] of targetMonths\.entries\(\)\)/)
+})
+
+test('manual corrected-data publication is narrowly locked and leaves monthly auto-publish disabled', () => {
+  assert.match(correctedPublisher, /workflow_dispatch:/)
+  assert.match(correctedPublisher, /confirmation:/)
+  assert.match(correctedPublisher, /test "\$CONFIRMATION" = "2026-06-4fd1d1a8ff12"/)
+  assert.match(correctedPublisher, /Require successful ordinary CI for this exact commit/)
+  assert.match(correctedPublisher, /environment: housing-data-production/)
+  assert.match(correctedPublisher, /CI_EXPECTED_CURRENT_DATASET_VERSION: 2026-06-ec36ff8fb2e5/)
+  assert.match(correctedPublisher, /CI_EXPECTED_CURRENT_SOURCE_DATASET_VERSION: 2026-06-679ea146d4e2/)
+  assert.match(correctedPublisher, /data:audit/)
+  assert.match(correctedPublisher, /verify-remote-data\.mjs/)
+  assert.doesNotMatch(correctedPublisher, /AUTOMATIC_RELEASE_ENABLED/)
 })

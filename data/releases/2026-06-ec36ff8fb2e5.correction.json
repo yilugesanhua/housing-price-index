@@ -1,0 +1,10 @@
+{
+  "status": "superseded_incorrect_source_data",
+  "dataset_version": "2026-06-ec36ff8fb2e5",
+  "recorded_at": "2026-07-29T00:00:00.000Z",
+  "reason": "Source dataset 2026-06-679ea146d4e2 was replaced after the V7 parser and V4 full-record audit corrected 150 historical records.",
+  "replacement_source_dataset_version": "2026-06-4fd1d1a8ff12",
+  "replacement_dataset_version": "2026-06-e9788d0bddf3",
+  "rollback_allowed": false,
+  "original_audit_preserved": "data/releases/2026-06-ec36ff8fb2e5.json"
+}

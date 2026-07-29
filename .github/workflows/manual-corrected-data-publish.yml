@@ -1,0 +1,163 @@
+name: manual-corrected-data-publish
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Type 2026-06-4fd1d1a8ff12 to publish the audited correction
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: housing-data-production-publish
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      dataset_version: ${{ steps.gate.outputs.dataset_version }}
+      gate_report_sha256: ${{ steps.gate.outputs.gate_report_sha256 }}
+      commit_sha: ${{ steps.identity.outputs.commit_sha }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+      - id: identity
+        name: Lock correction to the reviewed default-branch commit
+        env:
+          CONFIRMATION: ${{ inputs.confirmation }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        shell: bash
+        run: |
+          test "$CONFIRMATION" = "2026-06-4fd1d1a8ff12"
+          test "$(git branch --show-current)" = "$DEFAULT_BRANCH"
+          commit_sha="$(git rev-parse HEAD)"
+          test "$commit_sha" = "$GITHUB_SHA"
+          echo "commit_sha=$commit_sha" >> "$GITHUB_OUTPUT"
+      - name: Require successful ordinary CI for this exact commit
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const runs = await github.paginate(github.rest.actions.listWorkflowRunsForRepo, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              head_sha: context.sha,
+              status: 'success',
+              per_page: 100,
+            })
+            if (!runs.some((run) => run.name === 'ci' && run.head_sha === context.sha && run.event === 'push')) {
+              core.setFailed(`No successful ordinary CI push run found for ${context.sha}`)
+            }
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Revalidate corrected source data
+        run: |
+          npm run data:audit
+          npm run validate:data
+          npm run test:miniprogram
+      - name: Stage and reconstruct the immutable 70-city correction
+        run: |
+          npm run miniprogram:data:stage -- --env=cloud1-d3gpdx70w5d05c68c --next-check-at=2026-08-17T01:40:00.000Z
+          node scripts/miniprogram/verify-remote-data.mjs
+      - id: gate
+        name: Bind the correction gate to this run and commit
+        env:
+          COMMIT_SHA: ${{ steps.identity.outputs.commit_sha }}
+        shell: bash
+        run: |
+          result="$(npm run --silent miniprogram:data:prepare-correction -- --commit="$COMMIT_SHA" --run-id="$GITHUB_RUN_ID" --env=cloud1-d3gpdx70w5d05c68c)"
+          node -e "const v=JSON.parse(process.argv[1]); const fs=require('fs'); fs.appendFileSync(process.env.GITHUB_OUTPUT,'dataset_version='+v.dataset_version+'\ngate_report_sha256='+v.gate_report_sha256+'\n')" "$result"
+      - name: Upload reproducible correction candidate
+        uses: actions/upload-artifact@v4
+        with:
+          name: corrected-housing-data-${{ github.run_id }}
+          path: |
+            work/corrected-release/gate-report.json
+            work/miniprogram-data/
+            data/audit-report.json
+          if-no-files-found: error
+          retention-days: 365
+
+  publish:
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: housing-data-production
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.prepare.outputs.commit_sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Verify the candidate commit is still the default-branch head
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          EXPECTED_SHA: ${{ needs.prepare.outputs.commit_sha }}
+        shell: bash
+        run: |
+          git fetch origin "$DEFAULT_BRANCH"
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          test "$(git rev-parse "origin/$DEFAULT_BRANCH")" = "$EXPECTED_SHA"
+      - uses: actions/download-artifact@v4
+        with:
+          name: corrected-housing-data-${{ github.run_id }}
+          path: work/correction-artifact
+      - name: Restore the attested candidate paths
+        shell: bash
+        run: |
+          mkdir -p work/corrected-release work/miniprogram-data
+          cp work/correction-artifact/work/corrected-release/gate-report.json work/corrected-release/gate-report.json
+          cp -R work/correction-artifact/work/miniprogram-data/. work/miniprogram-data/
+      - name: Publish, full round-trip verify, then atomically switch current.json
+        env:
+          TENCENTCLOUD_SECRET_ID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
+          TENCENTCLOUD_SECRET_KEY: ${{ secrets.TENCENTCLOUD_SECRET_KEY }}
+          CI_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          CI_COMMIT_SHA: ${{ needs.prepare.outputs.commit_sha }}
+          CI_RUN_ID: ${{ github.run_id }}
+          CI_PRODUCTION_ENVIRONMENT: housing-data-production
+          CI_CLOUD_ENV_ID: cloud1-d3gpdx70w5d05c68c
+          CI_DATASET_VERSION: ${{ needs.prepare.outputs.dataset_version }}
+          CI_GATE_REPORT_SHA256: ${{ needs.prepare.outputs.gate_report_sha256 }}
+          CI_GATE_REPORT_PATH: work/corrected-release/gate-report.json
+          CI_EXPECTED_CURRENT_DATASET_VERSION: 2026-06-ec36ff8fb2e5
+          CI_EXPECTED_CURRENT_SOURCE_DATASET_VERSION: 2026-06-679ea146d4e2
+        run: >-
+          npm run miniprogram:data:publish --
+          --env=cloud1-d3gpdx70w5d05c68c
+          --dataset=${{ needs.prepare.outputs.dataset_version }}
+      - name: Persist the immutable publish audit
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        shell: bash
+        run: |
+          git config user.name "housing-data-automation"
+          git config user.email "housing-data-automation@users.noreply.github.com"
+          git add -- "data/releases/${{ needs.prepare.outputs.dataset_version }}.json"
+          git commit -m "data: record corrected cloud release [skip ci]"
+          git push origin "HEAD:${DEFAULT_BRANCH}"
+      - name: Upload publication evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: corrected-housing-data-publish-${{ github.run_id }}
+          path: |
+            data/releases/
+            work/corrected-release/
+            work/miniprogram-data/${{ needs.prepare.outputs.dataset_version }}/
+          if-no-files-found: error
+          retention-days: 365

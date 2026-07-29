@@ -71,3 +71,54 @@ test('accepts the fixed scheduled pending-release recovery workflow', () => {
   }
   assert.equal(validateCiReleaseAuthorization({ env, datasetVersion, cloudEnvId, gateReportText, checkedOutSha: env.CI_COMMIT_SHA }).status, 'passed')
 })
+
+test('accepts only the fixed manually confirmed corrected release without enabling monthly auto-publish', () => {
+  const correctedDatasetVersion = '2026-06-e9788d0bddf3'
+  const correctedGate = {
+    status: 'passed',
+    gate_type: 'manual_corrected_release',
+    dataset_version: correctedDatasetVersion,
+    source_dataset_version: '2026-06-4fd1d1a8ff12',
+    expected_current_dataset_version: '2026-06-ec36ff8fb2e5',
+    expected_current_source_dataset_version: '2026-06-679ea146d4e2',
+    cloud_env_id: cloudEnvId,
+    commit_sha: validEnv.CI_COMMIT_SHA,
+    github_run_id: validEnv.GITHUB_RUN_ID,
+  }
+  const correctedText = `${JSON.stringify(correctedGate)}\n`
+  const correctedEnv = {
+    ...validEnv,
+    GITHUB_EVENT_NAME: 'workflow_dispatch',
+    GITHUB_WORKFLOW: 'manual-corrected-data-publish',
+    GITHUB_WORKFLOW_REF: 'owner/repo/.github/workflows/manual-corrected-data-publish.yml@refs/heads/main',
+    CI_DATASET_VERSION: correctedDatasetVersion,
+    CI_GATE_REPORT_SHA256: sha256(correctedText),
+    CI_EXPECTED_CURRENT_DATASET_VERSION: '2026-06-ec36ff8fb2e5',
+    CI_EXPECTED_CURRENT_SOURCE_DATASET_VERSION: '2026-06-679ea146d4e2',
+    AUTOMATIC_RELEASE_ENABLED: 'false',
+  }
+  assert.equal(validateCiReleaseAuthorization({ env: correctedEnv, datasetVersion: correctedDatasetVersion, cloudEnvId, gateReportText: correctedText, checkedOutSha: correctedEnv.CI_COMMIT_SHA }).gate_type, 'manual_corrected_release')
+
+  for (const [field, value, message] of [
+    ['CI_EXPECTED_CURRENT_DATASET_VERSION', '2026-06-ffffffffffff', /attested current dataset version mismatch/],
+    ['CI_EXPECTED_CURRENT_SOURCE_DATASET_VERSION', '2026-06-ffffffffffff', /attested current source dataset version mismatch/],
+  ]) {
+    assert.throws(() => validateCiReleaseAuthorization({
+      env: { ...correctedEnv, [field]: value },
+      datasetVersion: correctedDatasetVersion,
+      cloudEnvId,
+      gateReportText: correctedText,
+      checkedOutSha: correctedEnv.CI_COMMIT_SHA,
+    }), message)
+  }
+})
+
+test('rejects arbitrary workflow_dispatch publication', () => {
+  assert.throws(() => validateCiReleaseAuthorization({
+    env: { ...validEnv, GITHUB_EVENT_NAME: 'workflow_dispatch' },
+    datasetVersion,
+    cloudEnvId,
+    gateReportText,
+    checkedOutSha: validEnv.CI_COMMIT_SHA,
+  }), /workflow\/event identity mismatch/)
+})

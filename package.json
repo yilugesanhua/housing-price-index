@@ -40,6 +40,7 @@
     "miniprogram:data": "tsx scripts/miniprogram/build-data.ts",
     "miniprogram:data:prepare": "npm run miniprogram:data && npm run miniprogram:data:stage && npm run miniprogram:data:verify-remote && npm run test:miniprogram",
     "miniprogram:data:stage": "node scripts/miniprogram/stage-remote-data.mjs",
+    "miniprogram:data:prepare-correction": "node scripts/miniprogram/prepare-corrected-release.mjs",
     "miniprogram:data:verify-remote": "node scripts/miniprogram/verify-remote-data.mjs",
     "miniprogram:data:prepare-auto": "node scripts/miniprogram/prepare-auto-update.mjs",
     "miniprogram:data:persist-candidate": "node scripts/miniprogram/candidate-persistence.mjs",

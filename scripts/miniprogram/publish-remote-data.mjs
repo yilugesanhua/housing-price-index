@@ -26,7 +26,7 @@ const manifest = JSON.parse(manifestText)
 if (report.status !== 'staged' || report.dataset_version !== datasetVersion || report.cloud_env_id !== cloudEnvId) throw new Error('Staged release report does not match requested publish target')
 if (report.manifest_sha256 !== sha256(manifestText) || manifest.validation_status !== 'passed') throw new Error('Staged manifest failed the publish gate')
 const ciMode = process.env.GITHUB_ACTIONS === 'true'
-if (ciMode) await authorizeCiRelease({ root, datasetVersion, cloudEnvId })
+const ciGate = ciMode ? await authorizeCiRelease({ root, datasetVersion, cloudEnvId }) : null
 const cloudRoot = `housing-data/releases/${datasetVersion}`
 const plan = [
   ['putObject', `${cloudRoot}/bootstrap.json`],
@@ -60,6 +60,25 @@ try {
   previous = JSON.parse(await readFile(previousPath, 'utf8'))
 } catch (error) {
   if (!isMissingObjectError(error)) throw error
+}
+if (ciGate?.gate_type === 'manual_corrected_release') {
+  if (previous?.dataset_version !== ciGate.expected_current_dataset_version) {
+    throw new Error(`Corrected release precondition failed: active dataset is ${previous?.dataset_version || 'missing'}`)
+  }
+  const activeManifestPath = resolve(localRoot, 'active-manifest-before-correction.json')
+  await rm(activeManifestPath, { force: true })
+  await cloud.downloadObject(`housing-data/releases/${previous.dataset_version}/manifest.json`, activeManifestPath)
+  const activeManifestText = await readFile(activeManifestPath, 'utf8')
+  if (sha256(activeManifestText) !== previous.manifest_sha256) {
+    throw new Error('Corrected release precondition failed: active manifest hash differs from current.json')
+  }
+  const activeManifest = JSON.parse(activeManifestText)
+  if (activeManifest.dataset_version !== previous.dataset_version) {
+    throw new Error('Corrected release precondition failed: active manifest dataset version differs from current.json')
+  }
+  if (activeManifest.source_dataset_version !== ciGate.expected_current_source_dataset_version) {
+    throw new Error(`Corrected release precondition failed: active source dataset is ${activeManifest.source_dataset_version || 'missing'}`)
+  }
 }
 const previousDatasetVersion = await rollbackVersionOrNull(root, previous?.dataset_version, cloudEnvId)
 if (previous?.dataset_version && !previousDatasetVersion) {
