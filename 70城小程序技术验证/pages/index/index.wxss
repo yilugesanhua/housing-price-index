@@ -9,7 +9,7 @@
 .intro-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 16rpx; }
 .title { min-width: 0; flex: 1 1 auto; display: block; font-size: 38rpx; font-weight: 720; line-height: 1.25; }
 .location-entry { width: 240rpx; height: 64rpx; flex: 0 0 240rpx; display: flex; align-items: center; justify-content: flex-end; padding: 0; background: transparent; border: 0; border-radius: 0; box-sizing: border-box; }
-.location-refresh { width: 48rpx; height: 60rpx; flex: 0 0 48rpx; display: flex; align-items: center; justify-content: center; margin: 0; padding: 0; background: transparent; border: 0; border-radius: 50%; line-height: 1; }
+.location-refresh { width: 48rpx; height: 60rpx; flex: 0 0 48rpx; display: flex; align-items: center; justify-content: center; margin: 0; padding: 0; background: transparent; border-radius: 50%; line-height: 1; }
 .location-pin { display: block; width: 34rpx; height: 34rpx; flex: 0 0 34rpx; }
 .location-picker { min-width: 0; flex: 0 1 auto; margin: 0; padding: 0; }
 .location-city { min-width: 0; height: 62rpx; display: flex; align-items: center; justify-content: flex-start; gap: 10rpx; color: var(--color-muted); font-size: 24rpx; font-weight: 650; }

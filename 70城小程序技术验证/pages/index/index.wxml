@@ -12,9 +12,9 @@
       <view class="intro-head">
         <text class="title">读懂你的城市住宅价格变化</text>
         <view class="location-entry {{locationStatus === 'locating' ? 'locating' : ''}}">
-          <button class="location-refresh" bindtap="locateCurrentCity" aria-label="重新定位当前城市">
+          <view class="location-refresh" bindtap="locateCurrentCity" aria-label="重新定位当前城市" role="button">
             <image class="location-pin" src="/assets/map-pin.svg" mode="aspectFit" aria-hidden="true" />
-          </button>
+          </view>
           <picker class="location-picker" mode="selector" range="{{focusCityNames}}" value="{{focusCityIndex}}" bindchange="onFocusCityChange" aria-label="选择定位城市">
             <view class="location-city"><text>{{locationStatus === 'locating' ? '定位中' : focusCityName}}</text><view class="location-chevron" aria-hidden="true"></view></view>
           </picker>

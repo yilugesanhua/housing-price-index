@@ -11,7 +11,7 @@
 
 ## 已修复发现
 
-- `apps/miniprogram/pages/index/index.wxml:15`：重新定位由可点击`view`改为原生`button`，保留原尺寸、位置和图标。
+- `apps/miniprogram/pages/index/index.wxml:15`：上线审查曾未经用户确认把重新定位由可点击`view`改为原生`button`，导致微信原生控件渲染影响既有视觉；现已按用户要求恢复原`view role="button"`结构，并增加回归断言禁止再次替换。
 - `apps/miniprogram/pages/index/index.wxml:18`：定位城市选择器增加明确无障碍名称。
 - `apps/miniprogram/pages/index/index.wxml:31`：住宅类型、统计指标、面积范围和时间范围选择器增加明确无障碍名称。
 - `apps/miniprogram/pages/index/index.wxml:118`：精确数据月份选择器增加明确无障碍名称。
