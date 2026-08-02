@@ -18,6 +18,7 @@ import {
   migrationDescriptor,
   migrationIntentFileName,
   migrationIntentText,
+  parseMigrationEvidenceFixtureText,
   parseMigrationIntentText,
   validateControlAuditTransitions,
   validateLegacyCurrentText,
@@ -176,6 +177,21 @@ test('the one approved legacy pointer is bound by its exact raw bytes', () => {
   assert.notEqual(sha256(reordered), descriptor.legacy_current_sha256)
   assert.throws(() => validateLegacyCurrentText(reordered, descriptor), /raw SHA-256 changed/)
   assert.throws(() => validateLegacyCurrentText(legacyCurrentText.replace('null', '"2026-06-ec36ff8fb2e5"'), descriptor), /raw SHA-256 changed/)
+})
+
+test('the fixed migration evidence fixture is bound by its exact raw bytes', async () => {
+  const fixtureText = await readFile(
+    resolve(root, 'scripts/miniprogram/fixtures', `${migrationId}.evidence.json`),
+    'utf8',
+  )
+  assert.equal(
+    parseMigrationEvidenceFixtureText(fixtureText, descriptor).migration_id,
+    migrationId,
+  )
+  assert.throws(
+    () => parseMigrationEvidenceFixtureText(`${fixtureText} `, descriptor),
+    /fixture raw SHA-256 changed/,
+  )
 })
 
 test('legacy migration refuses a relabelled or byte-changed immutable manifest', () => {

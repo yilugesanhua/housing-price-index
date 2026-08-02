@@ -175,7 +175,7 @@ const VALIDATION_RECEIPT_FIELDS = [
 const FIXED_EVIDENCE = {
   'legacy-control-2026-06-e9788d0bddf3': {
     schema_version: 'legacy-control-migration-evidence-v1',
-    fixture_raw_sha256: '22bec66666257e60d2cfe159d3af038c6fd445ac8521c4f18435fe6b5d5f0fc0',
+    fixture_raw_sha256: 'cb589c78fbdf7e0896935b84fe96c0507828b8fed5eed66fa4cf479eb5f314bc',
     evidence_files: {
       publish_audit: {
         path: 'data/releases/2026-06-e9788d0bddf3.json',
