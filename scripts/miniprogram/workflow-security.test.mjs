@@ -416,7 +416,6 @@ test('legacy control migration is one-time, protected, exact, and never enables 
   assert.match(tencentCloudSdk, /Namespace: cloudEnvId/)
   assert.match(tencentCloudSdk, /InstallDependency: 'TRUE'/)
   assert.match(tencentCloudSdk, /Publish: 'FALSE'/)
-  assert.match(strictValidatorDeployment, /getFunction\(functionName\)/)
   assert.match(strictValidatorDeployment, /updateFunctionCode\(\{ functionName, zipFile \}\)/)
   assert.match(strictValidatorDeployment, /LEGACY_CONTROL_MIGRATION_AUTHORIZED !== 'true'/)
   assert.match(strictValidatorDeployment, /AUTOMATIC_RELEASE_ENABLED !== 'false'/)

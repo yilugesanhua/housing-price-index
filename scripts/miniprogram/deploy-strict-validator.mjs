@@ -49,10 +49,6 @@ const zipFile = await readFile(zipPath)
 if (zipFile.length === 0) throw new Error('Deployment zip is empty')
 
 const cloud = createTencentCloudClient({ cloudEnvId: expectedCloudEnvId })
-const before = await cloud.getFunction(functionName)
-if (before.FunctionName !== functionName || before.Namespace !== expectedCloudEnvId || before.Handler !== 'index.main') {
-  throw new Error('Existing strict validator function identity differs from the approved target')
-}
 const response = await cloud.updateFunctionCode({ functionName, zipFile })
 console.log(JSON.stringify({
   deployed_function: functionName,

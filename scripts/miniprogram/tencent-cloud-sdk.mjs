@@ -113,7 +113,6 @@ export function createTencentCloudClient({
     }
   }
   const invokeFunction = (functionName, event) => scf.Invoke(buildScfInvokeRequest(functionName, cloudEnvId, event))
-  const getFunction = (functionName) => scf.GetFunction({ FunctionName: functionName, Namespace: cloudEnvId })
   const updateFunctionCode = ({ functionName, zipFile, handler = 'index.main' }) => {
     if (!Buffer.isBuffer(zipFile) || zipFile.length === 0 || zipFile.length > 20 * 1024 * 1024) {
       throw new Error('Function deployment zip is missing or exceeds the SCF inline limit')
@@ -140,7 +139,6 @@ export function createTencentCloudClient({
     uploadDirectory,
     objectExists,
     invokeFunction,
-    getFunction,
     updateFunctionCode,
   }
 }
