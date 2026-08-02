@@ -199,7 +199,9 @@ async function compareDevtools(root, entries, devtoolsRoot) {
     if (targetRelative.startsWith(`..${sep}`) || isAbsolute(targetRelative)) fail(`invalid developer tools target: ${entry.path}`)
     let actual
     try { actual = await readFile(target) } catch { fail(`developer tools file is missing: ${entry.path}`) }
-    if (!actual.equals(entry.data)) fail(`developer tools file differs: ${entry.path}`)
+    const isText = !entry.data.includes(0) && !actual.includes(0)
+    const canonical = (value) => isText ? Buffer.from(value.toString('utf8').replaceAll('\r\n', '\n').replaceAll('\r', '\n'), 'utf8') : value
+    if (!canonical(actual).equals(canonical(entry.data))) fail(`developer tools file differs: ${entry.path}`)
   }
 }
 
