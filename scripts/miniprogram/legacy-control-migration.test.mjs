@@ -382,6 +382,11 @@ test('prepare and recovery branches contain no production object writes', async 
   assert.ok(applyBranch.indexOf('parseMigrationIntentText') >= 0)
   assert.ok(applyBranch.indexOf('parseMigrationIntentText') < applyBranch.indexOf('cloud.putObject'))
   assert.ok(applyBranch.indexOf("intentState === 'recover_finalize'") < applyBranch.indexOf('cloud.putObject'))
+  assert.match(
+    script,
+    /if \(!prepareIntent && !applyIntentPath && !finalizeIntentPath\) \{/,
+    'a protected --finalize-intent invocation must not be mistaken for the default dry run',
+  )
 })
 
 test('the package migration entry point is bound to the approved ID and stays dry-run by default', async () => {

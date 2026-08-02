@@ -116,7 +116,8 @@ if (verifyIntentPath) {
 const fixedEvidence = await loadFixedEvidence()
 const dryRunArtifacts = buildDryRunMigrationArtifacts({ ...fixedEvidence, migrationId: descriptor.migration_id })
 
-if (!prepareIntent && !applyIntentPath) {
+// Finalization is a protected recovery operation, not the default dry run.
+if (!prepareIntent && !applyIntentPath && !finalizeIntentPath) {
   console.log(JSON.stringify({
     dry_run: true,
     fixed_evidence_verified: true,
