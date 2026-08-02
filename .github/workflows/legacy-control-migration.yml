@@ -33,6 +33,7 @@ jobs:
       commit_sha: ${{ steps.identity.outputs.commit_sha }}
       origin_run_id: ${{ steps.identity.outputs.origin_run_id }}
       origin_run_attempt: ${{ steps.identity.outputs.origin_run_attempt }}
+      origin_commit_sha: ${{ steps.origin.outputs.origin_commit_sha }}
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
@@ -87,7 +88,8 @@ jobs:
               && run.conclusion === 'success')) {
               core.setFailed(`No successful ordinary CI push run found for ${context.sha}`)
             }
-      - name: Bind a requested recovery intent to this workflow and exact commit
+      - id: recovery
+        name: Bind a requested recovery intent to this workflow and exact commit
         if: inputs.recovery_run_id != ''
         uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         env:
@@ -107,10 +109,27 @@ jobs:
               || run.status !== 'completed'
               || run.head_branch !== process.env.DEFAULT_BRANCH
               || run.head_repository?.full_name !== `${context.repo.owner}/${context.repo.repo}`
-              || run.head_sha !== context.sha
+              || !['identical', 'ahead'].includes((await github.rest.repos.compareCommits({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                base: run.head_sha,
+                head: context.sha,
+              })).data.status)
               || String(run.run_attempt) !== process.env.RECOVERY_RUN_ATTEMPT) {
-              core.setFailed('Recovery run is not an exact same-commit legacy migration origin')
+              core.setFailed('Recovery run is not an audited legacy migration ancestor of this exact commit')
             }
+            core.setOutput('origin_commit_sha', run.head_sha)
+      - id: origin
+        name: Bind the recovery finalizer to its immutable origin commit
+        env:
+          CURRENT_COMMIT_SHA: ${{ steps.identity.outputs.commit_sha }}
+          RECOVERY_ORIGIN_COMMIT_SHA: ${{ steps.recovery.outputs.origin_commit_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          origin_commit_sha="${RECOVERY_ORIGIN_COMMIT_SHA:-$CURRENT_COMMIT_SHA}"
+          [[ "$origin_commit_sha" =~ ^[a-f0-9]{40}$ ]]
+          echo "origin_commit_sha=$origin_commit_sha" >> "$GITHUB_OUTPUT"
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
@@ -177,6 +196,7 @@ jobs:
           RECOVERY_RUN_ATTEMPT: ${{ inputs.recovery_run_attempt }}
           ORIGIN_RUN_ID: ${{ needs.prepare.outputs.origin_run_id }}
           ORIGIN_RUN_ATTEMPT: ${{ needs.prepare.outputs.origin_run_attempt }}
+          ORIGIN_COMMIT_SHA: ${{ needs.prepare.outputs.origin_commit_sha }}
           TENCENTCLOUD_SECRET_ID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
           TENCENTCLOUD_SECRET_KEY: ${{ secrets.TENCENTCLOUD_SECRET_KEY }}
           CI_PRODUCTION_ENVIRONMENT: housing-data-production
@@ -244,6 +264,7 @@ jobs:
           CONFIRMATION: ${{ inputs.confirmation }}
           ORIGIN_RUN_ID: ${{ needs.prepare.outputs.origin_run_id }}
           ORIGIN_RUN_ATTEMPT: ${{ needs.prepare.outputs.origin_run_attempt }}
+          ORIGIN_COMMIT_SHA: ${{ needs.prepare.outputs.origin_commit_sha }}
           TENCENTCLOUD_SECRET_ID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
           TENCENTCLOUD_SECRET_KEY: ${{ secrets.TENCENTCLOUD_SECRET_KEY }}
           CI_PRODUCTION_ENVIRONMENT: housing-data-production
@@ -265,17 +286,22 @@ jobs:
         env:
           TENCENTCLOUD_SECRETID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
           TENCENTCLOUD_SECRETKEY: ${{ secrets.TENCENTCLOUD_SECRET_KEY }}
+          TENCENTCLOUD_SECRET_ID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
+          TENCENTCLOUD_SECRET_KEY: ${{ secrets.TENCENTCLOUD_SECRET_KEY }}
         shell: bash
         run: |
           set -euo pipefail
           test -n "$TENCENTCLOUD_SECRETID"
           test -n "$TENCENTCLOUD_SECRETKEY"
+          trap 'npx --no-install tcb logout >/dev/null 2>&1 || true' EXIT
+          npx --no-install tcb login --apiKeyId "$TENCENTCLOUD_SECRET_ID" --apiKey "$TENCENTCLOUD_SECRET_KEY"
           npx --no-install tcb fn deploy getHousingDataManifest --force -e cloud1-d3gpdx70w5d05c68c
       - name: Finalize the migrated pointer with the deployed strict validator
         env:
           CONFIRMATION: ${{ inputs.confirmation }}
           ORIGIN_RUN_ID: ${{ needs.prepare.outputs.origin_run_id }}
           ORIGIN_RUN_ATTEMPT: ${{ needs.prepare.outputs.origin_run_attempt }}
+          ORIGIN_COMMIT_SHA: ${{ needs.prepare.outputs.origin_commit_sha }}
           TENCENTCLOUD_SECRET_ID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
           TENCENTCLOUD_SECRET_KEY: ${{ secrets.TENCENTCLOUD_SECRET_KEY }}
           CI_PRODUCTION_ENVIRONMENT: housing-data-production

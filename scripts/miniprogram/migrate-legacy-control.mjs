@@ -38,6 +38,7 @@ const applyIntentPath = argument('apply-intent')
 const finalizeIntentPath = argument('finalize-intent')
 const originRunId = argument('origin-run-id') || process.env.GITHUB_RUN_ID
 const originRunAttempt = argument('origin-run-attempt') || process.env.GITHUB_RUN_ATTEMPT
+const originCommitSha = argument('origin-commit-sha') || process.env.ORIGIN_COMMIT_SHA || process.env.CI_COMMIT_SHA
 const cloudEnvId = argument('env') || 'cloud1-d3gpdx70w5d05c68c'
 const apply = process.argv.includes('--apply')
 const prepareIntent = process.argv.includes('--prepare-intent')
@@ -50,6 +51,7 @@ if (apply !== Boolean(applyIntentPath)) throw new Error('--apply is allowed only
 if (finalizeIntentPath && apply) throw new Error('--finalize-intent cannot be combined with --apply')
 
 if (cloudEnvId !== descriptor.cloud_env_id) throw new Error('Migration environment differs from the approved descriptor')
+if (originCommitSha && !/^[a-f0-9]{40}$/.test(originCommitSha)) throw new Error('Migration origin commit SHA is invalid')
 
 function resolveRepositoryFile(input, label) {
   if (!input || isAbsolute(input)) throw new Error(`${label} must be a repository-relative path`)
@@ -93,7 +95,7 @@ if (verifyIntentPath) {
   const intentPath = resolveRepositoryFile(verifyIntentPath, '--verify-intent')
   const intentText = await readFile(intentPath, 'utf8')
   const intent = parseMigrationIntentText(intentText, {
-    expectedCommitSha: process.env.CI_COMMIT_SHA,
+    expectedCommitSha: originCommitSha,
     expectedGithubRunId: originRunId,
     expectedGithubRunAttempt: originRunAttempt,
   })
@@ -249,7 +251,7 @@ async function findExistingMigrationAudit(currentText, preparedIntentText) {
       manifestSha256: descriptor.legacy_manifest_sha256,
       cloudEnvId: descriptor.cloud_env_id,
       storageBucket: descriptor.storage_bucket,
-      expectedCommitSha: process.env.CI_COMMIT_SHA,
+      expectedCommitSha: originCommitSha,
       expectedOriginGithubRunId: originRunId,
     })
     if (audit.migration_intent_sha256 !== sha256(preparedIntentText)) {
@@ -264,7 +266,7 @@ async function findExistingMigrationAudit(currentText, preparedIntentText) {
 
 async function writeAudit({ current, currentText, preparedIntentText, verifiedAfter, recoveredAfterPointerSwitch, postWriteReceipt }) {
   const preparedIntent = parseMigrationIntentText(preparedIntentText, {
-    expectedCommitSha: process.env.CI_COMMIT_SHA,
+    expectedCommitSha: originCommitSha,
     expectedGithubRunId: originRunId,
     expectedGithubRunAttempt: originRunAttempt,
   })
@@ -350,7 +352,7 @@ async function finalizePreparedIntent() {
     throw new Error('Migration intent filename does not match its canonical content hash')
   }
   const intent = parseMigrationIntentText(preparedIntentText, {
-    expectedCommitSha: process.env.CI_COMMIT_SHA,
+    expectedCommitSha: originCommitSha,
     expectedGithubRunId: originRunId,
     expectedGithubRunAttempt: originRunAttempt,
   })
@@ -403,7 +405,7 @@ async function applyPreparedIntent() {
     throw new Error('Migration intent filename does not match its canonical content hash')
   }
   const intent = parseMigrationIntentText(preparedIntentText, {
-    expectedCommitSha: process.env.CI_COMMIT_SHA,
+    expectedCommitSha: originCommitSha,
     expectedGithubRunId: originRunId,
     expectedGithubRunAttempt: originRunAttempt,
   })

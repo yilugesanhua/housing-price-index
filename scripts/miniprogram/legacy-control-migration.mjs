@@ -926,7 +926,9 @@ export function validateMigrationAuditTransition(audit, {
   assert(COMMIT_SHA_PATTERN.test(audit.finalizer_commit_sha || ''), 'migration audit finalizer commit SHA is invalid')
   assert(GITHUB_RUN_ID_PATTERN.test(audit.finalizer_github_run_id || ''), 'migration audit finalizer GitHub run ID is invalid')
   assert(GITHUB_RUN_ATTEMPT_PATTERN.test(audit.finalizer_github_run_attempt || ''), 'migration audit finalizer GitHub run attempt is invalid')
-  assert(audit.finalizer_commit_sha === intent.commit_sha, 'migration audit finalizer used a different commit')
+  if (audit.recovered_after_pointer_switch === false) {
+    assert(audit.finalizer_commit_sha === intent.commit_sha, 'normal migration audit finalizer used a different commit')
+  }
   if (audit.recovered_after_pointer_switch === false) {
     assert(audit.finalizer_github_run_id === intent.github_run_id
       && audit.finalizer_github_run_attempt === intent.github_run_attempt,

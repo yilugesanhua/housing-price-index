@@ -358,13 +358,18 @@ test('audit is self-contained, preserves origin identity, and supports read-only
   assert.equal(recovered.audit.github_run_attempt, originGithubRunAttempt)
   assert.equal(recovered.audit.finalizer_github_run_id, '987654321')
   assert.equal(recovered.audit.finalizer_github_run_attempt, '2')
-  assert.throws(() => buildCompleteMigrationAudit({
+  const recoveredFromDescendantCommit = buildCompleteMigrationAudit({
     recoveredAfterPointerSwitch: true,
     finalizerCommitSha: 'b'.repeat(40),
     finalizerGithubRunId: '987654321',
     finalizerGithubRunAttempt: '2',
     receiptValidatedAt: '2026-08-01T06:00:00.000Z',
-  }), /finalizer used a different commit/)
+  })
+  assert.equal(
+    validateMigrationAuditTransition(recoveredFromDescendantCommit.audit),
+    recoveredFromDescendantCommit.audit.after_sha256,
+  )
+  assert.equal(recoveredFromDescendantCommit.audit.finalizer_commit_sha, 'b'.repeat(40))
 })
 
 test('prepare and recovery branches contain no production object writes', async () => {
