@@ -227,7 +227,7 @@ export async function generateCandidate({ root = process.cwd(), sourceCommitSha,
   const version = sourceVersionText.match(/version:\s*['"](v\d+\.\d+\.\d+)['"]/)?.[1]
   if (!version) fail('version.js does not contain a semantic vX.Y.Z version')
   const sourceCommitTime = await gitValue(root, ['show', '-s', '--format=%cI', sourceCommitSha])
-  const snapshotText = (await execFileAsync('git', ['show', `${sourceCommitSha}:apps/miniprogram/data/snapshot.js`], { cwd: root, encoding: 'utf8' })).stdout
+  const snapshotText = (await execFileAsync('git', ['show', `${sourceCommitSha}:apps/miniprogram/data/snapshot.js`], { cwd: root, encoding: 'utf8', maxBuffer: 50 * 1024 * 1024 })).stdout
   const snapshot = parseSnapshot(snapshotText)
   const auditText = (await execFileAsync('git', ['show', `${sourceCommitSha}:data/audit-report.json`], { cwd: root, encoding: 'utf8' })).stdout
   let audit
