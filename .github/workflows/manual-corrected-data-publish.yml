@@ -9,8 +9,8 @@ on:
         type: string
 
 permissions:
-  contents: write
   actions: read
+  contents: read
 
 concurrency:
   group: housing-data-production-publish
@@ -18,6 +18,9 @@ concurrency:
 
 jobs:
   prepare:
+    permissions:
+      actions: read
+      contents: read
     runs-on: ubuntu-latest
     timeout-minutes: 30
     outputs:
@@ -25,37 +28,44 @@ jobs:
       gate_report_sha256: ${{ steps.gate.outputs.gate_report_sha256 }}
       commit_sha: ${{ steps.identity.outputs.commit_sha }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ github.event.repository.default_branch }}
           fetch-depth: 0
+          persist-credentials: false
       - id: identity
         name: Lock correction to the reviewed default-branch commit
         env:
           CONFIRMATION: ${{ inputs.confirmation }}
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          REPOSITORY_AUTOMATIC_RELEASE_ENABLED: ${{ vars.AUTOMATIC_RELEASE_ENABLED }}
+          OUTSIDE_ENV_PRODUCTION_AUTHORIZATION: ${{ vars.PRODUCTION_RELEASE_AUTHORIZED }}
         shell: bash
         run: |
           test "$CONFIRMATION" = "2026-06-4fd1d1a8ff12"
+          test "$REPOSITORY_AUTOMATIC_RELEASE_ENABLED" = "true"
+          test -z "$OUTSIDE_ENV_PRODUCTION_AUTHORIZATION" || test "$OUTSIDE_ENV_PRODUCTION_AUTHORIZATION" = "false"
           test "$(git branch --show-current)" = "$DEFAULT_BRANCH"
           commit_sha="$(git rev-parse HEAD)"
           test "$commit_sha" = "$GITHUB_SHA"
           echo "commit_sha=$commit_sha" >> "$GITHUB_OUTPUT"
       - name: Require successful ordinary CI for this exact commit
-        uses: actions/github-script@v7
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
         with:
           script: |
-            const runs = await github.paginate(github.rest.actions.listWorkflowRunsForRepo, {
+            const runs = await github.paginate(github.rest.actions.listWorkflowRuns, {
               owner: context.repo.owner,
               repo: context.repo.repo,
+              workflow_id: '.github/workflows/ci.yml',
               head_sha: context.sha,
+              event: 'push',
               status: 'success',
               per_page: 100,
             })
-            if (!runs.some((run) => run.name === 'ci' && run.head_sha === context.sha && run.event === 'push')) {
+            if (!runs.some((run) => run.path === '.github/workflows/ci.yml' && run.head_sha === context.sha && run.event === 'push' && run.conclusion === 'success')) {
               core.setFailed(`No successful ordinary CI push run found for ${context.sha}`)
             }
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: npm
@@ -78,7 +88,7 @@ jobs:
           result="$(npm run --silent miniprogram:data:prepare-correction -- --commit="$COMMIT_SHA" --run-id="$GITHUB_RUN_ID" --env=cloud1-d3gpdx70w5d05c68c)"
           node -e "const v=JSON.parse(process.argv[1]); const fs=require('fs'); fs.appendFileSync(process.env.GITHUB_OUTPUT,'dataset_version='+v.dataset_version+'\ngate_report_sha256='+v.gate_report_sha256+'\n')" "$result"
       - name: Upload reproducible correction candidate
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: corrected-housing-data-${{ github.run_id }}
           path: |
@@ -90,15 +100,18 @@ jobs:
 
   publish:
     needs: prepare
+    permissions:
+      actions: read
+      contents: write
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: housing-data-production
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ needs.prepare.outputs.commit_sha }}
           fetch-depth: 0
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: npm
@@ -112,7 +125,7 @@ jobs:
           git fetch origin "$DEFAULT_BRANCH"
           test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
           test "$(git rev-parse "origin/$DEFAULT_BRANCH")" = "$EXPECTED_SHA"
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: corrected-housing-data-${{ github.run_id }}
           path: work/correction-artifact
@@ -136,10 +149,33 @@ jobs:
           CI_GATE_REPORT_PATH: work/corrected-release/gate-report.json
           CI_EXPECTED_CURRENT_DATASET_VERSION: 2026-06-ec36ff8fb2e5
           CI_EXPECTED_CURRENT_SOURCE_DATASET_VERSION: 2026-06-679ea146d4e2
+          AUTOMATIC_RELEASE_ENABLED: ${{ vars.AUTOMATIC_RELEASE_ENABLED }}
+          PRODUCTION_RELEASE_AUTHORIZED: ${{ vars.PRODUCTION_RELEASE_AUTHORIZED }}
         run: >-
           npm run miniprogram:data:publish --
           --env=cloud1-d3gpdx70w5d05c68c
           --dataset=${{ needs.prepare.outputs.dataset_version }}
+      - id: rollback_monitor_event
+        name: Validate a successful automatic rollback for monitor registration
+        if: failure()
+        env:
+          EXPECTED_COMMIT_SHA: ${{ needs.prepare.outputs.commit_sha }}
+          EXPECTED_GITHUB_RUN_ID: ${{ github.run_id }}
+        run: node scripts/miniprogram/register-monitor-control-event.mjs
+      - name: Persist the automatic rollback monitor event without cloud credentials
+        if: failure() && steps.rollback_monitor_event.outputs.registered == 'true'
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          EVENT_PATH: ${{ steps.rollback_monitor_event.outputs.event_path }}
+          FAILURE_PATH: ${{ steps.rollback_monitor_event.outputs.failure_path }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "housing-data-automation"
+          git config user.email "housing-data-automation@users.noreply.github.com"
+          git add -- "$EVENT_PATH" "$FAILURE_PATH"
+          git commit -m "data: record automatic rollback monitor event"
+          git push origin "HEAD:${DEFAULT_BRANCH}"
       - name: Persist the immutable publish audit
         env:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
@@ -148,11 +184,11 @@ jobs:
           git config user.name "housing-data-automation"
           git config user.email "housing-data-automation@users.noreply.github.com"
           git add -- "data/releases/${{ needs.prepare.outputs.dataset_version }}.json"
-          git commit -m "data: record corrected cloud release [skip ci]"
+          git commit -m "data: record corrected cloud release"
           git push origin "HEAD:${DEFAULT_BRANCH}"
       - name: Upload publication evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: corrected-housing-data-publish-${{ github.run_id }}
           path: |

@@ -4,6 +4,14 @@ import { createRequire } from 'node:module'
 import { resolve } from 'node:path'
 import test from 'node:test'
 import { buildRemoteRelease } from './remote-data-lib.mjs'
+import {
+  appendFailedDatasetRevocation,
+  appendFailedReleaseRevocations,
+  appendHistoricalCorrectionRevocations,
+  buildRollbackRevisionId,
+  buildRevocationRegistryArtifact,
+  createRevocationRegistry,
+} from './control-plane.mjs'
 
 const root = resolve(import.meta.dirname, '../..')
 const require = createRequire(import.meta.url)
@@ -11,10 +19,22 @@ const bundled = require(resolve(root, 'apps/miniprogram/data/snapshot.js'))
 const config = require(resolve(root, 'apps/miniprogram/config/data.js'))
 const versionConfig = require(resolve(root, 'apps/miniprogram/config/version.js'))
 const { sha256, utf8Bytes } = require(resolve(root, 'apps/miniprogram/utils/sha256.js'))
-const { createDataRuntime, POINTER_KEY, CHECK_KEY, REVOKED_SOURCES_KEY } = require(resolve(root, 'apps/miniprogram/utils/data-runtime.js'))
+const { createDataRuntime, validateCurrent: validateRuntimeCurrent, STATE_KEY, CONTROL_TOMBSTONE_KEY, POINTER_KEY, CHECK_KEY, REVOKED_SOURCES_KEY } = require(resolve(root, 'apps/miniprogram/utils/data-runtime.js'))
 const { validateCurrent } = require(resolve(root, 'apps/miniprogram/cloudfunctions/getHousingDataManifest/validate-current.js'))
+const { buildValidationReceipt } = require(resolve(root, 'apps/miniprogram/cloudfunctions/getHousingDataManifest/validation-receipt.js'))
 
 function makeRelease(minimumAppVersion = versionConfig.version, snapshot = bundled) {
+  const release = buildRemoteRelease(snapshot, {
+    cloudEnvId: config.cloudEnvId,
+    storageBucket: config.storageBucket,
+    minimumAppVersion,
+    nextCheckAt: '2026-08-17T01:40:00.000Z',
+    sourceBatchIds: ['official-html-test'],
+  })
+  return attachControl(release)
+}
+
+function makeLegacyRelease(minimumAppVersion = versionConfig.version, snapshot = bundled) {
   return buildRemoteRelease(snapshot, {
     cloudEnvId: config.cloudEnvId,
     storageBucket: config.storageBucket,
@@ -24,8 +44,34 @@ function makeRelease(minimumAppVersion = versionConfig.version, snapshot = bundl
   })
 }
 
+function appendRollbackRevocations(registry, {
+  failedRelease,
+  targetRelease,
+  revokedAt,
+  replacementDatasetVersion = targetRelease.current.dataset_version,
+  reason,
+}) {
+  return appendFailedReleaseRevocations(registry, {
+    datasetVersion: failedRelease.current.dataset_version,
+    sourceDatasetVersion: failedRelease.current.source_dataset_version,
+    revokedAt,
+    replacementDatasetVersion,
+    replacementSourceDatasetVersion: targetRelease.current.source_dataset_version,
+    revisionId: buildRollbackRevisionId(failedRelease.current.dataset_version),
+    reason,
+  })
+}
+
+function controlWindow(now) {
+  return {
+    controlGeneratedAt: new Date(now - 60_000).toISOString(),
+    controlValidUntil: new Date(now + 23 * 60 * 60 * 1000).toISOString(),
+  }
+}
+
 function cloudFiles(release) {
   return new Map([
+    ...(release.revocationArtifact ? [[release.revocationArtifact.cloudFileId, release.revocationArtifact.text]] : []),
     [release.current.manifest_file_id, release.manifestText],
     [release.manifest.bootstrap_file_id, release.bootstrapText],
     ...(release.revisionManifestText ? [[release.manifest.revision_manifest_file_id, release.revisionManifestText]] : []),
@@ -33,16 +79,87 @@ function cloudFiles(release) {
   ])
 }
 
+function attachControl(release, {
+  registry = createRevocationRegistry({ generatedAt: '2026-07-20T00:00:00.000Z' }),
+  controlGeneration = 1,
+  transitionType = 'publish',
+  rollbackFromDatasetVersion,
+  supersededDatasetVersion,
+  supersededSourceDatasetVersion,
+  controlGeneratedAt = new Date(Date.now() - 60_000).toISOString(),
+  controlValidUntil = new Date(Date.now() + 23 * 60 * 60 * 1000).toISOString(),
+} = {}) {
+  const artifact = buildRevocationRegistryArtifact(registry, { cloudEnvId: config.cloudEnvId, storageBucket: config.storageBucket })
+  release.revocationArtifact = artifact
+  Object.assign(release.current, {
+    source_dataset_version: release.manifest.source_dataset_version,
+    control_schema_version: '1.0.0',
+    control_generation: controlGeneration,
+    ...artifact.currentFields,
+    transition_type: transitionType,
+    data_status: 'current',
+    status_reason: transitionType === 'rollback' ? 'post_publish_guard_failed' : 'test_publish',
+    control_generated_at: controlGeneratedAt,
+    control_valid_until: controlValidUntil,
+    published_at: controlGeneratedAt,
+    previous_dataset_version: transitionType === 'rollback' ? null : release.current.previous_dataset_version,
+  })
+  if (rollbackFromDatasetVersion) release.current.rollback_from_dataset_version = rollbackFromDatasetVersion
+  if (transitionType === 'historical_correction') {
+    release.current.superseded_dataset_version = supersededDatasetVersion
+    release.current.superseded_source_dataset_version = supersededSourceDatasetVersion
+  }
+  return release
+}
+
+function runtimeState(mock) {
+  return mock.storage.get(STATE_KEY)
+}
+
 function createWxMock(release, options = {}) {
   const files = options.files || new Map()
+  const directories = options.directories || new Set(['/user', '/user/housing-data'])
   const storage = options.storage || new Map()
   const remote = options.remote || cloudFiles(release)
-  const stats = { functionCalls: 0, downloads: 0, writes: 0 }
+  const stats = { functionCalls: 0, downloads: 0, writes: 0, reads: 0, renames: 0, removals: 0 }
+  let activeCurrent = options.current || release.current
   let tempIndex = 0
+
+  function ensureDirectories(path) {
+    const parts = path.split('/').filter(Boolean)
+    let current = ''
+    for (const part of parts) {
+      current += `/${part}`
+      directories.add(current)
+    }
+  }
+
+  function removeTree(path) {
+    if (options.failRmdir?.(path)) throw new Error(`EACCES: ${path}`)
+    const prefix = `${path}/`
+    let found = directories.delete(path)
+    for (const filePath of [...files.keys()]) {
+      if (filePath.startsWith(prefix)) {
+        files.delete(filePath)
+        found = true
+      }
+    }
+    for (const directory of [...directories]) {
+      if (directory.startsWith(prefix)) {
+        directories.delete(directory)
+        found = true
+      }
+    }
+    if (!found) throw new Error(`ENOENT: ${path}`)
+    stats.removals += 1
+  }
+
   const fs = {
     readFileSync(filePath, encoding) {
       if (!files.has(filePath)) throw new Error(`ENOENT: ${filePath}`)
-      const value = files.get(filePath)
+      stats.reads += 1
+      const stored = files.get(filePath)
+      const value = options.mutateRead?.(filePath, stored, stats.reads) ?? stored
       return encoding ? value.toString(encoding) : value
     },
     readFile({ filePath, encoding, success, fail }) {
@@ -51,26 +168,90 @@ function createWxMock(release, options = {}) {
     writeFile({ filePath, data, success, fail }) {
       stats.writes += 1
       if (options.failWrite?.(filePath, stats.writes)) return fail(new Error(`ENOSPC: ${filePath}`))
+      ensureDirectories(filePath.slice(0, filePath.lastIndexOf('/')))
       files.set(filePath, Buffer.from(data, 'utf8'))
       success({})
     },
-    mkdir({ success }) { success({}) },
+    unlinkSync(filePath) {
+      if (options.failUnlink?.(filePath)) throw new Error(`EACCES: ${filePath}`)
+      if (!files.has(filePath)) throw new Error(`ENOENT: ${filePath}`)
+      files.delete(filePath)
+    },
+    mkdir({ dirPath, success }) {
+      ensureDirectories(dirPath)
+      success({})
+    },
+    readdirSync(dirPath) {
+      if (!directories.has(dirPath)) throw new Error(`ENOENT: ${dirPath}`)
+      const prefix = `${dirPath}/`
+      return [...new Set([
+        ...[...directories].filter((path) => path.startsWith(prefix)).map((path) => path.slice(prefix.length).split('/')[0]),
+        ...[...files.keys()].filter((path) => path.startsWith(prefix)).map((path) => path.slice(prefix.length).split('/')[0]),
+      ].filter(Boolean))]
+    },
+    rmdirSync(dirPath) {
+      removeTree(dirPath)
+    },
+    rmdir({ dirPath, success, fail }) {
+      try {
+        removeTree(dirPath)
+        success({})
+      } catch (error) {
+        fail(error)
+      }
+    },
+    rename({ oldPath, newPath, success, fail }) {
+      stats.renames += 1
+      if (options.failRename?.(oldPath, newPath, stats.renames)) return fail(new Error(`EIO: ${oldPath}`))
+      const prefix = `${oldPath}/`
+      const matchingFiles = [...files.entries()].filter(([path]) => path.startsWith(prefix))
+      const matchingDirectories = [...directories].filter((path) => path === oldPath || path.startsWith(prefix))
+      if (!matchingFiles.length && !matchingDirectories.length) return fail(new Error(`ENOENT: ${oldPath}`))
+      for (const [path, value] of matchingFiles) {
+        files.delete(path)
+        files.set(`${newPath}${path.slice(oldPath.length)}`, value)
+      }
+      for (const path of matchingDirectories) directories.delete(path)
+      ensureDirectories(newPath)
+      for (const path of matchingDirectories) directories.add(`${newPath}${path.slice(oldPath.length)}`)
+      options.afterRename?.({ oldPath, newPath, files, directories })
+      success({})
+    },
   }
   return {
     wxApi: {
       env: { USER_DATA_PATH: '/user' },
       getFileSystemManager: () => fs,
-      getStorageSync: (key) => storage.get(key),
+      getStorageSync: (key) => {
+        if (options.failGetStorage?.(key)) throw new Error(`storage read failure: ${key}`)
+        return storage.get(key)
+      },
       setStorageSync: (key, value) => {
-        if (options.failStorage?.(key)) throw new Error(`storage failure: ${key}`)
+        if (options.failStorage?.(key, value)) throw new Error(`storage failure: ${key}`)
         storage.set(key, structuredClone(value))
       },
-      removeStorageSync: (key) => storage.delete(key),
+      removeStorageSync: (key) => {
+        if (options.failRemoveStorage?.(key)) throw new Error(`storage remove failure: ${key}`)
+        storage.delete(key)
+      },
       cloud: {
         callFunction({ success, fail }) {
           stats.functionCalls += 1
           if (options.functionError) return fail(options.functionError)
-          success({ result: { current: structuredClone(options.current || release.current) } })
+          const receiptNow = typeof options.receiptNow === 'function'
+            ? options.receiptNow()
+            : (options.receiptNow ?? Date.now())
+          const validationReceipt = options.validationReceipt === undefined
+            ? buildValidationReceipt(activeCurrent, receiptNow)
+            : (typeof options.validationReceipt === 'function'
+                ? options.validationReceipt(activeCurrent, receiptNow)
+                : options.validationReceipt)
+          success({
+            result: {
+              current: structuredClone(activeCurrent),
+              ...(validationReceipt ? { validation_receipt: structuredClone(validationReceipt) } : {}),
+            },
+          })
         },
         downloadFile({ fileID, success, fail }) {
           stats.downloads += 1
@@ -83,14 +264,17 @@ function createWxMock(release, options = {}) {
       },
     },
     files,
+    directories,
+    remote,
     storage,
     stats,
+    setCurrent(value) { activeCurrent = value },
   }
 }
 
 function correctionRelease() {
   const corrected = { ...bundled, datasetVersion: '2026-06-222222222222' }
-  return buildRemoteRelease(corrected, {
+  const release = buildRemoteRelease(corrected, {
     cloudEnvId: config.cloudEnvId,
     storageBucket: config.storageBucket,
     minimumAppVersion: config.correctionMinimumAppVersion,
@@ -109,6 +293,70 @@ function correctionRelease() {
       }],
     },
   })
+  const revisionId = release.revisionManifest.revision_id
+  const registry = appendHistoricalCorrectionRevocations(
+    createRevocationRegistry({ generatedAt: '2026-07-20T00:00:00.000Z' }),
+    {
+      datasetVersion: bundled.datasetVersion,
+      sourceDatasetVersion: bundled.datasetVersion,
+      revokedAt: '2026-07-20T00:15:00.000Z',
+      revisionId,
+      replacementDatasetVersion: release.current.dataset_version,
+      replacementSourceDatasetVersion: release.manifest.source_dataset_version,
+      reason: 'official historical correction superseded the audited package and source',
+    },
+  )
+  return attachControl(release, {
+    registry,
+    transitionType: 'historical_correction',
+    supersededDatasetVersion: bundled.datasetVersion,
+    supersededSourceDatasetVersion: bundled.datasetVersion,
+  })
+}
+
+function nextMonthSnapshot() {
+  const snapshot = structuredClone(bundled)
+  snapshot.months = [...snapshot.months.slice(1), '2026-07']
+  snapshot.releaseDates = [...snapshot.releaseDates.slice(1), '2026-08-17']
+  snapshot.datasetAsOf = '2026-07'
+  snapshot.datasetVersion = '2026-07-111111111111'
+  snapshot.releaseDate = '2026-08-17'
+  snapshot.coverageStart = snapshot.months[0]
+  return snapshot
+}
+
+function snapshotForMonth(datasetAsOf, sourceHash) {
+  const end = new Date(`${datasetAsOf}-01T00:00:00.000Z`)
+  const months = Array.from({ length: 120 }, (_, index) => {
+    const date = new Date(end)
+    date.setUTCMonth(date.getUTCMonth() - (119 - index))
+    return date.toISOString().slice(0, 7)
+  })
+  const releaseDate = new Date(end)
+  releaseDate.setUTCMonth(releaseDate.getUTCMonth() + 1)
+  const releaseDates = months.map((month) => {
+    const date = new Date(`${month}-01T00:00:00.000Z`)
+    date.setUTCMonth(date.getUTCMonth() + 1)
+    return `${date.toISOString().slice(0, 7)}-17`
+  })
+  return {
+    ...structuredClone(bundled),
+    months,
+    releaseDates,
+    datasetAsOf,
+    datasetVersion: `${datasetAsOf}-${sourceHash}`,
+    releaseDate: `${releaseDate.toISOString().slice(0, 7)}-17`,
+    coverageStart: months[0],
+  }
+}
+
+function rebuildBootstrapArtifacts(release) {
+  release.bootstrapText = `${JSON.stringify(release.bootstrap)}\n`
+  release.manifest.bootstrap_sha256 = sha256(utf8Bytes(release.bootstrapText))
+  release.manifest.bootstrap_bytes = utf8Bytes(release.bootstrapText).byteLength
+  release.manifestText = `${JSON.stringify(release.manifest)}\n`
+  release.current.manifest_sha256 = sha256(utf8Bytes(release.manifestText))
+  return release
 }
 
 test('mini program SHA-256 matches standard UTF-8 vectors and staged bytes', () => {
@@ -128,9 +376,9 @@ test('first online launch atomically activates remote data and valid cache hydra
   assert.equal(result.updated, true)
   assert.equal(runtime.getSource(), 'remote')
   assert.equal(runtime.hasCity('taiyuan'), true)
-  assert.equal(mock.storage.get(POINTER_KEY).datasetVersion, release.current.dataset_version)
-  assert.equal(mock.storage.get(POINTER_KEY).cachedCityIds.length, 70)
-  assert.equal(mock.stats.downloads, 2)
+  assert.equal(runtimeState(mock).active.datasetVersion, release.current.dataset_version)
+  assert.equal(runtimeState(mock).active.cachedCityIds.length, 70)
+  assert.equal(mock.stats.downloads, 3)
 
   const restored = createDataRuntime({ wxApi: mock.wxApi, bundled })
   assert.equal(restored.getSource(), 'remote')
@@ -138,10 +386,16 @@ test('first online launch atomically activates remote data and valid cache hydra
 })
 
 test('successful schedule suppresses cloud checks until next check time', async () => {
-  const release = makeRelease()
-  const mock = createWxMock(release)
   const now = Date.parse('2026-07-01T00:00:00.000Z')
-  mock.storage.set(CHECK_KEY, { nextCheckAt: now + 60_000 })
+  const release = attachControl(makeRelease(), controlWindow(now))
+  const mock = createWxMock(release, { receiptNow: now })
+  const first = createDataRuntime({ wxApi: mock.wxApi, bundled, now: () => now })
+  await first.refresh({ force: true })
+  const state = runtimeState(mock)
+  state.schedule.dataNextCheckAt = now + 60_000
+  state.schedule.controlNextCheckAt = now + 60_000
+  mock.storage.set(STATE_KEY, state)
+  mock.stats.functionCalls = 0
   const runtime = createDataRuntime({ wxApi: mock.wxApi, bundled, now: () => now })
 
   const result = await runtime.refresh()
@@ -150,17 +404,17 @@ test('successful schedule suppresses cloud checks until next check time', async 
 })
 
 test('unchanged remote data retries shortly when the official check time is already due', async () => {
-  const release = makeRelease()
   const now = Date.parse('2026-07-15T01:45:00.000Z')
+  const release = attachControl(makeRelease(), controlWindow(now))
   release.current.next_check_at = '2026-07-15T01:35:00.000Z'
-  const mock = createWxMock(release)
+  const mock = createWxMock(release, { receiptNow: now })
   const runtime = createDataRuntime({ wxApi: mock.wxApi, bundled, now: () => now })
 
   assert.equal((await runtime.refresh({ force: true })).updated, true)
   const result = await runtime.refresh({ force: true })
 
   assert.equal(result.reason, 'current')
-  assert.equal(mock.storage.get(CHECK_KEY).nextCheckAt, now + config.releaseRetryMs)
+  assert.equal(runtimeState(mock).schedule.dataNextCheckAt, now + config.releaseRetryMs)
 })
 
 test('all 70 city histories are local after update and city switching makes no download', async () => {
@@ -173,7 +427,7 @@ test('all 70 city histories are local after update and city switching makes no d
   await runtime.ensureCities(['haikou'])
   assert.equal(runtime.hasCity('haikou'), true)
   assert.equal(mock.stats.downloads, before)
-  assert.equal(mock.storage.get(POINTER_KEY).cachedCityIds.length, 70)
+  assert.equal(runtimeState(mock).active.cachedCityIds.length, 70)
 })
 
 test('a legacy sharded release is bulk-cached once instead of downloading on city selection', async () => {
@@ -188,11 +442,27 @@ test('a legacy sharded release is bulk-cached once instead of downloading on cit
   const runtime = createDataRuntime({ wxApi: mock.wxApi, bundled })
 
   assert.equal((await runtime.refresh({ force: true })).updated, true)
-  assert.equal(mock.stats.downloads, 66)
+  assert.equal(mock.stats.downloads, 67)
   assert.equal(Object.keys(runtime.getSnapshot().series).length, 70)
   const downloadsAfterUpdate = mock.stats.downloads
   await runtime.ensureCities(['taiyuan', 'haikou', 'xining'])
   assert.equal(mock.stats.downloads, downloadsAfterUpdate)
+})
+
+test('remote bootstrap with false client-window coverage is rejected before activation', async () => {
+  const release = makeRelease()
+  release.bootstrap.coverageStart = release.bootstrap.sourceCoverageStart
+  release.bootstrapText = `${JSON.stringify(release.bootstrap)}\n`
+  release.manifest.bootstrap_sha256 = sha256(utf8Bytes(release.bootstrapText))
+  release.manifest.bootstrap_bytes = utf8Bytes(release.bootstrapText).byteLength
+  release.manifestText = `${JSON.stringify(release.manifest)}\n`
+  release.current.manifest_sha256 = sha256(utf8Bytes(release.manifestText))
+  const mock = createWxMock(release)
+  const runtime = createDataRuntime({ wxApi: mock.wxApi, bundled })
+
+  assert.equal((await runtime.refresh({ force: true })).reason, 'failed')
+  assert.equal(runtime.getSource(), 'bundled')
+  assert.equal(runtime.getSnapshot().coverageStart, runtime.getSnapshot().months[0])
 })
 
 test('corrupt manifest and interrupted cache writes never activate a remote pointer', async () => {
@@ -212,13 +482,24 @@ test('corrupt manifest and interrupted cache writes never activate a remote poin
   assert.equal(interrupted.storage.has(POINTER_KEY), false)
 })
 
-test('cloud failure, older data, and incompatible app version keep the bundled fallback', async () => {
+test('first-launch failures keep the independently audited bundled data available', async () => {
   const release = makeRelease()
   const offline = createWxMock(release, { functionError: new Error('offline') })
   const offlineRuntime = createDataRuntime({ wxApi: offline.wxApi, bundled })
+  assert.equal(offlineRuntime.getSource(), 'bundled')
+  assert.equal(offlineRuntime.getSnapshot(), bundled)
   assert.equal((await offlineRuntime.refresh({ force: true })).reason, 'failed')
   assert.equal(offlineRuntime.getSource(), 'bundled')
-  assert.ok(Number(offline.storage.get(CHECK_KEY).nextCheckAt) > Date.now())
+  assert.equal(offlineRuntime.getSnapshot(), bundled)
+  assert.ok(Number(runtimeState(offline).schedule.dataNextCheckAt) > Date.now())
+
+  const corruptRemote = cloudFiles(release)
+  corruptRemote.set(release.current.manifest_file_id, `${release.manifestText} `)
+  const corrupt = createWxMock(release, { remote: corruptRemote })
+  const corruptRuntime = createDataRuntime({ wxApi: corrupt.wxApi, bundled })
+  assert.equal((await corruptRuntime.refresh({ force: true })).reason, 'failed')
+  assert.equal(corruptRuntime.getSource(), 'bundled')
+  assert.equal(corruptRuntime.getSnapshot(), bundled)
 
   const oldCurrent = { ...release.current, dataset_version: '2026-05-000000000000', dataset_as_of: '2026-05' }
   oldCurrent.manifest_file_id = `cloud://${config.cloudEnvId}.${config.storageBucket}/housing-data/releases/${oldCurrent.dataset_version}/manifest.json`
@@ -234,6 +515,30 @@ test('cloud failure, older data, and incompatible app version keep the bundled f
   assert.equal(futureRuntime.getSource(), 'bundled')
 })
 
+test('a structurally invalid bundled snapshot fails closed before page calculations run', async (t) => {
+  const mutations = [
+    ['non-finite series value', (snapshot) => { snapshot.series.beijing.n_a[0] = Number.POSITIVE_INFINITY }],
+    ['missing city search metadata', (snapshot) => { delete snapshot.cityMap.beijing.search }],
+    ['dataset version month mismatch', (snapshot) => { snapshot.datasetVersion = '2025-06-000000000000' }],
+    ['untrusted official URL', (snapshot) => { snapshot.latestOfficialUrl = 'https://example.com/not-official' }],
+    ['missing source coverage start', (snapshot) => { delete snapshot.sourceCoverageStart }],
+    ['invalid source coverage start', (snapshot) => { snapshot.sourceCoverageStart = '2016-13' }],
+    ['source coverage starts after the client window', (snapshot) => { snapshot.sourceCoverageStart = '2016-08' }],
+  ]
+  for (const [label, mutate] of mutations) {
+    await t.test(label, () => {
+      const invalidBundled = structuredClone(bundled)
+      mutate(invalidBundled)
+      const runtime = createDataRuntime({ wxApi: null, bundled: invalidBundled })
+
+      assert.equal(runtime.getSource(), 'unavailable')
+      assert.equal(runtime.getSnapshot().dataStatus, 'unavailable')
+      assert.deepEqual(runtime.getSnapshot().cityIds, [])
+      assert.deepEqual(runtime.getSnapshot().series, {})
+    })
+  }
+})
+
 test('same-month remote conflicts cannot replace the audited bundled snapshot or hydrate from cache', async () => {
   const conflictingSnapshot = { ...bundled, datasetVersion: '2026-06-000000000000' }
   const release = makeRelease(versionConfig.version, conflictingSnapshot)
@@ -242,7 +547,7 @@ test('same-month remote conflicts cannot replace the audited bundled snapshot or
 
   assert.equal((await runtime.refresh({ force: true })).reason, 'failed')
   assert.equal(runtime.getSource(), 'bundled')
-  assert.equal(mock.stats.downloads, 1)
+  assert.equal(mock.stats.downloads, 2)
 
   const legacyRuntime = createDataRuntime({ wxApi: mock.wxApi, bundled: conflictingSnapshot })
   assert.equal((await legacyRuntime.refresh({ force: true })).updated, true)
@@ -256,6 +561,7 @@ test('same-month remote conflicts cannot replace the audited bundled snapshot or
 test('same-month conflict is rejected against a newer active remote month, not only against bundled data', async () => {
   const newer = structuredClone(bundled)
   newer.months = [...newer.months.slice(1), '2026-07']
+  newer.coverageStart = newer.months[0]
   newer.releaseDates = [...newer.releaseDates.slice(1), '2026-08-17']
   newer.datasetAsOf = '2026-07'
   newer.datasetVersion = '2026-07-111111111111'
@@ -281,9 +587,9 @@ test('valid same-month audited correction activates atomically and revokes the s
   const result = await runtime.refresh({ force: true })
   assert.equal(result.updated, true)
   assert.equal(runtime.getSource(), 'remote')
-  assert.equal(mock.stats.downloads, 3)
-  assert.deepEqual(mock.storage.get(REVOKED_SOURCES_KEY), [bundled.datasetVersion])
-  assert.equal(mock.storage.get(POINTER_KEY).cachedCityIds.length, 70)
+  assert.equal(mock.stats.downloads, 4)
+  assert.deepEqual(runtimeState(mock).control.revokedSourceDatasetVersions, [bundled.datasetVersion])
+  assert.equal(runtimeState(mock).active.cachedCityIds.length, 70)
   const restored = createDataRuntime({ wxApi: mock.wxApi, bundled })
   assert.equal(restored.getSource(), 'remote')
 })
@@ -311,41 +617,931 @@ test('broken correction chains, damaged revision manifests, and revoked downgrad
   const revokedRuntime = createDataRuntime({ wxApi: revoked.wxApi, bundled })
   assert.equal(revokedRuntime.getSource(), 'unavailable')
   assert.equal(revokedRuntime.getSnapshot().dataStatus, 'unavailable')
-  assert.equal(revokedRuntime.getSnapshot().series.fuzhou.n_a.every((value) => value === null), true)
+  assert.deepEqual(revokedRuntime.getSnapshot().series, {})
+  assert.deepEqual(revokedRuntime.getSnapshot().cityIds, [])
   assert.equal((await revokedRuntime.refresh({ force: true })).reason, 'failed')
 })
 
-test('failed correction activation does not persist revocations or replace the previous pointer', async () => {
-  const ordinary = makeRelease()
-  const mock = createWxMock(ordinary)
-  const runtime = createDataRuntime({ wxApi: mock.wxApi, bundled })
-  await runtime.refresh({ force: true })
-  const previousPointer = structuredClone(mock.storage.get(POINTER_KEY))
+test('a bundled revocation survives main-state persistence failure and restart', async () => {
   const correction = correctionRelease()
-  const failing = createWxMock(correction, { files: mock.files, storage: mock.storage, failStorage: (key) => key === REVOKED_SOURCES_KEY })
+  const failing = createWxMock(correction, { failStorage: (key) => key === STATE_KEY })
   const failingRuntime = createDataRuntime({ wxApi: failing.wxApi, bundled })
   assert.equal((await failingRuntime.refresh({ force: true })).reason, 'failed')
-  assert.deepEqual(mock.storage.get(POINTER_KEY), previousPointer)
-  assert.equal(mock.storage.has(REVOKED_SOURCES_KEY), false)
+  assert.equal(failingRuntime.getSource(), 'unavailable')
+  assert.equal(failing.storage.has(CONTROL_TOMBSTONE_KEY), true)
+
+  const offline = createWxMock(correction, {
+    files: failing.files,
+    storage: failing.storage,
+    remote: failing.remote,
+    functionError: new Error('offline'),
+  })
+  const restored = createDataRuntime({ wxApi: offline.wxApi, bundled })
+  assert.equal(restored.getSource(), 'unavailable')
+  assert.equal(restored.getSnapshot().dataStatus, 'unavailable')
+  assert.equal((await restored.refresh({ force: true })).reason, 'failed')
+  assert.equal(restored.getSource(), 'unavailable')
 })
 
-test('clearing the remote pointer returns to the independent bundled snapshot', async () => {
+test('a control tombstone write failure immediately stops revoked bundled and remote data', async (t) => {
+  await t.test('bundled source', async () => {
+    const correction = correctionRelease()
+    const mock = createWxMock(correction, { failStorage: (key) => key === CONTROL_TOMBSTONE_KEY })
+    const runtime = createDataRuntime({ wxApi: mock.wxApi, bundled })
+
+    const result = await runtime.refresh({ force: true })
+    assert.equal(result.reason, 'failed')
+    assert.equal(runtime.getSource(), 'unavailable')
+    assert.equal(runtime.getSnapshot().dataStatus, 'unavailable')
+  })
+
+  await t.test('remote active package', async () => {
+    const badRelease = attachControl(makeRelease(versionConfig.version, nextMonthSnapshot()))
+    const initial = createWxMock(badRelease)
+    const initialRuntime = createDataRuntime({ wxApi: initial.wxApi, bundled })
+    assert.equal((await initialRuntime.refresh({ force: true })).updated, true)
+
+    const safeRelease = makeRelease()
+    const registry = appendRollbackRevocations(badRelease.revocationArtifact.registry, {
+      failedRelease: badRelease,
+      targetRelease: safeRelease,
+      revokedAt: '2026-07-20T00:15:00.000Z',
+      reason: 'post-publish full guard rejected the candidate package',
+    })
+    attachControl(safeRelease, {
+      registry,
+      controlGeneration: 2,
+      transitionType: 'rollback',
+      rollbackFromDatasetVersion: badRelease.current.dataset_version,
+    })
+    for (const [fileId, text] of cloudFiles(safeRelease)) initial.remote.set(fileId, text)
+    const failing = createWxMock(safeRelease, {
+      files: initial.files,
+      storage: initial.storage,
+      remote: initial.remote,
+      failStorage: (key) => key === CONTROL_TOMBSTONE_KEY,
+    })
+    const runtime = createDataRuntime({ wxApi: failing.wxApi, bundled })
+
+    const result = await runtime.refresh({ force: true })
+    assert.equal(result.reason, 'failed')
+    assert.equal(runtime.getSource(), 'bundled')
+    assert.notEqual(runtime.getSnapshot().datasetVersion, badRelease.current.dataset_version)
+    assert.equal(failing.files.has(`/user/housing-data/${badRelease.current.dataset_version}/manifest.json`), false)
+  })
+})
+
+test('revocation persistence failures rebuild and retain a verified remote fallback', async (t) => {
+  const first = attachControl(makeRelease(versionConfig.version, nextMonthSnapshot()), { controlGeneration: 1 })
+  const initial = createWxMock(first)
+  const initialRuntime = createDataRuntime({ wxApi: initial.wxApi, bundled })
+  assert.equal((await initialRuntime.refresh({ force: true })).updated, true)
+
+  const second = attachControl(makeRelease(versionConfig.version, snapshotForMonth('2026-08', '222222222222')), {
+    registry: first.revocationArtifact.registry,
+    controlGeneration: 2,
+  })
+  for (const [fileId, text] of cloudFiles(second)) initial.remote.set(fileId, text)
+  initial.setCurrent(second.current)
+  assert.equal((await initialRuntime.refresh({ force: true })).updated, true)
+  assert.equal(runtimeState(initial).fallback.datasetVersion, first.current.dataset_version)
+
+  const rollbackRegistry = appendRollbackRevocations(second.revocationArtifact.registry, {
+    failedRelease: second,
+    targetRelease: first,
+    revokedAt: '2026-07-20T00:30:00.000Z',
+    reason: 'latest package failed the post-publish guard',
+  })
+  const rollback = attachControl(makeRelease(versionConfig.version, nextMonthSnapshot()), {
+    registry: rollbackRegistry,
+    controlGeneration: 3,
+    transitionType: 'rollback',
+    rollbackFromDatasetVersion: second.current.dataset_version,
+  })
+  for (const [fileId, text] of cloudFiles(rollback)) initial.remote.set(fileId, text)
+
+  const failures = [
+    ['control tombstone', (key) => key === CONTROL_TOMBSTONE_KEY],
+    ['pending main state', (key, value) => key === STATE_KEY && value.status === 'pending-rollback'],
+  ]
+  for (const [label, failStorage] of failures) {
+    await t.test(label, async () => {
+      const files = new Map([...initial.files].map(([path, value]) => [path, Buffer.from(value)]))
+      const directories = new Set(initial.directories)
+      const storage = new Map([...initial.storage].map(([key, value]) => [key, structuredClone(value)]))
+      const remote = new Map(initial.remote)
+      const failing = createWxMock(rollback, { files, directories, storage, remote, failStorage })
+      const runtime = createDataRuntime({ wxApi: failing.wxApi, bundled })
+      assert.equal(runtime.getSnapshot().datasetVersion, second.current.dataset_version)
+
+      const result = await runtime.refresh({ force: true })
+      assert.equal(result.reason, 'failed')
+      assert.equal(result.updated, true)
+      assert.equal(runtime.getSource(), 'remote')
+      assert.equal(runtime.getSnapshot().datasetVersion, first.current.dataset_version)
+
+      const recovered = createWxMock(rollback, { files, directories, storage, remote })
+      const restored = createDataRuntime({ wxApi: recovered.wxApi, bundled })
+      assert.equal(restored.getSource(), 'remote')
+      assert.equal(restored.getSnapshot().datasetVersion, first.current.dataset_version)
+      assert.notEqual(restored.getSnapshot().datasetVersion, second.current.dataset_version)
+    })
+  }
+})
+
+test('an authorized rollback revokes an active newer month and survives restart on the safe target', async () => {
+  const badRelease = attachControl(makeRelease(versionConfig.version, nextMonthSnapshot()))
+  const mock = createWxMock(badRelease)
+  const runtime = createDataRuntime({ wxApi: mock.wxApi, bundled })
+  assert.equal((await runtime.refresh({ force: true })).updated, true)
+  assert.equal(runtime.getSnapshot().datasetAsOf, '2026-07')
+
+  const safeRelease = makeRelease()
+  const rollbackRegistry = appendRollbackRevocations(badRelease.revocationArtifact.registry, {
+    failedRelease: badRelease,
+    targetRelease: safeRelease,
+    revokedAt: '2026-07-20T00:15:00.000Z',
+    reason: 'post-publish full guard rejected the candidate package',
+  })
+  attachControl(safeRelease, {
+    registry: rollbackRegistry,
+    controlGeneration: 2,
+    transitionType: 'rollback',
+    rollbackFromDatasetVersion: badRelease.current.dataset_version,
+  })
+  for (const [fileId, text] of cloudFiles(safeRelease)) mock.remote.set(fileId, text)
+  mock.setCurrent(safeRelease.current)
+
+  const result = await runtime.refresh({ force: true })
+  assert.equal(result.updated, true)
+  assert.equal(runtime.getSource(), 'remote')
+  assert.equal(runtime.getSnapshot().datasetVersion, safeRelease.current.dataset_version)
+  assert.deepEqual(runtimeState(mock).control.revokedDatasetVersions, [badRelease.current.dataset_version])
+  assert.equal(runtimeState(mock).active.datasetVersion, safeRelease.current.dataset_version)
+  assert.equal(runtimeState(mock).pendingRollback, null)
+
+  const sameRollback = await runtime.refresh({ force: true })
+  assert.equal(sameRollback.updated, false)
+  assert.equal(sameRollback.reason, 'current')
+
+  const restored = createDataRuntime({ wxApi: mock.wxApi, bundled })
+  assert.equal(restored.getSource(), 'remote')
+  assert.equal(restored.getSnapshot().datasetVersion, safeRelease.current.dataset_version)
+  assert.equal((await restored.refresh({ force: true })).reason, 'current')
+})
+
+test('a fresh client safely activates a current rollback target whose registry closes the transition', async () => {
+  const badRelease = attachControl(makeRelease(versionConfig.version, nextMonthSnapshot()))
+  const safeRelease = makeRelease()
+  const rollbackRegistry = appendRollbackRevocations(badRelease.revocationArtifact.registry, {
+    failedRelease: badRelease,
+    targetRelease: safeRelease,
+    revokedAt: '2026-07-20T00:15:00.000Z',
+    reason: 'post-publish full guard rejected the candidate package',
+  })
+  attachControl(safeRelease, {
+    registry: rollbackRegistry,
+    controlGeneration: 2,
+    transitionType: 'rollback',
+    rollbackFromDatasetVersion: badRelease.current.dataset_version,
+  })
+  const mock = createWxMock(safeRelease)
+  const runtime = createDataRuntime({ wxApi: mock.wxApi, bundled })
+
+  const result = await runtime.refresh({ force: true })
+  assert.equal(result.updated, true)
+  assert.equal(runtime.getSource(), 'remote')
+  assert.equal(runtime.getSnapshot().datasetVersion, safeRelease.current.dataset_version)
+  assert.equal(runtimeState(mock).control.generation, 2)
+  assert.equal(runtimeState(mock).control.revokedDatasetEntries[0].replacement_dataset_version, safeRelease.current.dataset_version)
+})
+
+test('a fresh rollback retries after its bundled fallback is revoked and the target is repaired', async () => {
+  const badRelease = attachControl(makeRelease(versionConfig.version, nextMonthSnapshot()))
+  const safeRelease = makeRelease()
+  const badRegistry = appendRollbackRevocations(badRelease.revocationArtifact.registry, {
+    failedRelease: badRelease,
+    targetRelease: safeRelease,
+    revokedAt: '2026-07-20T00:15:00.000Z',
+    reason: 'post-publish full guard rejected the candidate package',
+  })
+  const rollbackRegistry = appendFailedDatasetRevocation(badRegistry, {
+    datasetVersion: bundled.datasetVersion,
+    revokedAt: '2026-07-20T00:16:00.000Z',
+    replacementDatasetVersion: safeRelease.current.dataset_version,
+    reason: 'bundled package is also unsafe for fallback',
+  })
+  attachControl(safeRelease, {
+    registry: rollbackRegistry,
+    controlGeneration: 2,
+    transitionType: 'rollback',
+    rollbackFromDatasetVersion: badRelease.current.dataset_version,
+  })
+  const mock = createWxMock(safeRelease)
+  mock.remote.set(safeRelease.current.manifest_file_id, `${safeRelease.manifestText} `)
+  const runtime = createDataRuntime({ wxApi: mock.wxApi, bundled })
+
+  const failed = await runtime.refresh({ force: true })
+  assert.equal(failed.reason, 'failed')
+  assert.equal(runtime.getSource(), 'unavailable')
+  assert.equal(runtimeState(mock).status, 'pending-rollback')
+  assert.equal(runtimeState(mock).pendingRollback.fromDatasetVersion, badRelease.current.dataset_version)
+
+  mock.remote.set(safeRelease.current.manifest_file_id, safeRelease.manifestText)
+  const recovered = await runtime.refresh({ force: true })
+  assert.equal(recovered.updated, true)
+  assert.equal(runtime.getSource(), 'remote')
+  assert.equal(runtime.getSnapshot().datasetVersion, safeRelease.current.dataset_version)
+})
+
+test('a failed rollback target immediately stops the revoked cache and cannot revive it after restart', async () => {
+  const badRelease = attachControl(makeRelease(versionConfig.version, nextMonthSnapshot()))
+  const mock = createWxMock(badRelease)
+  const runtime = createDataRuntime({ wxApi: mock.wxApi, bundled })
+  await runtime.refresh({ force: true })
+
+  const safeRelease = makeRelease()
+  const rollbackRegistry = appendRollbackRevocations(badRelease.revocationArtifact.registry, {
+    failedRelease: badRelease,
+    targetRelease: safeRelease,
+    revokedAt: '2026-07-20T00:15:00.000Z',
+    reason: 'post-publish full guard rejected the candidate package',
+  })
+  attachControl(safeRelease, {
+    registry: rollbackRegistry,
+    controlGeneration: 2,
+    transitionType: 'rollback',
+    rollbackFromDatasetVersion: badRelease.current.dataset_version,
+  })
+  for (const [fileId, text] of cloudFiles(safeRelease)) mock.remote.set(fileId, text)
+  mock.remote.set(safeRelease.current.manifest_file_id, `${safeRelease.manifestText} `)
+  mock.setCurrent(safeRelease.current)
+
+  const result = await runtime.refresh({ force: true })
+  assert.equal(result.reason, 'failed')
+  assert.equal(result.updated, true)
+  assert.equal(runtime.getSource(), 'bundled')
+  assert.equal(runtimeState(mock).status, 'pending-rollback')
+  assert.equal(runtimeState(mock).active, null)
+  assert.deepEqual(runtimeState(mock).control.revokedDatasetVersions, [badRelease.current.dataset_version])
+
+  const restored = createDataRuntime({ wxApi: mock.wxApi, bundled })
+  assert.equal(restored.getSource(), 'bundled')
+  assert.notEqual(restored.getSnapshot().datasetVersion, badRelease.current.dataset_version)
+})
+
+test('a revoked remote cache cannot revive when pending rollback state persistence fails', async () => {
+  const badRelease = attachControl(makeRelease(versionConfig.version, nextMonthSnapshot()))
+  const initial = createWxMock(badRelease)
+  const initialRuntime = createDataRuntime({ wxApi: initial.wxApi, bundled })
+  await initialRuntime.refresh({ force: true })
+
+  const safeRelease = makeRelease()
+  const rollbackRegistry = appendRollbackRevocations(badRelease.revocationArtifact.registry, {
+    failedRelease: badRelease,
+    targetRelease: safeRelease,
+    revokedAt: '2026-07-20T00:15:00.000Z',
+    reason: 'post-publish full guard rejected the candidate package',
+  })
+  attachControl(safeRelease, {
+    registry: rollbackRegistry,
+    controlGeneration: 2,
+    transitionType: 'rollback',
+    rollbackFromDatasetVersion: badRelease.current.dataset_version,
+  })
+  for (const [fileId, text] of cloudFiles(safeRelease)) initial.remote.set(fileId, text)
+
+  const failing = createWxMock(safeRelease, {
+    files: initial.files,
+    storage: initial.storage,
+    remote: initial.remote,
+    failStorage: (key, value) => key === STATE_KEY && value.status === 'pending-rollback',
+  })
+  const failingRuntime = createDataRuntime({ wxApi: failing.wxApi, bundled })
+  assert.equal(failingRuntime.getSnapshot().datasetVersion, badRelease.current.dataset_version)
+
+  const result = await failingRuntime.refresh({ force: true })
+  assert.equal(result.reason, 'failed')
+  assert.equal(failingRuntime.getSource(), 'bundled')
+  assert.equal(runtimeState(failing).active.datasetVersion, badRelease.current.dataset_version)
+  assert.equal(failing.files.has(`/user/housing-data/${badRelease.current.dataset_version}/manifest.json`), false)
+
+  const recovered = createWxMock(safeRelease, { files: failing.files, storage: failing.storage, remote: failing.remote })
+  const restored = createDataRuntime({ wxApi: recovered.wxApi, bundled })
+  assert.equal(restored.getSource(), 'bundled')
+  assert.notEqual(restored.getSnapshot().datasetVersion, badRelease.current.dataset_version)
+  assert.equal((await restored.refresh({ force: true })).updated, true)
+  assert.equal(restored.getSnapshot().datasetVersion, safeRelease.current.dataset_version)
+})
+
+test('a malformed or unreadable tombstone cannot remove revocations from the main state', async (t) => {
+  const correction = correctionRelease()
+  const original = createWxMock(correction)
+  const originalRuntime = createDataRuntime({ wxApi: original.wxApi, bundled })
+  assert.equal((await originalRuntime.refresh({ force: true })).updated, true)
+  assert.deepEqual(runtimeState(original).control.revokedSourceDatasetVersions, [bundled.datasetVersion])
+
+  const cases = [
+    ['missing revocation', (storage) => {
+      const tombstone = structuredClone(storage.get(CONTROL_TOMBSTONE_KEY))
+      tombstone.control.revokedSourceDatasetVersions = []
+      tombstone.control.revokedSourceDatasetEntries = []
+      storage.set(CONTROL_TOMBSTONE_KEY, tombstone)
+      return {}
+    }],
+    ['rewritten entry', (storage) => {
+      const tombstone = structuredClone(storage.get(CONTROL_TOMBSTONE_KEY))
+      tombstone.control.revokedSourceDatasetEntries[0].reason = 'rewritten local tombstone entry'
+      storage.set(CONTROL_TOMBSTONE_KEY, tombstone)
+      return {}
+    }],
+    ['read failure', () => ({ failGetStorage: (key) => key === CONTROL_TOMBSTONE_KEY })],
+  ]
+  for (const [label, mutate] of cases) {
+    await t.test(label, () => {
+      const storage = new Map([...original.storage].map(([key, value]) => [key, structuredClone(value)]))
+      const options = mutate(storage)
+      const mock = createWxMock(correction, {
+        files: original.files,
+        storage,
+        remote: original.remote,
+        ...options,
+      })
+      const runtime = createDataRuntime({ wxApi: mock.wxApi, bundled })
+      assert.equal(runtime.getSource(), 'unavailable')
+      assert.equal(runtime.getSnapshot().dataStatus, 'unavailable')
+      assert.deepEqual(storage.get(STATE_KEY).control.revokedSourceDatasetVersions, [bundled.datasetVersion])
+    })
+  }
+
+  await t.test('corrupt tombstone without a main state', () => {
+    const storage = new Map([...original.storage].map(([key, value]) => [key, structuredClone(value)]))
+    storage.delete(STATE_KEY)
+    const tombstone = structuredClone(storage.get(CONTROL_TOMBSTONE_KEY))
+    tombstone.control.revokedSourceDatasetVersions = []
+    tombstone.control.revokedSourceDatasetEntries = []
+    storage.set(CONTROL_TOMBSTONE_KEY, tombstone)
+    const mock = createWxMock(correction, { files: original.files, storage, remote: original.remote })
+    const runtime = createDataRuntime({ wxApi: mock.wxApi, bundled })
+    assert.equal(runtime.getSource(), 'unavailable')
+    assert.equal(runtime.getSnapshot().dataStatus, 'unavailable')
+  })
+})
+
+test('a verified unrevoked fallback remains active while a rollback target is corrupt', async () => {
+  const first = attachControl(makeRelease(versionConfig.version, nextMonthSnapshot()), { controlGeneration: 1 })
+  const mock = createWxMock(first)
+  const runtime = createDataRuntime({ wxApi: mock.wxApi, bundled })
+  assert.equal((await runtime.refresh({ force: true })).updated, true)
+
+  const second = attachControl(makeRelease(versionConfig.version, snapshotForMonth('2026-08', '222222222222')), {
+    registry: first.revocationArtifact.registry,
+    controlGeneration: 2,
+  })
+  for (const [fileId, text] of cloudFiles(second)) mock.remote.set(fileId, text)
+  mock.setCurrent(second.current)
+  assert.equal((await runtime.refresh({ force: true })).updated, true)
+  assert.equal(runtimeState(mock).fallback.datasetVersion, first.current.dataset_version)
+
+  const registry = appendRollbackRevocations(second.revocationArtifact.registry, {
+    failedRelease: second,
+    targetRelease: first,
+    revokedAt: '2026-07-20T00:30:00.000Z',
+    reason: 'latest package failed the post-publish guard',
+  })
+  const rollback = attachControl(makeRelease(versionConfig.version, nextMonthSnapshot()), {
+    registry,
+    controlGeneration: 3,
+    transitionType: 'rollback',
+    rollbackFromDatasetVersion: second.current.dataset_version,
+  })
+  for (const [fileId, text] of cloudFiles(rollback)) mock.remote.set(fileId, text)
+  mock.remote.set(rollback.current.manifest_file_id, `${rollback.manifestText} `)
+  mock.setCurrent(rollback.current)
+
+  const result = await runtime.refresh({ force: true })
+  assert.equal(result.reason, 'failed')
+  assert.equal(runtime.getSource(), 'remote')
+  assert.equal(runtime.getSnapshot().datasetVersion, first.current.dataset_version)
+  assert.equal(runtimeState(mock).status, 'pending-rollback')
+  assert.equal(runtimeState(mock).fallback.datasetVersion, first.current.dataset_version)
+
+  const restored = createDataRuntime({ wxApi: mock.wxApi, bundled })
+  assert.equal(restored.getSource(), 'remote')
+  assert.equal(restored.getSnapshot().datasetVersion, first.current.dataset_version)
+})
+
+test('a newly revoked bundled source becomes unavailable immediately when its replacement is corrupt', async () => {
+  const correctedRelease = correctionRelease()
+  const mock = createWxMock(correctedRelease)
+  mock.remote.set(correctedRelease.current.manifest_file_id, `${correctedRelease.manifestText} `)
+  const runtime = createDataRuntime({ wxApi: mock.wxApi, bundled })
+
+  const result = await runtime.refresh({ force: true })
+  assert.equal(result.reason, 'failed')
+  assert.equal(result.updated, true)
+  assert.equal(runtime.getSource(), 'unavailable')
+  assert.equal(runtime.getSnapshot().dataStatus, 'unavailable')
+  assert.equal(runtimeState(mock).status, 'pending-rollback')
+  assert.deepEqual(runtimeState(mock).control.revokedSourceDatasetVersions, [bundled.datasetVersion])
+})
+
+test('an ordinary older pointer cannot masquerade as a rollback after verified control state exists', async () => {
+  const badRelease = attachControl(makeRelease(versionConfig.version, nextMonthSnapshot()))
+  const mock = createWxMock(badRelease)
+  const runtime = createDataRuntime({ wxApi: mock.wxApi, bundled })
+  await runtime.refresh({ force: true })
+  const safeRelease = makeRelease()
+  for (const [fileId, text] of cloudFiles(safeRelease)) mock.remote.set(fileId, text)
+  mock.setCurrent(safeRelease.current)
+
+  const result = await runtime.refresh({ force: true })
+  assert.equal(result.reason, 'failed')
+  assert.equal(runtime.getSnapshot().datasetVersion, badRelease.current.dataset_version)
+  assert.equal(runtimeState(mock).active.datasetVersion, badRelease.current.dataset_version)
+})
+
+test('a controlled publish cannot use a revocation to disguise an unauthorized older target', async () => {
+  const badRelease = attachControl(makeRelease(versionConfig.version, nextMonthSnapshot()))
+  const mock = createWxMock(badRelease)
+  const runtime = createDataRuntime({ wxApi: mock.wxApi, bundled })
+  await runtime.refresh({ force: true })
+
+  const olderRelease = makeRelease()
+  const registry = appendFailedDatasetRevocation(badRelease.revocationArtifact.registry, {
+    datasetVersion: badRelease.current.dataset_version,
+    revokedAt: '2026-07-20T00:15:00.000Z',
+    replacementDatasetVersion: olderRelease.current.dataset_version,
+    reason: 'active package is unsafe but no rollback transition was authorized',
+  })
+  attachControl(olderRelease, { registry, controlGeneration: 2, transitionType: 'publish' })
+  for (const [fileId, text] of cloudFiles(olderRelease)) mock.remote.set(fileId, text)
+  mock.setCurrent(olderRelease.current)
+
+  const result = await runtime.refresh({ force: true })
+  assert.equal(result.reason, 'failed')
+  assert.match(result.error.message, /without an authorized rollback/)
+  assert.equal(runtime.getSource(), 'bundled')
+  assert.equal(runtimeState(mock).status, 'pending-rollback')
+  assert.equal(runtimeState(mock).active, null)
+  assert.deepEqual(runtimeState(mock).control.revokedDatasetVersions, [badRelease.current.dataset_version])
+
+  const restored = createDataRuntime({ wxApi: mock.wxApi, bundled })
+  const retry = await restored.refresh({ force: true })
+  assert.equal(retry.reason, 'failed')
+  assert.match(retry.error.message, /without an authorized rollback/)
+  assert.equal(restored.getSource(), 'bundled')
+  assert.equal(runtimeState(mock).active, null)
+})
+
+test('a rollback cannot reuse a real revocation entry for a different older target', async () => {
+  const badRelease = attachControl(makeRelease(versionConfig.version, nextMonthSnapshot()))
+  const mock = createWxMock(badRelease)
+  const runtime = createDataRuntime({ wxApi: mock.wxApi, bundled })
+  await runtime.refresh({ force: true })
+
+  const olderRelease = makeRelease()
+  const registry = appendRollbackRevocations(badRelease.revocationArtifact.registry, {
+    failedRelease: badRelease,
+    targetRelease: olderRelease,
+    revokedAt: '2026-07-20T00:15:00.000Z',
+    replacementDatasetVersion: '2026-05-aaaaaaaaaaaa',
+    reason: 'the registered replacement is not the pointer target',
+  })
+  attachControl(olderRelease, {
+    registry,
+    controlGeneration: 2,
+    transitionType: 'rollback',
+    rollbackFromDatasetVersion: badRelease.current.dataset_version,
+  })
+  for (const [fileId, text] of cloudFiles(olderRelease)) mock.remote.set(fileId, text)
+  mock.setCurrent(olderRelease.current)
+
+  const result = await runtime.refresh({ force: true })
+  assert.equal(result.reason, 'failed')
+  assert.match(result.error.message, /rollback target is not authorized/)
+  assert.equal(runtime.getSource(), 'bundled')
+  assert.equal(runtimeState(mock).active, null)
+})
+
+test('an exact controlled rollback can activate a target earlier than the bundled month', async () => {
+  const badRelease = attachControl(makeRelease(versionConfig.version, nextMonthSnapshot()))
+  const mock = createWxMock(badRelease)
+  const runtime = createDataRuntime({ wxApi: mock.wxApi, bundled })
+  assert.equal((await runtime.refresh({ force: true })).updated, true)
+
+  const safeRelease = makeRelease(versionConfig.version, snapshotForMonth('2026-05', '555555555555'))
+  const registry = appendRollbackRevocations(badRelease.revocationArtifact.registry, {
+    failedRelease: badRelease,
+    targetRelease: safeRelease,
+    revokedAt: '2026-07-20T00:15:00.000Z',
+    reason: 'the only audited safe package predates the bundled month',
+  })
+  attachControl(safeRelease, {
+    registry,
+    controlGeneration: 2,
+    transitionType: 'rollback',
+    rollbackFromDatasetVersion: badRelease.current.dataset_version,
+  })
+  for (const [fileId, text] of cloudFiles(safeRelease)) mock.remote.set(fileId, text)
+  mock.setCurrent(safeRelease.current)
+
+  const result = await runtime.refresh({ force: true })
+  assert.equal(result.updated, true)
+  assert.equal(runtime.getSource(), 'remote')
+  assert.equal(runtime.getSnapshot().datasetAsOf, '2026-05')
+  assert.equal(runtimeState(mock).active.datasetVersion, safeRelease.current.dataset_version)
+  assert.equal(createDataRuntime({ wxApi: mock.wxApi, bundled }).getSnapshot().datasetAsOf, '2026-05')
+})
+
+test('a fresh strict validation receipt authorizes new data after the static control window expires', async () => {
+  const now = Date.parse('2026-07-20T12:00:00.000Z')
+  const release = attachControl(makeRelease(), {
+    controlGeneratedAt: new Date(now - 25 * 60 * 60 * 1000).toISOString(),
+    controlValidUntil: new Date(now - 60 * 60 * 1000).toISOString(),
+  })
+  const mock = createWxMock(release, { receiptNow: now })
+  const runtime = createDataRuntime({ wxApi: mock.wxApi, bundled, now: () => now })
+
+  const result = await runtime.refresh({ force: true })
+  assert.equal(result.updated, true)
+  assert.equal(runtime.getSource(), 'remote')
+  assert.equal(runtime.getSnapshot().datasetVersion, release.current.dataset_version)
+  assert.equal(mock.stats.downloads, 3)
+  assert.equal(runtimeState(mock).control.generation, 1)
+})
+
+test('a validation receipt dated beyond the allowed clock skew cannot authorize remote data', async () => {
+  const now = Date.parse('2026-07-20T12:00:00.000Z')
+  const release = attachControl(makeRelease(), controlWindow(now))
+  const mock = createWxMock(release, { receiptNow: now + 60_001 })
+  const runtime = createDataRuntime({ wxApi: mock.wxApi, bundled, now: () => now })
+
+  const result = await runtime.refresh({ force: true })
+  assert.equal(result.reason, 'failed')
+  assert.match(result.error.message, /timestamp is too far in the future/)
+  assert.equal(runtime.getSource(), 'bundled')
+  assert.equal(runtimeState(mock).active, null)
+})
+
+test('an expired previously verified control keeps its unrevoked cached snapshot after refresh failure', async () => {
+  const now = Date.parse('2026-07-20T12:00:00.000Z')
+  const release = attachControl(makeRelease(), controlWindow(now))
+  const mock = createWxMock(release, { receiptNow: now })
+  const online = createDataRuntime({ wxApi: mock.wxApi, bundled, now: () => now })
+  assert.equal((await online.refresh({ force: true })).updated, true)
+
+  const expiredAt = now + 25 * 60 * 60 * 1000
+  const offline = createWxMock(release, {
+    files: mock.files,
+    storage: mock.storage,
+    remote: mock.remote,
+    functionError: new Error('offline'),
+  })
+  const restored = createDataRuntime({ wxApi: offline.wxApi, bundled, now: () => expiredAt })
+  assert.equal(restored.getSource(), 'remote')
+  assert.equal(restored.getSnapshot().datasetVersion, release.current.dataset_version)
+
+  const result = await restored.refresh({ force: true })
+  assert.equal(result.reason, 'failed')
+  assert.equal(restored.getSource(), 'remote')
+  assert.equal(restored.getSnapshot().datasetVersion, release.current.dataset_version)
+})
+
+test('a known bundled revocation remains unavailable while offline even after control expiry', async () => {
+  const now = Date.parse('2026-07-20T12:00:00.000Z')
+  const correctedRelease = correctionRelease()
+  attachControl(correctedRelease, {
+    registry: correctedRelease.revocationArtifact.registry,
+    transitionType: 'historical_correction',
+    supersededDatasetVersion: bundled.datasetVersion,
+    supersededSourceDatasetVersion: bundled.datasetVersion,
+    ...controlWindow(now),
+  })
+  const mock = createWxMock(correctedRelease, { receiptNow: now })
+  mock.remote.set(correctedRelease.current.manifest_file_id, `${correctedRelease.manifestText} `)
+  const runtime = createDataRuntime({ wxApi: mock.wxApi, bundled, now: () => now })
+  assert.equal((await runtime.refresh({ force: true })).reason, 'failed')
+  assert.equal(runtime.getSource(), 'unavailable')
+
+  const expiredAt = now + 25 * 60 * 60 * 1000
+  const offline = createWxMock(correctedRelease, {
+    files: mock.files,
+    storage: mock.storage,
+    remote: mock.remote,
+    functionError: new Error('offline'),
+  })
+  const restored = createDataRuntime({ wxApi: offline.wxApi, bundled, now: () => expiredAt })
+  assert.equal(restored.getSource(), 'unavailable')
+  assert.equal((await restored.refresh({ force: true })).reason, 'failed')
+  assert.equal(restored.getSource(), 'unavailable')
+})
+
+test('post-rename readback corruption removes the candidate before activation', async () => {
   const release = makeRelease()
+  const mock = createWxMock(release, {
+    afterRename({ newPath, files }) {
+      const path = `${newPath}/bootstrap.json`
+      files.set(path, Buffer.concat([files.get(path), Buffer.from(' ')]))
+    },
+  })
+  const runtime = createDataRuntime({ wxApi: mock.wxApi, bundled })
+
+  const result = await runtime.refresh({ force: true })
+  assert.equal(result.reason, 'failed')
+  assert.match(result.error.message, /bootstrap size mismatch|bootstrap hash mismatch/)
+  assert.equal(runtime.getSource(), 'bundled')
+  assert.equal(runtimeState(mock).active, null)
+  assert.equal(mock.directories.has(`/user/housing-data/${release.current.dataset_version}`), false)
+})
+
+test('storage failure before active-state commit removes the renamed candidate', async () => {
+  const release = makeRelease()
+  const mock = createWxMock(release, {
+    failStorage: (key, value) => key === STATE_KEY && Boolean(value.active),
+  })
+  const runtime = createDataRuntime({ wxApi: mock.wxApi, bundled })
+
+  const result = await runtime.refresh({ force: true })
+  assert.equal(result.reason, 'failed')
+  assert.equal(runtime.getSource(), 'bundled')
+  assert.equal(runtimeState(mock).active, null)
+  assert.equal(mock.directories.has(`/user/housing-data/${release.current.dataset_version}`), false)
+})
+
+test('restart cleanup removes temporary and unreferenced version directories', () => {
+  const release = makeRelease()
+  const orphan = '2025-01-aaaaaaaaaaaa'
+  const temporary = '.tmp-2025-02-bbbbbbbbbbbb'
+  const directories = new Set([
+    '/user',
+    '/user/housing-data',
+    `/user/housing-data/${orphan}`,
+    `/user/housing-data/${temporary}`,
+  ])
+  const files = new Map([
+    [`/user/housing-data/${orphan}/manifest.json`, Buffer.from('{}')],
+    [`/user/housing-data/${temporary}/bootstrap.json`, Buffer.from('{}')],
+  ])
+  const mock = createWxMock(release, { directories, files })
+
+  createDataRuntime({ wxApi: mock.wxApi, bundled })
+  assert.equal(mock.directories.has(`/user/housing-data/${orphan}`), false)
+  assert.equal(mock.directories.has(`/user/housing-data/${temporary}`), false)
+  assert.equal([...mock.files.keys()].some((path) => path.startsWith('/user/housing-data/')), false)
+})
+
+test('three successful releases retain only the active package and one verified fallback', async () => {
+  const first = attachControl(makeRelease(versionConfig.version, snapshotForMonth('2026-07', '111111111111')), { controlGeneration: 1 })
+  const mock = createWxMock(first)
+  const runtime = createDataRuntime({ wxApi: mock.wxApi, bundled })
+  assert.equal((await runtime.refresh({ force: true })).updated, true)
+
+  const second = attachControl(makeRelease(versionConfig.version, snapshotForMonth('2026-08', '222222222222')), {
+    registry: first.revocationArtifact.registry,
+    controlGeneration: 2,
+  })
+  for (const [fileId, text] of cloudFiles(second)) mock.remote.set(fileId, text)
+  mock.setCurrent(second.current)
+  assert.equal((await runtime.refresh({ force: true })).updated, true)
+
+  const third = attachControl(makeRelease(versionConfig.version, snapshotForMonth('2026-09', '333333333333')), {
+    registry: first.revocationArtifact.registry,
+    controlGeneration: 3,
+  })
+  for (const [fileId, text] of cloudFiles(third)) mock.remote.set(fileId, text)
+  mock.setCurrent(third.current)
+  assert.equal((await runtime.refresh({ force: true })).updated, true)
+
+  const state = runtimeState(mock)
+  assert.equal(state.active.datasetVersion, third.current.dataset_version)
+  assert.equal(state.fallback.datasetVersion, second.current.dataset_version)
+  assert.deepEqual(state.cacheDirectories, [third.current.dataset_version, second.current.dataset_version].sort())
+  assert.equal(mock.directories.has(`/user/housing-data/${first.current.dataset_version}`), false)
+  assert.equal(mock.directories.has(`/user/housing-data/${second.current.dataset_version}`), true)
+  assert.equal(mock.directories.has(`/user/housing-data/${third.current.dataset_version}`), true)
+})
+
+test('exact city, value, latest-series, and breadth validation all fail closed', async (t) => {
+  const mutations = [
+    ['city set', (release) => { release.bootstrap.cityIds[0] = 'not-a-70-city-id' }],
+    ['city metadata', (release) => { release.bootstrap.cityMap.beijing.search = '' }],
+    ['non-finite value representation', (release) => { release.bootstrap.series.beijing.n_a[0] = 'NaN' }],
+    ['latest series', (release) => { release.bootstrap.latestSeries.beijing.n_a[0] += 0.1 }],
+    ['breadth series', (release) => { release.bootstrap.breadthSeries.n_a_mom[0] += 1 }],
+    ['official URL', (release) => { release.bootstrap.latestOfficialUrl = 'https://example.com/not-official' }],
+  ]
+  for (const [label, mutate] of mutations) {
+    await t.test(label, async () => {
+      const release = makeRelease()
+      mutate(release)
+      rebuildBootstrapArtifacts(release)
+      const mock = createWxMock(release)
+      const runtime = createDataRuntime({ wxApi: mock.wxApi, bundled })
+      const result = await runtime.refresh({ force: true })
+      assert.equal(result.reason, 'failed')
+      assert.equal(runtime.getSource(), 'bundled')
+      assert.equal(runtimeState(mock).active, null)
+    })
+  }
+})
+
+test('control checks are independent from the next monthly data check', async () => {
+  const now = Date.parse('2026-07-20T00:00:00.000Z')
+  const release = attachControl(makeRelease(), controlWindow(now))
+  const mock = createWxMock(release, { receiptNow: now })
+  const first = createDataRuntime({ wxApi: mock.wxApi, bundled, now: () => now })
+  await first.refresh({ force: true })
+  const state = runtimeState(mock)
+  state.schedule.dataNextCheckAt = now + 20 * 24 * 60 * 60 * 1000
+  state.schedule.controlNextCheckAt = now - 1
+  mock.storage.set(STATE_KEY, state)
+  mock.stats.functionCalls = 0
+
+  const restored = createDataRuntime({ wxApi: mock.wxApi, bundled, now: () => now })
+  const result = await restored.refresh()
+  assert.equal(result.reason, 'current')
+  assert.equal(mock.stats.functionCalls, 1)
+})
+
+test('the same revocation generation cannot change content under a newer control generation', async () => {
+  const release = attachControl(makeRelease())
   const mock = createWxMock(release)
   const runtime = createDataRuntime({ wxApi: mock.wxApi, bundled })
   await runtime.refresh({ force: true })
-  runtime.clearRemoteCachePointer()
+
+  const changedRegistry = createRevocationRegistry({
+    generatedAt: '2026-07-20T00:30:00.000Z',
+    revokedDatasetVersions: [{
+      dataset_version: '2025-01-aaaaaaaaaaaa',
+      revoked_at: '2026-07-20T00:30:00.000Z',
+      revision_id: null,
+      replacement_dataset_version: release.current.dataset_version,
+      reason: 'unrelated failed package',
+    }],
+  })
+  const changed = attachControl(makeRelease(), { registry: changedRegistry, controlGeneration: 2 })
+  for (const [fileId, text] of cloudFiles(changed)) mock.remote.set(fileId, text)
+  mock.setCurrent(changed.current)
+
+  const result = await runtime.refresh({ force: true })
+  assert.equal(result.reason, 'failed')
+  assert.match(result.error.message, /revocations changed without increasing their generation/)
+  assert.equal(runtime.getSnapshot().datasetVersion, release.current.dataset_version)
+})
+
+test('a higher registry generation cannot rewrite any persisted revocation entry identity', async (t) => {
+  const mutations = [
+    ['replacement', (entry) => { entry.replacement_dataset_version = '2025-02-bbbbbbbbbbbb' }],
+    ['reason', (entry) => { entry.reason = 'rewritten revocation reason' }],
+    ['revision', (entry) => { entry.revision_id = 'revision-2025-01-rewritten-entry' }],
+  ]
+  for (const [label, mutate] of mutations) {
+    await t.test(label, async () => {
+      const initialRelease = makeRelease()
+      const initialRegistry = createRevocationRegistry({
+        generatedAt: '2026-07-20T00:00:00.000Z',
+        revokedDatasetVersions: [{
+          dataset_version: '2025-01-aaaaaaaaaaaa',
+          revoked_at: '2026-07-20T00:00:00.000Z',
+          revision_id: null,
+          replacement_dataset_version: initialRelease.current.dataset_version,
+          reason: 'original immutable revocation reason',
+        }],
+      })
+      attachControl(initialRelease, { registry: initialRegistry })
+      const mock = createWxMock(initialRelease)
+      const runtime = createDataRuntime({ wxApi: mock.wxApi, bundled })
+      assert.equal((await runtime.refresh({ force: true })).updated, true)
+      assert.equal(runtimeState(mock).control.revokedDatasetEntries[0].reason, 'original immutable revocation reason')
+
+      const rewrittenRegistry = structuredClone(initialRegistry)
+      rewrittenRegistry.generation = 2
+      rewrittenRegistry.generated_at = '2026-07-20T00:30:00.000Z'
+      mutate(rewrittenRegistry.revoked_dataset_versions[0])
+      const rewrittenRelease = attachControl(makeRelease(), { registry: rewrittenRegistry, controlGeneration: 2 })
+      for (const [fileId, text] of cloudFiles(rewrittenRelease)) mock.remote.set(fileId, text)
+      mock.setCurrent(rewrittenRelease.current)
+
+      const result = await runtime.refresh({ force: true })
+      assert.equal(result.reason, 'failed')
+      assert.match(result.error.message, /rewrote a dataset revocation entry/)
+      assert.equal(runtimeState(mock).control.registryGeneration, 1)
+      assert.equal(runtimeState(mock).control.revokedDatasetEntries[0].reason, 'original immutable revocation reason')
+    })
+  }
+})
+
+test('clearing remote pointers removes active and fallback caches and stays bundled after restart', async () => {
+  const first = attachControl(makeRelease(versionConfig.version, nextMonthSnapshot()), { controlGeneration: 1 })
+  const mock = createWxMock(first)
+  const runtime = createDataRuntime({ wxApi: mock.wxApi, bundled })
+  assert.equal((await runtime.refresh({ force: true })).updated, true)
+  const second = attachControl(makeRelease(versionConfig.version, snapshotForMonth('2026-08', '222222222222')), {
+    registry: first.revocationArtifact.registry,
+    controlGeneration: 2,
+  })
+  for (const [fileId, text] of cloudFiles(second)) mock.remote.set(fileId, text)
+  mock.setCurrent(second.current)
+  assert.equal((await runtime.refresh({ force: true })).updated, true)
+  assert.ok(runtimeState(mock).fallback)
+
+  assert.equal(runtime.clearRemoteCachePointer(), true)
 
   assert.equal(runtime.getSource(), 'bundled')
   assert.equal(runtime.getSnapshot(), bundled)
-  assert.equal(mock.storage.has(POINTER_KEY), false)
+  assert.equal(runtimeState(mock).active, null)
+  assert.equal(runtimeState(mock).fallback, null)
+  assert.equal([...mock.files.keys()].some((path) => path.startsWith('/user/housing-data/')), false)
+
+  const restored = createDataRuntime({ wxApi: mock.wxApi, bundled })
+  assert.equal(restored.getSource(), 'bundled')
+  assert.equal(restored.getSnapshot(), bundled)
+})
+
+test('a failed remote pointer clear reports failure and keeps the active cache', async () => {
+  const release = makeRelease()
+  const initial = createWxMock(release)
+  const initialRuntime = createDataRuntime({ wxApi: initial.wxApi, bundled })
+  assert.equal((await initialRuntime.refresh({ force: true })).updated, true)
+  const failing = createWxMock(release, {
+    files: initial.files,
+    storage: initial.storage,
+    remote: initial.remote,
+    failStorage: (key) => key === STATE_KEY,
+  })
+  const runtime = createDataRuntime({ wxApi: failing.wxApi, bundled })
+  const activeVersion = runtime.getSnapshot().datasetVersion
+
+  assert.equal(runtime.clearRemoteCachePointer(), false)
+  assert.equal(runtime.getSource(), 'remote')
+  assert.equal(runtime.getSnapshot().datasetVersion, activeVersion)
+  assert.equal(runtimeState(failing).active.datasetVersion, activeVersion)
+})
+
+test('remote pointer clear reports cache-directory deletion failures', async (t) => {
+  const cases = [
+    ['directory removal denied', (mock, activeVersion) => {
+      mock.failRmdirPath = `/user/housing-data/${activeVersion}`
+    }],
+    ['synchronous directory remover unavailable', (mock) => {
+      delete mock.wxApi.getFileSystemManager().rmdirSync
+    }],
+  ]
+  for (const [label, prepare] of cases) {
+    await t.test(label, async () => {
+      const release = makeRelease()
+      let deniedPath = ''
+      const initial = createWxMock(release)
+      const initialRuntime = createDataRuntime({ wxApi: initial.wxApi, bundled })
+      assert.equal((await initialRuntime.refresh({ force: true })).updated, true)
+      const activeVersion = initialRuntime.getSnapshot().datasetVersion
+      const failing = createWxMock(release, {
+        files: initial.files,
+        directories: initial.directories,
+        storage: initial.storage,
+        remote: initial.remote,
+        failRmdir: (path) => path === deniedPath,
+      })
+      prepare(failing, activeVersion)
+      deniedPath = failing.failRmdirPath || ''
+      const runtime = createDataRuntime({ wxApi: failing.wxApi, bundled })
+
+      assert.equal(runtime.clearRemoteCachePointer(), false)
+      assert.equal(runtime.getSource(), 'bundled')
+      assert.equal(runtimeState(failing).active, null)
+      assert.equal(runtimeState(failing).fallback, null)
+      assert.equal(failing.directories.has(`/user/housing-data/${activeVersion}`), true)
+    })
+  }
 })
 
 test('cloud manifest function rejects unsafe current pointers', () => {
-  const release = makeRelease()
+  const release = makeLegacyRelease()
   assert.equal(validateCurrent(release.current), release.current)
+  assert.equal(validateRuntimeCurrent(release.current, config), release.current)
   assert.throws(() => validateCurrent({ ...release.current, dataset_version: '../current' }), /dataset version/)
   assert.throws(() => validateCurrent({ ...release.current, manifest_file_id: `cloud://${config.cloudEnvId}/housing-data/releases/${release.current.dataset_version}/manifest.json` }), /file ID/)
   assert.throws(() => validateCurrent({ ...release.current, schema_version: '2.0.0' }), /schema/)
   assert.throws(() => validateCurrent({ ...release.current, manifest_sha256: 'bad' }), /hash/)
+
+  const controlled = attachControl(makeRelease())
+  assert.equal(validateCurrent(controlled.current), controlled.current)
+  assert.equal(validateRuntimeCurrent(controlled.current, config), controlled.current)
+  assert.throws(() => validateCurrent({ ...controlled.current, control_generation: 0 }), /control generation/)
+  assert.throws(() => validateCurrent({ ...controlled.current, revocations_file_id: 'cloud://wrong/revocations.json' }), /revocations file ID/)
+  for (const partialField of ['transition_type', 'data_status', 'status_reason', 'control_generated_at', 'control_valid_until', 'rollback_from_dataset_version']) {
+    const partial = { ...release.current, [partialField]: controlled.current[partialField] || '2026-07-aaaaaaaaaaaa' }
+    assert.throws(() => validateCurrent(partial), /control fields are incomplete/)
+    assert.throws(() => validateRuntimeCurrent(partial, config), /control fields are incomplete/)
+  }
+  for (const requiredField of ['source_dataset_version', 'status_reason', 'control_generated_at']) {
+    const partial = { ...controlled.current }
+    delete partial[requiredField]
+    const expected = requiredField === 'source_dataset_version' ? /source dataset version/ : /control fields are incomplete/
+    assert.throws(() => validateCurrent(partial), expected)
+    assert.throws(() => validateRuntimeCurrent(partial, config), expected)
+  }
+  const rollback = { ...controlled.current, transition_type: 'rollback', rollback_from_dataset_version: '2026-07-aaaaaaaaaaaa', previous_dataset_version: '2026-07-aaaaaaaaaaaa' }
+  assert.throws(() => validateCurrent(rollback), /unsafe previous/)
 })

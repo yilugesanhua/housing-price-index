@@ -39,6 +39,7 @@ function harness(options = {}) {
       },
       guardCandidate: async () => { events.push('guard:candidate'); if (options.failGuard) throw new Error('full remote guard failed') },
       guardRollback: async () => { events.push('guard:rollback'); if (options.failRollbackGuard) throw new Error('rollback guard failed') },
+      prepareRollback: async () => { events.push('prepare:rollback'); return { ...previous, previous_dataset_version: null } },
       recordRollback: async () => events.push('audit:rollback'),
       recordFailure: async ({ rollbackStatus }) => events.push(`audit:failure:${rollbackStatus}`),
       now: () => '2026-08-17T02:00:00.000Z',
@@ -57,7 +58,7 @@ test('pointer-switch interruption restores and verifies the previous pointer', a
   const item = harness({ corruptRead: 'candidate' })
   await assert.rejects(() => activatePointerWithRollback(item.args), (error) => error instanceof GuardedActivationError && error.rollbackStatus === 'succeeded')
   assert.match(item.remote, /2026-06-abcdefabcdef/)
-  assert.deepEqual(item.events.slice(-4), ['read:automatic-rollback', 'guard:rollback', 'audit:rollback', 'audit:failure:succeeded'])
+  assert.deepEqual(item.events.slice(-6), ['prepare:rollback', 'write:automatic-rollback', 'read:automatic-rollback', 'guard:rollback', 'audit:rollback', 'audit:failure:succeeded'])
 })
 
 test('post-switch guard failure automatically rolls back and records the outcome', async () => {

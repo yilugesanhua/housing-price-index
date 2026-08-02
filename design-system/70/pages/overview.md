@@ -1,11 +1,13 @@
 # Overview Page Overrides
 
+> **状态：历史设计工具输出（非权威）**
+> 本文件仅保存2026-07-16生成的页面建议。当前唯一权威设计规范是 [`DESIGN.md`](../../../DESIGN.md)，不得用本文覆盖当前Web或小程序界面。
+
 > **PROJECT:** 70城住宅指数
 > **Generated:** 2026-07-16 05:27:52
 > **Page Type:** Dashboard / Data View
 
-> ⚠️ **IMPORTANT:** Rules in this file **override** the Master file (`design-system/MASTER.md`).
-> Only deviations from the Master are documented here. For all other rules, refer to the Master.
+> **原生成器逻辑（已失效）：** 本文件曾被设定为覆盖历史Master文件；该规则不适用于当前项目规范。
 
 ---
 

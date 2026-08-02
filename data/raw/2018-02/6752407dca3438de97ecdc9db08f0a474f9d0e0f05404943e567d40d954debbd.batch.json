@@ -9,7 +9,7 @@
     "parser_version": "official-html-v7-product-housing-only",
     "schema_version": "1.0.0",
     "verification_status": "verified",
-    "verification_method": "automated-full-record-audit-v4: sha256+official-url+metadata+four-table-whitelist+size-band+locator+raw-cell+schema",
+    "verification_method": "automated-full-record-audit-v5: sha256+official-url+metadata+four-table-whitelist+property-type+size-band+locator+raw-cell+schema",
     "http_status": 200,
     "final_url": "https://www.stats.gov.cn/sj/zxfb/202302/t20230203_1899873.html",
     "redirect_chain": [],

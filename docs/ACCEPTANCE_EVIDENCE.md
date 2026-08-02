@@ -1,23 +1,28 @@
 # 第一阶段验收证据矩阵
 
-审计日期：2026-07-19
+> **状态：历史Web证据矩阵（只读）**
+> 本文始建于2026-07-19，部分数据证据后续更新至2026-07-28，因此不是单一日期的工作区快照。它不代表当前小程序或 `v2.4.1` 已通过验收；当前要求以权威规范和当前版本验收记录为准。
 
-状态说明：`已证明`表示当前工作区有直接代码、数据或自动化证据；`外部待验`表示无法在本Windows工作区独立完成，不能据此宣称公开上线完成。
+初始审计日期：2026-07-19
+
+数据证据更新至：2026-07-28
+
+状态说明：`已证明`表示对应证据更新日的工作区有直接代码、数据或自动化证据；`外部待验`表示无法在本Windows工作区独立完成，不能据此宣称公开上线完成。
 
 ## 数据
 
 | 验收范围 | 状态 | 权威证据 |
 |---|---|---|
-| 完整70城、2016-01至2026-06、新房/二手房、四档面积、环比/同比完整 | 已证明 | `data/audit-report.json`：126批次、70,560条、覆盖2016-01至2026-06、`full-record-audit-v4`且result=passed；`npm run validate:data` |
+| 完整70城、2016-01至2026-06、新房/二手房、四档面积、环比/同比完整 | 已证明 | `data/audit-report.json`：126批次、70,560条、覆盖2016-01至2026-06、`full-record-audit-v5`且result=passed；`npm run validate:data` |
 | 36/60/120个月且包含最新月份 | 已证明 | `packages/core/src/index.ts`的`getWindowRecords`；`apps/web/tests/core.test.ts`；E2E的36和120个月断言 |
 | 指数、变动率、null与缺失原因不变量 | 已证明 | `scripts/data/validate.ts`、`scripts/validate-data.mjs`、`apps/web/src/dataValidation.ts`及对应单测 |
 | 唯一键、月份连续、coverage_gaps | 已证明 | `scripts/validate-data.mjs`、`scripts/data/publish.ts`；当前`manifest.json`的`coverage_gaps=[]` |
 | 清单schema、版本、记录数、状态和检查时间 | 已证明 | `apps/web/public/data/manifest.json`；`scripts/validate-data.mjs`；前端运行时校验单测 |
 | 首屏摘要、市场快照、温度历史与城市分片，完整数据不进入浏览器加载路径 | 已证明 | schema 1.3.0清单、576条六城摘要、560条最新月快照、2,016条温度历史、发布后校验及E2E请求断言 |
-| 全部来源URL、抓取时间、SHA-256、四类表白名单、总体/分类、批次和记录定位 | 已证明 | 126个`data/raw/**/*.batch.json`；`data/audit-report.json`的`full-record-audit-v4`；`scripts/data/audit-batches.ts` |
+| 全部来源URL、抓取时间、SHA-256、四类表白名单、总体/分类、批次和记录定位 | 已证明 | 126个`data/raw/**/*.batch.json`；`data/audit-report.json`的`full-record-audit-v5`；`scripts/data/audit-batches.ts` |
 | 原始归档可恢复且不进入生产包 | 已证明 | 126批次均有确定性`raw_archive_uri`并通过SHA-256回查；`apps/web/public/data/`仅有发布JSON |
 | 生产不引用unverified或sampled批次 | 已证明 | 126/126批次为verified；`publish.ts`要求当前完整审计报告覆盖同一批次、SHA和记录数 |
-| 修订不可变并保留旧值、新值和来源 | 已证明 | `data/normalized/revisions.json`当前保留36,792条追加修订；`publish.ts`追加修订而非覆盖，历史未删除 |
+| 修订不可变并保留旧值、新值和来源 | 已证明 | `data/normalized/revisions.json`在证据更新日保留36,942条追加修订；`publish.ts`追加修订而非覆盖，历史未删除 |
 | 来源、月份、发布日期、状态、口径和2026-01基期变化 | 已证明 | 页面正文、Tooltip、0%线和2026-01时间轴标记；E2E断言 |
 | 中国大陆工作日SLA状态边界 | 已证明 | `scripts/data/status.ts`、`scripts/data/status.test.ts`；当前清单为current |
 | 月度官方页面自动发现与异常告警 | 已证明 | `scripts/data/fetch-release-calendar.ts`、`scripts/data/check-latest.ts`及针对性单测；`.github/workflows/monthly-data-check.yml`每天同步年度预告并在预告窗口检查正式发布页；预告只调度、只告警不自动发布 |
@@ -79,4 +84,4 @@
 
 ## 结论
 
-当前工作区的Web MVP工程项已形成直接证据。外部待验项完成前，只能描述为“本地Web MVP已通过工程验收”，不能描述为“第一阶段已公开上线”。
+对应证据更新日的Web MVP工程项已形成直接证据。外部待验项完成前，只能描述为“本地Web MVP已通过工程验收”，不能描述为“第一阶段已公开上线”。

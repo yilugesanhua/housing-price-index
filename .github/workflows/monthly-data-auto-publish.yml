@@ -7,7 +7,7 @@ on:
 
 permissions:
   actions: read
-  contents: write
+  contents: read
 
 concurrency:
   group: housing-data-production-publish
@@ -22,9 +22,10 @@ jobs:
     timeout-minutes: 5
     outputs:
       update_available: ${{ steps.discovery.outputs.update_available }}
+      repository_release_enabled: ${{ steps.repository_auth.outputs.repository_release_enabled }}
     steps:
       - name: Download exact discovery artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: monthly-data-check-${{ github.event.workflow_run.id }}
           path: work/discovery-artifact
@@ -49,6 +50,20 @@ jobs:
           }
           fs.appendFileSync(process.env.GITHUB_OUTPUT, `update_available=${updateAvailable}\n`)
           NODE
+      - id: repository_auth
+        name: Capture repository authorization outside the production environment
+        env:
+          REPOSITORY_RELEASE_ENABLED: ${{ vars.AUTOMATIC_RELEASE_ENABLED }}
+          OUTSIDE_ENV_PRODUCTION_AUTHORIZATION: ${{ vars.PRODUCTION_RELEASE_AUTHORIZED }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -z "$OUTSIDE_ENV_PRODUCTION_AUTHORIZATION"
+          if [ "$REPOSITORY_RELEASE_ENABLED" = "true" ]; then
+            echo "repository_release_enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "repository_release_enabled=false" >> "$GITHUB_OUTPUT"
+          fi
 
   prepare:
     needs: inspect
@@ -56,17 +71,20 @@ jobs:
       needs.inspect.result == 'success' &&
       needs.inspect.outputs.update_available == 'true'
     runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: write
     timeout-minutes: 45
     outputs:
       candidate_commit_sha: ${{ steps.bind.outputs.candidate_commit_sha }}
       dataset_version: ${{ steps.bind.outputs.dataset_version }}
       gate_report_sha256: ${{ steps.bind.outputs.gate_report_sha256 }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ github.event.workflow_run.head_sha }}
           fetch-depth: 0
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: npm
@@ -81,7 +99,7 @@ jobs:
           count="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${BASE_SHA}&status=completed&per_page=20" --jq ".workflow_runs | map(select(.head_sha == \"${BASE_SHA}\" and .conclusion == \"success\")) | length")"
           test "$count" -gt 0
       - name: Download exact discovery artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: monthly-data-check-${{ github.event.workflow_run.id }}
           path: work/discovery-artifact
@@ -147,7 +165,7 @@ jobs:
           node -e "const v=JSON.parse(process.argv[1]); const fs=require('fs'); fs.appendFileSync(process.env.GITHUB_OUTPUT, 'candidate_commit_sha='+v.commit_sha+'\ndataset_version='+v.dataset_version+'\ngate_report_sha256='+v.gate_report_sha256+'\n')" "$binding"
       - name: Upload reproducible candidate and gate reports
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: housing-data-candidate-${{ github.run_id }}
           path: |
@@ -159,17 +177,20 @@ jobs:
           retention-days: 90
 
   publish:
-    needs: prepare
-    if: needs.prepare.result == 'success' && vars.AUTOMATIC_RELEASE_ENABLED == 'true'
+    needs: [inspect, prepare]
+    if: needs.prepare.result == 'success' && needs.inspect.outputs.repository_release_enabled == 'true'
+    permissions:
+      actions: read
+      contents: write
     runs-on: ubuntu-latest
     timeout-minutes: 30
     environment: housing-data-production
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           ref: ${{ needs.prepare.outputs.candidate_commit_sha }}
           fetch-depth: 0
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: npm
@@ -183,7 +204,7 @@ jobs:
           git fetch origin "$DEFAULT_BRANCH"
           test "$(git rev-parse HEAD)" = "$CANDIDATE_SHA"
           test "$(git rev-parse "origin/$DEFAULT_BRANCH")" = "$CANDIDATE_SHA"
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: housing-data-candidate-${{ github.run_id }}
           path: work
@@ -191,7 +212,8 @@ jobs:
         env:
           TENCENTCLOUD_SECRET_ID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
           TENCENTCLOUD_SECRET_KEY: ${{ secrets.TENCENTCLOUD_SECRET_KEY }}
-          AUTOMATIC_RELEASE_ENABLED: ${{ vars.AUTOMATIC_RELEASE_ENABLED }}
+          AUTOMATIC_RELEASE_ENABLED: ${{ needs.inspect.outputs.repository_release_enabled }}
+          PRODUCTION_RELEASE_AUTHORIZED: ${{ vars.PRODUCTION_RELEASE_AUTHORIZED }}
           CI_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
           CI_COMMIT_SHA: ${{ needs.prepare.outputs.candidate_commit_sha }}
           CI_RUN_ID: ${{ github.run_id }}
@@ -205,6 +227,27 @@ jobs:
           npm run miniprogram:data:publish --
           --env=cloud1-d3gpdx70w5d05c68c
           --dataset=${{ needs.prepare.outputs.dataset_version }}
+      - id: rollback_monitor_event
+        name: Validate a successful automatic rollback for monitor registration
+        if: failure()
+        env:
+          EXPECTED_COMMIT_SHA: ${{ needs.prepare.outputs.candidate_commit_sha }}
+          EXPECTED_GITHUB_RUN_ID: ${{ github.run_id }}
+        run: node scripts/miniprogram/register-monitor-control-event.mjs
+      - name: Persist the automatic rollback monitor event without cloud credentials
+        if: failure() && steps.rollback_monitor_event.outputs.registered == 'true'
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          EVENT_PATH: ${{ steps.rollback_monitor_event.outputs.event_path }}
+          FAILURE_PATH: ${{ steps.rollback_monitor_event.outputs.failure_path }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "housing-data-automation"
+          git config user.email "housing-data-automation@users.noreply.github.com"
+          git add -- "$EVENT_PATH" "$FAILURE_PATH"
+          git commit -m "data: record automatic rollback monitor event"
+          git push origin "HEAD:${DEFAULT_BRANCH}"
       - name: Publish immutable private audit package
         env:
           TENCENTCLOUD_SECRET_ID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
@@ -223,11 +266,11 @@ jobs:
           git config user.name "housing-data-automation"
           git config user.email "housing-data-automation@users.noreply.github.com"
           git add -- "data/releases/${{ needs.prepare.outputs.dataset_version }}.json" data/releases/pending-auto-release.json data/releases/latest-auto-release.json
-          git commit -m "data: record automated monthly release [skip ci]"
+          git commit -m "data: record automated monthly release"
           git push origin "HEAD:${DEFAULT_BRANCH}"
       - name: Upload publish and rollback evidence
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: housing-data-publish-audit-${{ github.run_id }}
           path: |

@@ -17,7 +17,7 @@
   </view>
   <view class="section">
     <text class="heading">隐私</text>
-    <text class="body">首发版本不要求登录，不收集姓名、手机号、通讯录或用户提交的表单内容。经用户授权后，小程序获取当前位置并通过腾讯位置服务解析所在省市，仅用于自动匹配城市；不保存精确经纬度，匹配后的城市信息和筛选状态仅保存在本机。</text>
-    <button class="secondary-button" bindtap="clearSavedState">清除本地筛选记录</button>
+    <text class="body">首发版本不要求登录，不收集姓名、手机号、通讯录或用户提交的表单内容。经用户授权后，小程序获取模糊位置信息，经项目云函数提交腾讯位置服务，仅用于解析省市和匹配70城；项目业务代码不持久化经纬度。本机保存匹配后的城市标识和定位时间，最长24小时；筛选状态也仅保存在本机。</text>
+    <button class="secondary-button" bindtap="clearSavedState">清除本地记录</button>
   </view>
 </scroll-view>

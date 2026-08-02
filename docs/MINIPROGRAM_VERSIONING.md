@@ -8,6 +8,7 @@
 
 - `apps/miniprogram/`：小程序唯一源目录，日常代码修改从这里开始。
 - `70城小程序技术验证/`：微信开发者工具运行目录，由源目录同步生成。
+- `work/miniprogram-release-candidates/` 或受保护CI Artifact：不可变候选构件的临时保存位置，不是稳定归档；不得作为当前产品源码或正式发布状态。
 - `release/miniprogram/`：稳定版本归档目录，不用于日常开发。
 - `apps/web/`：Web端；小程序任务不得修改该目录。
 
@@ -21,6 +22,10 @@ node scripts/miniprogram/sync-devtools-project.mjs "70城小程序技术验证"
 
 ## 版本号
 
+`apps/miniprogram/config/version.js` 是当前小程序版本号的唯一机器可读来源。页面底部、README、文档索引和当前候选模板只能读取或记录该值的快照，不得形成另一套可独立修改的当前版本源。版本绑定验收文件和历史证据必须保留其固定版本号，不得在升版时批量替换。
+
+未来版本漂移门禁必须从该文件读取版本，校验当前入口文档快照、候选证据文件名、候选清单、上传版本和交接身份一致；同时用故意错配fixture证明CI会失败。该门禁尚未实现前，I14保持 `not_started/not_tested`，不能只靠人工同步宣称已关闭。
+
 版本号使用 `v主版本.功能版本.修复版本`：
 
 - 修复问题：增加末位，例如 `v0.1.0` 到 `v0.1.1`。
@@ -33,6 +38,7 @@ node scripts/miniprogram/sync-devtools-project.mjs "70城小程序技术验证"
 release/miniprogram/
 └── v0.1.0_2026-07-24/
     ├── 小程序源码-v0.1.0.zip
+    ├── release-manifest.json
     ├── 版本说明.txt
     └── SHA256.txt
 ```
@@ -63,15 +69,85 @@ release/miniprogram/
 
 `SHA256.txt` 记录源码ZIP的SHA-256，用于确认归档未损坏或被替换。
 
+## 确定性归档要求
+
+从下一次按本规范固定的新稳定版本起，源码ZIP必须由单一归档脚本确定性生成，不得继续用文件管理器或临时命令人工压缩。流程分为“不可变候选构件”和“稳定归档”两阶段：先从固定源码提交生成一次候选ZIP并锁定字节身份，所有CI、开发者工具、双真机、审核交接证据都绑定该候选；全部通过后只把原ZIP字节晋级到稳定归档，不得重新打包。归档脚本尚未实现和通过测试前，只能保存候选备份，不能新增“稳定版本”归档。
+
+同一提交、同一归档参数和同一工具版本在不同机器重复执行时，源码ZIP的SHA-256必须一致。归档脚本至少固定：
+
+- 输入为已提交的精确Git SHA，且该提交中的 `apps/miniprogram/` 已与微信开发者工具目录逐文件一致。归档进程必须在无已跟踪或未跟踪改动的干净检出中运行，或从该SHA创建独立临时检出；无关工作区改动也不得影响文件清单或归档字节。
+- 文件清单、排除项和路径大小写；条目按UTF-8路径字节序排列，ZIP内统一使用 `/` 路径分隔符。
+- 每个条目的时间戳使用该提交的固定时间，文件权限、压缩算法、压缩等级、文件注释和宿主系统扩展字段保持一致；不得写入本机绝对路径、用户名或当前打包时间。
+- 生成候选前运行小程序自动化和适用CI检查；微信开发者工具编译、上传及双真机结果随后绑定候选ZIP SHA-256，不得要求尚未生成的稳定归档身份作为候选测试前置条件。
+- 候选生成后从ZIP重新读取完整文件清单，逐文件比较大小和SHA-256，再生成字段顺序固定的 `candidate-manifest.json` 与 `SHA256.txt`；任一差异都停止。候选身份固定为 `app_version + source_commit_sha + archive_sha256`，任何源码或ZIP字节变化都必须生成新候选身份并使旧外部证据失效。
+- 候选构件一经用于开发者工具、真机或审核证据便只读。最终晋级时从候选存储回读ZIP和候选清单，重新计算哈希后复制原字节到临时归档目录；生成最终清单、回读全部文件并原子完成目录后才设为稳定归档。
+
+确定性归档必须有自动测试覆盖重复生成、不同文件枚举顺序、时区差异、时间戳归一化、排除项、非ASCII文件名和损坏ZIP。只有测试证明相同输入产生相同字节，才能把该能力标记为已实现。
+
+## 候选清单与 `release-manifest.json`
+
+`candidate-manifest.json` 在外部验收前生成，至少绑定 `schema_version`、`candidate_id`、`app_version`、40位 `source_commit_sha`、固定提交时间、源码ZIP文件名与SHA-256、规范化文件清单SHA-256、内置数据身份、解析器和审计器。它不得包含尚未发生的真机、审核或稳定归档结论。
+
+每个新稳定归档必须同时生成UTF-8、字段顺序固定的机器可读 `release-manifest.json`。它是ZIP、代码、数据和验证证据之间的身份索引，不能由人工自由填写。最低字段如下：
+
+```json
+{
+  "schema_version": 1,
+  "candidate_id": "版本+源码提交+归档哈希形成的不可变候选身份",
+  "candidate_manifest_sha256": "64位小写SHA-256",
+  "app_version": "v0.1.0",
+  "source_commit_sha": "40位Git提交SHA",
+  "source_commit_time": "ISO 8601时间",
+  "archive_file": "小程序源码-v0.1.0.zip",
+  "archive_sha256": "64位小写SHA-256",
+  "archive_inventory_sha256": "规范化文件清单SHA-256",
+  "dataset_as_of": "YYYY-MM",
+  "source_dataset_version": "源数据版本",
+  "bundled_snapshot_sha256": "内置数据快照SHA-256",
+  "parser_version": "解析器版本",
+  "audit_version": "独立审计版本",
+  "ci": {
+    "provider": "github-actions",
+    "workflow": "ci.yml",
+    "run_id": "运行ID",
+    "run_url": "HTTPS证据地址",
+    "tested_commit_sha": "40位Git提交SHA",
+    "result": "passed"
+  },
+  "devtools": {
+    "version": "微信开发者工具版本",
+    "base_library_version": "基础库版本",
+    "compile_evidence_sha256": "编译证据SHA-256"
+  },
+  "created_at": "ISO 8601时间"
+}
+```
+
+约束：
+
+- `source_commit_sha`、`ci.tested_commit_sha` 和实际归档输入必须完全相同；短SHA、分支名或“最新提交”不能替代精确SHA。
+- 最终 `archive_file` 的字节和SHA-256必须与候选构件完全相同；不得以“仅重新压缩一次”为由生成新ZIP。`candidate_manifest_sha256` 必须回指已用于开发者工具和真机证据的同一候选清单。
+- `source_dataset_version`、`dataset_as_of` 和 `bundled_snapshot_sha256` 必须从归档内置快照读取；`parser_version` 与 `audit_version` 必须来自该数据版本已通过的机器可读审计，不能从版本说明复制。
+- `archive_inventory_sha256` 对按固定顺序排列的 `相对路径 + NUL + 字节数 + NUL + 文件SHA-256 + LF` 字节流计算，用于证明ZIP内容清单；`archive_sha256`证明ZIP本身。
+- CI运行必须验证同一精确提交并成功执行发布所需检查；手工描述“测试通过”不能替代运行ID和证据地址。
+- `created_at` 只记录归档行为，不得参与ZIP字节或 `archive_inventory_sha256` 的确定性输入。
+- `版本说明.txt` 的版本、数据月份、工具版本和测试结论必须与本清单一致；冲突时停止归档，不得人工选择其中一份继续发布。
+- `source_commit_sha` 是候选源码提交；把稳定归档目录写入Git的后续 `archive_record_commit` 只负责记录原字节晋级结果，不属于ZIP输入，也不得回写到只读 `release-manifest.json` 形成自引用。该记录提交只能新增本候选归档目录，源码提交必须是其祖先，存在其他变更时拒绝晋级。
+
+`release-manifest.json` 的生成器、校验器和自动测试尚未进入当前代码，因此现有人工版本说明不能视为已经满足本节要求。
+
 ## 固定版本流程
 
 1. 完成 `apps/miniprogram/` 修改并同步到 `70城小程序技术验证/`。
-2. 在微信开发者工具中重新编译并检查相关页面。
-3. 运行 `npm.cmd run test:miniprogram`；失败时不得固定版本。
-4. 确定新版本号，确认目标归档目录尚不存在。
-5. 从 `apps/miniprogram/` 生成排除项清理后的源码ZIP。
-6. 填写版本说明并生成SHA-256。
-7. 将归档目录设为只读管理；不得覆盖、补改或复用版本号。
+2. 从 `apps/miniprogram/config/version.js` 读取新版本号，确认候选身份和目标稳定归档目录均未使用，并固定精确源码Git SHA。
+3. 在独立干净检出运行 `npm.cmd run test:miniprogram` 及适用CI；失败时不得生成可验收候选。
+4. 使用已经通过确定性测试的工具从该源码提交生成一次不可变候选ZIP、`candidate-manifest.json` 和 `SHA256.txt`；人工压缩不得进入验收。
+5. 从候选ZIP回读完整清单，验证版本、内置数据、解析器、审计器、源码提交和候选哈希，再把构件标记为只读。
+6. 将同一候选身份写入上线审查、开发者工具编译/预览/上传、Android、iPhone和交接记录；任一身份变化都废弃旧证据并生成新候选。
+7. 全部外部证据通过后，从候选存储回读并重新验证原ZIP字节，在临时归档目录生成最终 `release-manifest.json` 与一致的版本说明；不得重新打包源码ZIP。
+8. 回读临时归档的完整清单、候选清单哈希、ZIP SHA-256、CI、数据、解析器、审计器、开发者工具和双真机证据；任一不一致停止晋级。
+9. 原子完成 `release/miniprogram/v版本号_YYYY-MM-DD/` 并设为只读管理；不得覆盖、补改或复用版本号。
+10. 用只新增该归档目录的 `archive_record_commit` 记录晋级结果；不得把该提交SHA写回归档内部。受保护Git Tag或GitHub Release仍不是本流程要求。
 
 ## 回退流程
 
@@ -89,6 +165,9 @@ release/miniprogram/
 - 每次修改必须以用户明确确认的范围为边界。范围外的视觉、文案、组件结构、交互、无障碍或技术优化只能记录为建议，不得直接进入候选版本；需要实施时必须先说明原因、影响范围和预期效果并取得明确确认。
 - 上线审查发现的非阻断建议不得自动改动既有界面。只有数据真实性、法律合规、明确安全漏洞或无法编译运行等阻断问题可以暂停发布并报告，仍不得擅自扩大修复范围。
 - 归档版本只表示小程序代码快照，不替代官方数据来源审计和数据版本记录。
-- 同一版本号只能对应一份源码ZIP和一份SHA-256。
+- 同一版本号只能对应一份源码ZIP、一份SHA-256和一份机器清单；三者身份必须互相匹配。
+- 同一候选身份只能晋级一次；稳定归档必须使用验收过的候选原字节，候选重建、重新压缩或内容变化一律视为新候选并重新验收。
 - 微信公众平台上传版本号应与归档版本号保持一致。
 - 未通过测试或未完成开发者工具检查的状态只能作为临时备份，不能标记为稳定版本。
+- `release/miniprogram/` 中已存在的 `v2.0.0` 至 `v2.0.2` 是采用旧人工格式形成的历史稳定快照，只读保留，不追填 `release-manifest.json`、不重新压缩，也不借本规范改写其当时结论。
+- 本规范继续使用归档目录内的ZIP、`SHA256.txt` 和只读管理规则。受保护Git Tag或GitHub Release不是当前已批准要求，不得把它们新增为发布前置条件。

@@ -14,7 +14,7 @@
   "sitemapLocation": "sitemap.json",
   "permission": {
     "scope.userFuzzyLocation": {
-      "desc": "用于模糊识别所在城市并匹配住宅价格指数，不保存位置信息"
+      "desc": "模糊位置经项目云函数提交腾讯位置服务解析省市；不持久化经纬度，本机保存 cityId/locatedAt 最长24小时"
     }
   },
   "requiredPrivateInfos": [

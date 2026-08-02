@@ -4,10 +4,24 @@
       <image class="brand-mark" src="/assets/housing-assistant.png" mode="aspectFill" aria-hidden="true" />
       <text class="brand-name">全国城市观察</text>
     </view>
-    <text class="brand-date">数据截止 {{datasetAsOf}}</text>
+    <text class="brand-date" wx:if="{{dataUnavailable}}">数据暂不可用</text>
+    <text class="brand-date" wx:else>数据截止 {{datasetAsOf}}</text>
   </view>
 
   <view class="main-content">
+    <view class="unavailable-state" wx:if="{{dataUnavailable}}">
+      <text class="unavailable-title">数据暂不可用</text>
+      <text class="unavailable-copy">{{dataUnavailableMessage}}</text>
+      <button class="add-button unavailable-retry" bindtap="retryData" loading="{{dataRetrying}}" disabled="{{dataRetrying}}">{{dataRetrying ? '正在重试' : '重新获取数据'}}</button>
+      <button class="source-link" bindtap="openSource">查看数据来源与审计说明</button>
+      <view class="footer">
+        <text>数据校验未通过前保持阻断</text>
+        <text class="footer-separator" aria-hidden="true">·</text>
+        <text class="footer-version">版本 {{appVersion}}</text>
+      </view>
+    </view>
+
+    <block wx:else>
     <view class="intro">
       <view class="intro-head">
         <text class="title">读懂你的城市住宅价格变化</text>
@@ -77,20 +91,20 @@
         <view class="market-panel comparison-panel national-panel">
           <view class="panel-title"><text class="panel-icon">☷</text><view><text class="panel-heading">70城排名</text><text class="panel-meta">全国样本 · {{market.nationalCount}}城</text></view></view>
           <view class="benchmark"><text>{{focusCityName}}第 <text class="emphasis">{{market.nationalRank}}/{{market.nationalCount}}</text> 位</text></view>
-          <scroll-view class="ranking-scroll" scroll-y show-scrollbar scroll-into-view="national-rank-{{state.focusCity}}">
+          <scroll-view class="ranking-scroll" scroll-y show-scrollbar scroll-into-view="national-rank-{{rankingScrollCity}}">
             <view class="ranking-list"><view id="national-rank-{{item.id}}" class="ranking-row {{item.current ? 'current' : ''}}" wx:for="{{market.nationalRows}}" wx:key="id"><text class="ranking-number">{{item.rank}}</text><text class="ranking-name">{{item.name}}<text wx:if="{{item.current}}" class="current-tag">当前</text></text><text class="ranking-value {{item.tone}}">{{item.value}}</text></view></view>
           </scroll-view>
         </view>
         <view class="market-panel comparison-panel tier-panel">
           <view class="panel-title"><text class="panel-icon">≋</text><view><text class="panel-heading">同级城市对比</text><text class="panel-meta">{{market.tierLabel}} · {{market.tierCount}}城</text></view></view>
           <view class="benchmark"><text>{{focusCityName}}第 <text class="emphasis">{{market.tierRank}}/{{market.tierCount}}</text> 位</text></view>
-          <scroll-view class="ranking-scroll" scroll-y show-scrollbar scroll-into-view="tier-rank-{{state.focusCity}}">
+          <scroll-view class="ranking-scroll" scroll-y show-scrollbar scroll-into-view="tier-rank-{{rankingScrollCity}}">
             <view class="ranking-list"><view id="tier-rank-{{item.id}}" class="ranking-row {{item.current ? 'current' : ''}}" wx:for="{{market.tierRows}}" wx:key="id"><text class="ranking-number">{{item.rank}}</text><text class="ranking-name">{{item.name}}<text wx:if="{{item.current}}" class="current-tag">当前</text></text><text class="ranking-value {{item.tone}}">{{item.value}}</text></view></view>
           </scroll-view>
         </view>
         <view class="market-panel comparison-panel province-panel">
           <view class="panel-title"><text class="panel-icon">⌖</text><view><text class="panel-heading">省内城市对比</text><text class="panel-meta">70城样本 · {{market.province}}</text></view></view>
-          <view wx:if="{{market.provinceCount > 1}}"><view class="benchmark"><text>{{focusCityName}}第 <text class="emphasis">{{market.provinceRank}}/{{market.provinceCount}}</text> 位</text></view><scroll-view class="ranking-scroll" scroll-y show-scrollbar scroll-into-view="province-rank-{{state.focusCity}}"><view class="ranking-list"><view id="province-rank-{{item.id}}" class="ranking-row {{item.current ? 'current' : ''}}" wx:for="{{market.provinceRows}}" wx:key="id"><text class="ranking-number">{{item.rank}}</text><text class="ranking-name">{{item.name}}<text wx:if="{{item.current}}" class="current-tag">当前</text></text><text class="ranking-value {{item.tone}}">{{item.value}}</text></view></view></scroll-view></view>
+          <view wx:if="{{market.provinceCount > 1}}"><view class="benchmark"><text>{{focusCityName}}第 <text class="emphasis">{{market.provinceRank}}/{{market.provinceCount}}</text> 位</text></view><scroll-view class="ranking-scroll" scroll-y show-scrollbar scroll-into-view="province-rank-{{rankingScrollCity}}"><view class="ranking-list"><view id="province-rank-{{item.id}}" class="ranking-row {{item.current ? 'current' : ''}}" wx:for="{{market.provinceRows}}" wx:key="id"><text class="ranking-number">{{item.rank}}</text><text class="ranking-name">{{item.name}}<text wx:if="{{item.current}}" class="current-tag">当前</text></text><text class="ranking-value {{item.tone}}">{{item.value}}</text></view></view></scroll-view></view>
           <view wx:else class="single-province"><text class="emphasis">{{focusCityName}}</text><text>70城名单中，该省级区域仅收录本市，暂无省内横向比较。</text></view>
         </view>
       </view>
@@ -104,7 +118,7 @@
       <view class="trend-controls" wx:if="{{selectedCities.length}}">
         <view class="trend-city-row"><view class="legend"><button class="legend-item {{item.hidden ? 'legend-hidden' : ''}}" wx:for="{{selectedCities}}" wx:key="id" data-id="{{item.id}}" bindtap="toggleLegend" aria-label="{{item.hidden ? '显示' : '隐藏'}}{{item.name}}趋势线"><view class="legend-line pattern-{{item.seriesIndex}}" style="border-color: {{item.hidden ? '#8e8e93' : item.color}}"></view><text>{{item.name}}</text></button></view><button class="trend-city-add" bindtap="openPicker">＋ 添加城市</button></view>
       </view>
-      <view class="chart-frame chart-shell" wx:if="{{selectedCities.length}}"><f2 class="f2-chart" wx:if="{{!trendChartError}}" onInit="{{onInitChart}}" /><view class="chart-error" wx:else><text>历史走势图暂时无法显示</text><text>可展开“查看精确数据”读取对应月份数值。</text></view></view>
+      <view class="chart-frame chart-shell" wx:if="{{selectedCities.length}}"><f2 class="f2-chart" wx:if="{{!trendChartError}}" onInit="{{onInitChart}}" /><view class="chart-error" wx:else><text>历史走势图暂时无法显示</text><text>请稍后重试；恢复后可在图表中滑动查看对应月份数值。</text></view></view>
       <view class="empty" wx:else><text class="empty-title">尚未选择趋势城市</text><text>添加城市后可比较长期变化，最多同时显示3座。</text><view><button class="secondary-button" bindtap="resetCities">恢复默认城市</button><button class="add-button" bindtap="openPicker">添加城市</button></view></view>
       <text class="chart-note" wx:if="{{selectedCities.length}}">注：虚线为0%基准线；曲线位于基准线上方表示上涨，位于下方表示下跌。</text>
       <view class="cumulative-section" wx:if="{{selectedCities.length}}">
@@ -127,6 +141,7 @@
       <text class="footer-separator" aria-hidden="true">·</text>
       <text class="footer-version">版本 {{appVersion}}</text>
     </view>
+    </block>
   </view>
 </view>
 

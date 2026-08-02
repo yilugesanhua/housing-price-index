@@ -59,6 +59,12 @@ export function validateCiReleaseAuthorization({ env, datasetVersion, cloudEnvId
   requireEqual(gate.dataset_version, datasetVersion, 'gate dataset version')
   requireEqual(gate.cloud_env_id, cloudEnvId, 'gate cloud environment')
   requireEqual(gate.commit_sha, checkedOutSha, 'gate commit SHA')
+  requireEqual(env.AUTOMATIC_RELEASE_ENABLED, 'true', 'repository automatic release flag')
+  requireEqual(env.PRODUCTION_RELEASE_AUTHORIZED, 'true', 'production environment authorization')
+  gate.release_authorization = {
+    repository_automatic_release_enabled: true,
+    production_environment_authorized: true,
+  }
   if (correctedRelease) {
     requireEqual(gate.gate_type, 'manual_corrected_release', 'corrected release gate type')
     requireEqual(gate.github_run_id, env.GITHUB_RUN_ID, 'corrected release run ID')
@@ -74,8 +80,14 @@ export function validateCiReleaseAuthorization({ env, datasetVersion, cloudEnvId
     requireEqual(gate.supersedes_source_dataset_version, env.CI_SUPERSEDES_SOURCE_DATASET_VERSION, 'historical correction superseded source')
     requireEqual(gate.request_sha256, env.CI_CORRECTION_REQUEST_SHA256, 'historical correction request SHA-256')
   } else {
-    requireEqual(env.AUTOMATIC_RELEASE_ENABLED, 'true', 'production enable flag')
     requireEqual(String(gate.discovery_run_id), env.CI_DISCOVERY_RUN_ID, 'discovery run ID')
+    if (gate.recovery === true) {
+      if (!RUN_ID_PATTERN.test(String(gate.ordinary_ci?.run_id || ''))) throw new Error('CI release authorization rejected: recovery ordinary CI run ID is invalid')
+      requireEqual(gate.ordinary_ci?.workflow, 'ci.yml', 'recovery ordinary CI workflow')
+      requireEqual(gate.ordinary_ci?.event, 'push', 'recovery ordinary CI event')
+      requireEqual(gate.ordinary_ci?.conclusion, 'success', 'recovery ordinary CI conclusion')
+      requireEqual(gate.ordinary_ci?.commit_sha, checkedOutSha, 'recovery ordinary CI commit SHA')
+    }
   }
   return gate
 }

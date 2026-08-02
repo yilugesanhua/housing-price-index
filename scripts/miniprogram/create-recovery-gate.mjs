@@ -10,6 +10,10 @@ const releaseReportText = await readFile(resolve(root, 'work/miniprogram-data', 
 const releaseReport = JSON.parse(releaseReportText)
 const commitSha = process.env.GITHUB_SHA
 if (!/^[a-f0-9]{40}$/.test(commitSha || '')) throw new Error('Recovery commit SHA is invalid')
+const ordinaryCiRunId = process.env.CI_EVIDENCE_RUN_ID
+const ordinaryCiCommitSha = process.env.CI_EVIDENCE_COMMIT_SHA
+if (!/^\d+$/.test(ordinaryCiRunId || '')) throw new Error('Recovery ordinary CI run ID is invalid')
+if (ordinaryCiCommitSha !== commitSha) throw new Error('Recovery ordinary CI commit does not match the recovery commit')
 if (latest.dataset_version !== pending.dataset_version || latest.source_dataset_version !== pending.source_dataset_version) throw new Error('Recovered candidate does not match pending release')
 if (releaseReport.dataset_as_of !== pending.dataset_as_of || releaseReport.official_url !== pending.official_url || releaseReport.cloud_env_id !== pending.cloud_env_id) throw new Error('Recovered release report does not match pending release')
 const gate = {
@@ -23,11 +27,12 @@ const gate = {
   official_url: pending.official_url,
   discovery_run_id: pending.discovery_run_id,
   commit_sha: commitSha,
+  ordinary_ci: { workflow: 'ci.yml', event: 'push', conclusion: 'success', run_id: ordinaryCiRunId, commit_sha: ordinaryCiCommitSha },
   idempotency_key: pending.idempotency_key,
   source_raw_sha256: pending.source_raw_sha256,
   manifest_sha256: releaseReport.manifest_sha256,
   release_report_sha256: sha256(releaseReportText),
-  checks: ['pending-state-integrity', 'official-source-refetch-hash', 'full-record-audit', 'validate:data', 'check', 'test:e2e', 'test:miniprogram', 'remote-snapshot-reconstruction'],
+  checks: ['same-commit-ordinary-ci', 'pending-state-integrity', 'official-source-refetch-hash', 'full-record-audit', 'validate:data', 'check', 'test:e2e', 'test:miniprogram', 'remote-snapshot-reconstruction'],
   passed_at: new Date().toISOString(),
 }
 const outputRoot = resolve(root, 'work/auto-release')

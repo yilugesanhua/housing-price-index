@@ -1,0 +1,493 @@
+name: manual-data-rollback
+
+on:
+  workflow_dispatch:
+    inputs:
+      dataset_version:
+        description: Exact audited dataset version to restore
+        required: true
+        type: string
+      confirmation:
+        description: Type the exact dataset version again
+        required: true
+        type: string
+      recovery_run_id:
+        description: Optional prior manual-data-rollback run whose durable intent or audit must be recovered
+        required: false
+        type: string
+      recovery_run_attempt:
+        description: Exact attempt number from the recovery source run; required together with recovery_run_id
+        required: false
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: housing-data-production-publish
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    permissions:
+      actions: read
+      contents: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    outputs:
+      commit_sha: ${{ steps.identity.outputs.commit_sha }}
+      dataset_version: ${{ steps.identity.outputs.dataset_version }}
+      ordinary_ci_run_id: ${{ steps.ordinary_ci.outputs.run_id }}
+      artifact_source_run_id: ${{ steps.origin.outputs.artifact_source_run_id }}
+      artifact_source_run_attempt: ${{ steps.origin.outputs.artifact_source_run_attempt }}
+      artifact_source_commit_sha: ${{ steps.origin.outputs.artifact_source_commit_sha }}
+      reusable_audit: ${{ steps.existing_audit.outputs.reusable_audit }}
+      reusable_audit_finalizer_ordinary_ci_run_id: ${{ steps.existing_audit.outputs.finalizer_ordinary_ci_run_id }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+          persist-credentials: false
+      - id: identity
+        name: Lock rollback finalization to the current reviewed default-branch commit
+        env:
+          DATASET_VERSION: ${{ inputs.dataset_version }}
+          CONFIRMATION: ${{ inputs.confirmation }}
+          RECOVERY_RUN_ID: ${{ inputs.recovery_run_id }}
+          RECOVERY_RUN_ATTEMPT: ${{ inputs.recovery_run_attempt }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          REPOSITORY_AUTOMATIC_RELEASE_ENABLED: ${{ vars.AUTOMATIC_RELEASE_ENABLED }}
+          OUTSIDE_ENV_PRODUCTION_AUTHORIZATION: ${{ vars.PRODUCTION_RELEASE_AUTHORIZED }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$DATASET_VERSION" =~ ^20[0-9]{2}-(0[1-9]|1[0-2])-[a-f0-9]{12}$ ]]
+          test "$CONFIRMATION" = "$DATASET_VERSION"
+          test -z "$RECOVERY_RUN_ID" || [[ "$RECOVERY_RUN_ID" =~ ^[0-9]+$ ]]
+          test -z "$RECOVERY_RUN_ATTEMPT" || [[ "$RECOVERY_RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]]
+          if [[ -n "$RECOVERY_RUN_ID" || -n "$RECOVERY_RUN_ATTEMPT" ]]; then
+            test -n "$RECOVERY_RUN_ID"
+            test -n "$RECOVERY_RUN_ATTEMPT"
+          fi
+          test "$REPOSITORY_AUTOMATIC_RELEASE_ENABLED" = "true"
+          test -z "$OUTSIDE_ENV_PRODUCTION_AUTHORIZATION" || test "$OUTSIDE_ENV_PRODUCTION_AUTHORIZATION" = "false"
+          test "$(git branch --show-current)" = "$DEFAULT_BRANCH"
+          commit_sha="$(git rev-parse HEAD)"
+          test "$commit_sha" = "$GITHUB_SHA"
+          echo "commit_sha=$commit_sha" >> "$GITHUB_OUTPUT"
+          echo "dataset_version=$DATASET_VERSION" >> "$GITHUB_OUTPUT"
+      - id: origin
+        name: Bind any recovery artifact to an exact prior rollback workflow run
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        env:
+          RECOVERY_RUN_ID: ${{ inputs.recovery_run_id }}
+          RECOVERY_RUN_ATTEMPT: ${{ inputs.recovery_run_attempt }}
+          CURRENT_RUN_ATTEMPT: ${{ github.run_attempt }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        with:
+          script: |
+            if (!process.env.RECOVERY_RUN_ID) {
+              core.setOutput('artifact_source_run_id', String(context.runId))
+              core.setOutput('artifact_source_run_attempt', process.env.CURRENT_RUN_ATTEMPT)
+              core.setOutput('artifact_source_commit_sha', context.sha)
+              return
+            }
+            if (String(context.runId) === process.env.RECOVERY_RUN_ID) {
+              core.setFailed('Recovery run must differ from the current run')
+              return
+            }
+            const { data: run } = await github.rest.actions.getWorkflowRunAttempt({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: Number(process.env.RECOVERY_RUN_ID),
+              attempt_number: Number(process.env.RECOVERY_RUN_ATTEMPT),
+            })
+            if (run.path !== '.github/workflows/manual-data-rollback.yml'
+              || run.event !== 'workflow_dispatch'
+              || run.status !== 'completed'
+              || run.head_branch !== process.env.DEFAULT_BRANCH
+              || run.head_repository?.full_name !== `${context.repo.owner}/${context.repo.repo}`
+              || !/^[a-f0-9]{40}$/.test(run.head_sha || '')) {
+              core.setFailed('Recovery source is not an exact completed default-branch manual rollback run')
+              return
+            }
+            core.setOutput('artifact_source_run_id', String(run.id))
+            core.setOutput('artifact_source_run_attempt', String(run.run_attempt))
+            core.setOutput('artifact_source_commit_sha', run.head_sha)
+      - id: ordinary_ci
+        name: Require successful ordinary CI from the exact ci.yml workflow
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        with:
+          script: |
+            const runs = await github.paginate(github.rest.actions.listWorkflowRuns, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: '.github/workflows/ci.yml',
+              head_sha: context.sha,
+              event: 'push',
+              status: 'success',
+              per_page: 100,
+            })
+            const run = runs.find((item) => item.path === '.github/workflows/ci.yml'
+              && item.head_sha === context.sha
+              && item.event === 'push'
+              && item.conclusion === 'success')
+            if (!run) {
+              core.setFailed(`No successful ci.yml push run found for ${context.sha}`)
+              return
+            }
+            core.setOutput('run_id', String(run.id))
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Verify the target has a rollback-eligible immutable audit
+        env:
+          DATASET_VERSION: ${{ steps.identity.outputs.dataset_version }}
+        run: >-
+          node --input-type=module -e
+          "import { readRollbackEligibleAudit } from './scripts/miniprogram/release-audit-lib.mjs';
+          await readRollbackEligibleAudit(process.cwd(), process.env.DATASET_VERSION, 'cloud1-d3gpdx70w5d05c68c')"
+      - id: download_existing_audit
+        name: Reuse an audit already made durable by the source run
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: manual-data-rollback-audit-${{ steps.origin.outputs.artifact_source_run_id }}-${{ steps.origin.outputs.artifact_source_run_attempt }}
+          path: work/downloaded-existing-manual-data-rollback-audit
+          run-id: ${{ steps.origin.outputs.artifact_source_run_id }}
+          github-token: ${{ github.token }}
+      - id: existing_audit
+        name: Validate any durable audit before deciding whether production access is needed
+        env:
+          DATASET_VERSION: ${{ steps.identity.outputs.dataset_version }}
+          ARTIFACT_SOURCE_RUN_ID: ${{ steps.origin.outputs.artifact_source_run_id }}
+          ARTIFACT_SOURCE_RUN_ATTEMPT: ${{ steps.origin.outputs.artifact_source_run_attempt }}
+          ARTIFACT_SOURCE_COMMIT_SHA: ${{ steps.origin.outputs.artifact_source_commit_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t audit_files < <(find work/downloaded-existing-manual-data-rollback-audit -type f -name 'manual-data-rollback-*.json' -print 2>/dev/null || true)
+          if test "${#audit_files[@]}" -eq 0; then
+            echo "reusable_audit=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          test "${#audit_files[@]}" -eq 1
+          export AUDIT_PATH="${audit_files[0]}"
+          node --input-type=module <<'NODE'
+          import { appendFile, readFile } from 'node:fs/promises'
+          import { basename } from 'node:path'
+          import {
+            manualRollbackAuditFileName,
+            validateManualRollbackAudit,
+          } from './scripts/miniprogram/manual-rollback-intent.mjs'
+
+          const audit = JSON.parse(await readFile(process.env.AUDIT_PATH, 'utf8'))
+          validateManualRollbackAudit(audit, {
+            datasetVersion: process.env.DATASET_VERSION,
+            cloudEnvId: 'cloud1-d3gpdx70w5d05c68c',
+            storageBucket: '636c-cloud1-d3gpdx70w5d05c68c-1456861154',
+            expectedFinalizerCommitSha: process.env.ARTIFACT_SOURCE_COMMIT_SHA,
+            expectedFinalizerGithubRunId: process.env.ARTIFACT_SOURCE_RUN_ID,
+            expectedFinalizerGithubRunAttempt: process.env.ARTIFACT_SOURCE_RUN_ATTEMPT,
+          })
+          if (basename(process.env.AUDIT_PATH) !== manualRollbackAuditFileName(audit)) throw new Error('Existing rollback audit filename is not canonical')
+          await appendFile(process.env.GITHUB_OUTPUT, `finalizer_ordinary_ci_run_id=${audit.finalizer_ordinary_ci_run_id}\n`)
+          NODE
+          echo "reusable_audit=true" >> "$GITHUB_OUTPUT"
+      - name: Verify the reusable audit finalizer ordinary CI run
+        if: steps.existing_audit.outputs.reusable_audit == 'true'
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        env:
+          EXPECTED_COMMIT_SHA: ${{ steps.origin.outputs.artifact_source_commit_sha }}
+          ORDINARY_CI_RUN_ID: ${{ steps.existing_audit.outputs.finalizer_ordinary_ci_run_id }}
+        with:
+          script: |
+            const { data: run } = await github.rest.actions.getWorkflowRun({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: Number(process.env.ORDINARY_CI_RUN_ID),
+            })
+            if (run.path !== '.github/workflows/ci.yml'
+              || run.head_sha !== process.env.EXPECTED_COMMIT_SHA
+              || run.event !== 'push'
+              || run.status !== 'completed'
+              || run.conclusion !== 'success') {
+              core.setFailed('Reusable rollback audit finalizer ordinary CI identity is invalid')
+            }
+
+  rollback:
+    needs: prepare
+    if: needs.prepare.outputs.reusable_audit != 'true' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    permissions:
+      actions: read
+      contents: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: housing-data-production
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.prepare.outputs.commit_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify the default branch still points to the reviewed finalizer commit
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        env:
+          EXPECTED_SHA: ${{ needs.prepare.outputs.commit_sha }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        with:
+          script: |
+            const ref = await github.rest.git.getRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: `heads/${process.env.DEFAULT_BRANCH}`,
+            })
+            if (ref.data.object.sha !== process.env.EXPECTED_SHA) core.setFailed('Default branch advanced after rollback approval')
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - id: download_intent
+        name: Reuse the durable rollback intent from this run or a recovery source
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: manual-data-rollback-intent-${{ needs.prepare.outputs.artifact_source_run_id }}-${{ needs.prepare.outputs.artifact_source_run_attempt }}
+          path: work/downloaded-manual-data-rollback-intent
+          run-id: ${{ needs.prepare.outputs.artifact_source_run_id }}
+          github-token: ${{ github.token }}
+      - id: intent
+        name: Prepare or validate the immutable rollback intent without production writes
+        env:
+          DATASET_VERSION: ${{ needs.prepare.outputs.dataset_version }}
+          RECOVERY_RUN_ID: ${{ inputs.recovery_run_id }}
+          ARTIFACT_SOURCE_RUN_ID: ${{ needs.prepare.outputs.artifact_source_run_id }}
+          ARTIFACT_SOURCE_RUN_ATTEMPT: ${{ needs.prepare.outputs.artifact_source_run_attempt }}
+          TENCENTCLOUD_SECRET_ID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
+          TENCENTCLOUD_SECRET_KEY: ${{ secrets.TENCENTCLOUD_SECRET_KEY }}
+          CI_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          CI_COMMIT_SHA: ${{ needs.prepare.outputs.commit_sha }}
+          CI_RUN_ID: ${{ github.run_id }}
+          CI_PRODUCTION_ENVIRONMENT: housing-data-production
+          CI_CLOUD_ENV_ID: cloud1-d3gpdx70w5d05c68c
+          CI_DATASET_VERSION: ${{ needs.prepare.outputs.dataset_version }}
+          ROLLBACK_CONFIRMATION: ${{ inputs.confirmation }}
+          AUTOMATIC_RELEASE_ENABLED: ${{ vars.AUTOMATIC_RELEASE_ENABLED }}
+          PRODUCTION_RELEASE_AUTHORIZED: ${{ vars.PRODUCTION_RELEASE_AUTHORIZED }}
+          CI_ORDINARY_CI_WORKFLOW: .github/workflows/ci.yml
+          CI_ORDINARY_CI_EVENT: push
+          CI_ORDINARY_CI_CONCLUSION: success
+          CI_ORDINARY_CI_COMMIT_SHA: ${{ needs.prepare.outputs.commit_sha }}
+          CI_ORDINARY_CI_RUN_ID: ${{ needs.prepare.outputs.ordinary_ci_run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t downloaded < <(find work/downloaded-manual-data-rollback-intent -type f -name 'manual-data-rollback-intent-*.json' -print 2>/dev/null || true)
+          if test "${#downloaded[@]}" -eq 0; then
+            test -z "$RECOVERY_RUN_ID"
+            npm run miniprogram:data:rollback -- \
+              --env=cloud1-d3gpdx70w5d05c68c \
+              --dataset="$DATASET_VERSION" \
+              --origin-commit-sha="$CI_COMMIT_SHA" \
+              --origin-run-id="$GITHUB_RUN_ID" \
+              --origin-run-attempt="$GITHUB_RUN_ATTEMPT" \
+              --prepare-intent
+            mapfile -t prepared < <(find "work/miniprogram-data/rollback/$DATASET_VERSION/immutable-intent" -type f -name 'manual-data-rollback-intent-*.json' -print)
+            test "${#prepared[@]}" -eq 1
+            intent_path="${prepared[0]}"
+            prepared_here=true
+          else
+            test "${#downloaded[@]}" -eq 1
+            intent_path="${downloaded[0]}"
+            prepared_here=false
+          fi
+          export INTENT_PATH="$intent_path"
+          node --input-type=module <<'NODE'
+          import { appendFile, readFile } from 'node:fs/promises'
+          import { basename } from 'node:path'
+          import {
+            manualRollbackIntentFileName,
+            parseManualRollbackIntentText,
+          } from './scripts/miniprogram/manual-rollback-intent.mjs'
+
+          const text = await readFile(process.env.INTENT_PATH, 'utf8')
+          const intent = parseManualRollbackIntentText(text, {
+            expectedDatasetVersion: process.env.DATASET_VERSION,
+            expectedCloudEnvId: 'cloud1-d3gpdx70w5d05c68c',
+          })
+          if (basename(process.env.INTENT_PATH) !== manualRollbackIntentFileName(text)) throw new Error('Rollback intent filename is not canonical')
+          await appendFile(process.env.GITHUB_OUTPUT, `origin_commit_sha=${intent.commit_sha}\norigin_run_id=${intent.github_run_id}\norigin_run_attempt=${intent.github_run_attempt}\n`)
+          NODE
+          npm run miniprogram:data:rollback -- \
+            --env=cloud1-d3gpdx70w5d05c68c \
+            --dataset="$DATASET_VERSION" \
+            --origin-commit-sha="$(grep '^origin_commit_sha=' "$GITHUB_OUTPUT" | tail -1 | cut -d= -f2)" \
+            --origin-run-id="$(grep '^origin_run_id=' "$GITHUB_OUTPUT" | tail -1 | cut -d= -f2)" \
+            --origin-run-attempt="$(grep '^origin_run_attempt=' "$GITHUB_OUTPUT" | tail -1 | cut -d= -f2)" \
+            --verify-intent="$intent_path"
+          persist_for_current_run=false
+          if test "$prepared_here" = true || test "$ARTIFACT_SOURCE_RUN_ID" != "$GITHUB_RUN_ID" || test "$ARTIFACT_SOURCE_RUN_ATTEMPT" != "$GITHUB_RUN_ATTEMPT"; then
+            persist_for_current_run=true
+          fi
+          echo "intent_path=$intent_path" >> "$GITHUB_OUTPUT"
+          echo "prepared_here=$prepared_here" >> "$GITHUB_OUTPUT"
+          echo "persist_for_current_run=$persist_for_current_run" >> "$GITHUB_OUTPUT"
+      - name: Persist the immutable intent before any production object write
+        if: steps.intent.outputs.persist_for_current_run == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: manual-data-rollback-intent-${{ github.run_id }}-${{ github.run_attempt }}
+          path: ${{ steps.intent.outputs.intent_path }}
+          if-no-files-found: error
+          retention-days: 365
+      - name: Reconfirm the default branch immediately before the production switch
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        env:
+          EXPECTED_SHA: ${{ needs.prepare.outputs.commit_sha }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        with:
+          script: |
+            const ref = await github.rest.git.getRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: `heads/${process.env.DEFAULT_BRANCH}`,
+            })
+            if (ref.data.object.sha !== process.env.EXPECTED_SHA) core.setFailed('Default branch advanced immediately before rollback apply')
+      - name: Apply the durable intent or finalize it read-only after an interrupted switch
+        env:
+          TENCENTCLOUD_SECRET_ID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
+          TENCENTCLOUD_SECRET_KEY: ${{ secrets.TENCENTCLOUD_SECRET_KEY }}
+          CI_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          CI_COMMIT_SHA: ${{ needs.prepare.outputs.commit_sha }}
+          CI_RUN_ID: ${{ github.run_id }}
+          CI_PRODUCTION_ENVIRONMENT: housing-data-production
+          CI_CLOUD_ENV_ID: cloud1-d3gpdx70w5d05c68c
+          CI_DATASET_VERSION: ${{ needs.prepare.outputs.dataset_version }}
+          ROLLBACK_CONFIRMATION: ${{ inputs.confirmation }}
+          AUTOMATIC_RELEASE_ENABLED: ${{ vars.AUTOMATIC_RELEASE_ENABLED }}
+          PRODUCTION_RELEASE_AUTHORIZED: ${{ vars.PRODUCTION_RELEASE_AUTHORIZED }}
+          CI_ORDINARY_CI_WORKFLOW: .github/workflows/ci.yml
+          CI_ORDINARY_CI_EVENT: push
+          CI_ORDINARY_CI_CONCLUSION: success
+          CI_ORDINARY_CI_COMMIT_SHA: ${{ needs.prepare.outputs.commit_sha }}
+          CI_ORDINARY_CI_RUN_ID: ${{ needs.prepare.outputs.ordinary_ci_run_id }}
+        run: >-
+          npm run miniprogram:data:rollback --
+          --env=cloud1-d3gpdx70w5d05c68c
+          --dataset=${{ needs.prepare.outputs.dataset_version }}
+          --origin-commit-sha=${{ steps.intent.outputs.origin_commit_sha }}
+          --origin-run-id=${{ steps.intent.outputs.origin_run_id }}
+          --origin-run-attempt=${{ steps.intent.outputs.origin_run_attempt }}
+          --apply-intent=${{ steps.intent.outputs.intent_path }}
+          --apply
+      - name: Upload immutable rollback audit
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: manual-data-rollback-audit-${{ github.run_id }}-${{ github.run_attempt }}
+          path: work/miniprogram-data/rollback/${{ needs.prepare.outputs.dataset_version }}/immutable-audit/
+          if-no-files-found: error
+          retention-days: 365
+      - name: Upload rollback diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: manual-data-rollback-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: work/miniprogram-data/rollback/${{ needs.prepare.outputs.dataset_version }}/
+          if-no-files-found: warn
+          retention-days: 365
+
+  audit:
+    needs: [prepare, rollback]
+    if: always() && needs.prepare.result == 'success' && (needs.prepare.outputs.reusable_audit == 'true' || needs.rollback.result == 'success')
+    permissions:
+      actions: read
+      contents: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.prepare.outputs.commit_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Require the default branch to remain at the finalizer commit
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        env:
+          EXPECTED_SHA: ${{ needs.prepare.outputs.commit_sha }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        with:
+          script: |
+            const ref = await github.rest.git.getRef({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              ref: `heads/${process.env.DEFAULT_BRANCH}`,
+            })
+            if (ref.data.object.sha !== process.env.EXPECTED_SHA) core.setFailed('Default branch advanced before rollback audit persistence; rerun with recovery_run_id')
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: manual-data-rollback-audit-${{ needs.prepare.outputs.reusable_audit == 'true' && needs.prepare.outputs.artifact_source_run_id || github.run_id }}-${{ needs.prepare.outputs.reusable_audit == 'true' && needs.prepare.outputs.artifact_source_run_attempt || github.run_attempt }}
+          path: work/downloaded-manual-data-rollback-audit
+          run-id: ${{ needs.prepare.outputs.reusable_audit == 'true' && needs.prepare.outputs.artifact_source_run_id || github.run_id }}
+          github-token: ${{ github.token }}
+      - name: Validate and install only the immutable rollback audit
+        env:
+          DATASET_VERSION: ${{ needs.prepare.outputs.dataset_version }}
+          EXPECTED_FINALIZER_COMMIT_SHA: ${{ needs.prepare.outputs.reusable_audit == 'true' && needs.prepare.outputs.artifact_source_commit_sha || needs.prepare.outputs.commit_sha }}
+          EXPECTED_FINALIZER_RUN_ID: ${{ needs.prepare.outputs.reusable_audit == 'true' && needs.prepare.outputs.artifact_source_run_id || github.run_id }}
+          EXPECTED_FINALIZER_RUN_ATTEMPT: ${{ needs.prepare.outputs.reusable_audit == 'true' && needs.prepare.outputs.artifact_source_run_attempt || github.run_attempt }}
+          EXPECTED_FINALIZER_ORDINARY_CI_RUN_ID: ${{ needs.prepare.outputs.reusable_audit == 'true' && needs.prepare.outputs.reusable_audit_finalizer_ordinary_ci_run_id || needs.prepare.outputs.ordinary_ci_run_id }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t audit_files < <(find work/downloaded-manual-data-rollback-audit -type f -name 'manual-data-rollback-*.json' -print)
+          test "${#audit_files[@]}" -eq 1
+          export AUDIT_PATH="${audit_files[0]}"
+          node --input-type=module <<'NODE'
+          import { readFile } from 'node:fs/promises'
+          import { basename } from 'node:path'
+          import {
+            manualRollbackAuditFileName,
+            validateManualRollbackAudit,
+          } from './scripts/miniprogram/manual-rollback-intent.mjs'
+
+          const audit = JSON.parse(await readFile(process.env.AUDIT_PATH, 'utf8'))
+          validateManualRollbackAudit(audit, {
+            datasetVersion: process.env.DATASET_VERSION,
+            cloudEnvId: 'cloud1-d3gpdx70w5d05c68c',
+            storageBucket: '636c-cloud1-d3gpdx70w5d05c68c-1456861154',
+            expectedFinalizerCommitSha: process.env.EXPECTED_FINALIZER_COMMIT_SHA,
+            expectedFinalizerGithubRunId: process.env.EXPECTED_FINALIZER_RUN_ID,
+            expectedFinalizerGithubRunAttempt: process.env.EXPECTED_FINALIZER_RUN_ATTEMPT,
+            expectedFinalizerOrdinaryCiRunId: process.env.EXPECTED_FINALIZER_ORDINARY_CI_RUN_ID,
+          })
+          if (basename(process.env.AUDIT_PATH) !== manualRollbackAuditFileName(audit)) throw new Error('Rollback audit filename is not canonical')
+          NODE
+          target="data/releases/$(basename "$AUDIT_PATH")"
+          if test -e "$target"; then
+            cmp --silent "$AUDIT_PATH" "$target"
+          else
+            cp -- "$AUDIT_PATH" "$target"
+          fi
+          git add -- "$target"
+      - name: Commit rollback audit without production cloud credentials
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          GITHUB_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --cached --quiet; then
+            echo "The exact rollback audit is already committed."
+            exit 0
+          fi
+          git config user.name "housing-data-automation"
+          git config user.email "housing-data-automation@users.noreply.github.com"
+          git commit -m "data: record protected manual rollback"
+          auth_header="$(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 | tr -d '\n')"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic ${auth_header}" push origin "HEAD:${DEFAULT_BRANCH}"

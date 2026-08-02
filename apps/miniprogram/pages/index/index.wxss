@@ -21,6 +21,12 @@
 .release-date { display: block; margin-top: 7rpx; color: var(--color-muted); font-size: 20rpx; text-align: right; }
 .scope-control text { color: var(--color-muted); }
 .data-notice { margin-bottom: 16rpx; padding: 18rpx 20rpx; background: var(--color-warning-surface); border: 1rpx solid var(--color-preview-border); color: var(--color-warning-text); font-size: 22rpx; line-height: 1.5; }
+.unavailable-state { min-height: calc(100vh - 112rpx); display: flex; flex-direction: column; align-items: center; justify-content: center; box-sizing: border-box; padding: 72rpx 36rpx; text-align: center; }
+.unavailable-title { color: var(--color-ink); font-size: 34rpx; font-weight: 700; }
+.unavailable-copy { max-width: 620rpx; margin-top: 20rpx; color: var(--color-muted); font-size: 24rpx; line-height: 1.65; }
+.unavailable-retry { width: 320rpx; margin-top: 40rpx; }
+.unavailable-state .source-link { margin-top: 16rpx; }
+.unavailable-state .footer { margin-top: 44rpx; }
 .analysis-nav { position: relative; z-index: var(--z-sticky); margin: 0 -20rpx; padding: 12rpx 20rpx 0; background: var(--color-page); border-top: 1rpx solid var(--color-divider); border-bottom: 1rpx solid var(--color-divider); }
 .analysis-nav.is-fixed { position: fixed; top: 0; left: 0; right: 0; margin: 0; box-sizing: border-box; }
 .analysis-nav-spacer { height: 200rpx; }

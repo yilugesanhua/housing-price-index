@@ -2,13 +2,41 @@ const bundledSnapshot = require('../data/snapshot.js')
 const dataConfig = require('../config/data.js')
 const versionConfig = require('../config/version.js')
 const { sha256, utf8Bytes } = require('./sha256.js')
+const {
+  AUDITED_LEGACY_MIGRATIONS,
+  CONTROL_VALIDATOR_ID,
+  CONTROL_SCHEMA_VERSION,
+  MAX_VALIDATION_RECEIPT_MS,
+  VALIDATION_RECEIPT_SCHEMA_VERSION,
+  validateCurrent: validateControlPointer,
+  validateRegistry: validateControlRegistry,
+} = require('../cloudfunctions/getHousingDataManifest/validate-current.js')
+const { SERIES_CODES, validateBundledSnapshot, validateCompleteSnapshot } = require('./data-integrity.js')
 
+const STATE_KEY = 'housing-data-runtime-state-v1'
+const CONTROL_TOMBSTONE_KEY = 'housing-data-control-tombstone-v1'
 const POINTER_KEY = 'housing-data-pointer-v4'
 const CHECK_KEY = 'housing-data-check-v3'
 const REVOKED_SOURCES_KEY = 'housing-data-revoked-sources-v1'
+const REGISTRY_SCHEMA_VERSION = '1.0.0'
 const DATASET_PATTERN = /^20\d{2}-(0[1-9]|1[0-2])-[a-f0-9]{12}$/
 const SHA_PATTERN = /^[a-f0-9]{64}$/
-const SERIES_CODES = ['n_a', 'n_s', 'n_m', 'n_l', 'r_a', 'r_s', 'r_m', 'r_l']
+const REVISION_ID_PATTERN = /^revision-[a-z0-9][a-z0-9-]{5,80}$/
+const DATASET_REVOCATION_FIELDS = ['dataset_version', 'reason', 'replacement_dataset_version', 'revision_id', 'revoked_at']
+const SOURCE_REVOCATION_FIELDS = ['reason', 'replacement_source_dataset_version', 'revision_id', 'revoked_at', 'source_dataset_version']
+const VALIDATION_RECEIPT_FIELDS = [
+  'receipt_schema_version',
+  'validator_id',
+  'validated_at',
+  'valid_until',
+  'current_fingerprint',
+  'manifest_sha256',
+  'revocations_sha256',
+  'control_generation',
+  'revocations_generation',
+]
+const MAX_RECEIPT_CLOCK_SKEW_MS = 60 * 1000
+const STATE_SCHEMA_VERSION = 3
 
 function major(version) {
   return Number(String(version || '').replace(/^v/, '').split('.')[0])
@@ -31,18 +59,57 @@ function clone(value) {
   return JSON.parse(JSON.stringify(value))
 }
 
-function unavailableSnapshot(bundled) {
-  const snapshot = clone(bundled)
-  for (const cityId of snapshot.cityIds || []) {
-    for (const code of SERIES_CODES) {
-      if (Array.isArray(snapshot.series?.[cityId]?.[code])) snapshot.series[cityId][code] = snapshot.series[cityId][code].map(() => null)
-      if (Array.isArray(snapshot.latestSeries?.[cityId]?.[code])) snapshot.latestSeries[cityId][code] = snapshot.latestSeries[cityId][code].map(() => null)
-    }
+function canonicalize(value) {
+  if (Array.isArray(value)) return value.map(canonicalize)
+  if (!value || typeof value !== 'object') return value
+  return Object.fromEntries(Object.keys(value).sort().map((key) => [key, canonicalize(value[key])]))
+}
+
+function fingerprint(value) {
+  return sha256(utf8Bytes(JSON.stringify(canonicalize(value))))
+}
+
+function uniqueDatasetVersions(values) {
+  return [...new Set((values || []).filter((value) => DATASET_PATTERN.test(value)))].sort()
+}
+
+function hasExactFields(value, fields) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  const actual = Object.keys(value).sort()
+  const expected = [...fields].sort()
+  return actual.length === expected.length && actual.every((field, index) => field === expected[index])
+}
+
+function normalizeStoredRevocationEntries(entries, fields, versionField) {
+  if (!Array.isArray(entries)) return []
+  return entries
+    .filter((entry) => hasExactFields(entry, fields) && DATASET_PATTERN.test(entry[versionField] || ''))
+    .map(clone)
+    .sort((left, right) => left[versionField].localeCompare(right[versionField], 'en'))
+}
+
+function unavailableSnapshot(bundled, reason = 'control-state-untrusted') {
+  return {
+    schemaVersion: bundled.schemaVersion,
+    datasetVersion: bundled.datasetVersion,
+    datasetAsOf: bundled.datasetAsOf,
+    releaseDate: bundled.releaseDate,
+    generatedAt: bundled.generatedAt,
+    sourceCoverageStart: bundled.sourceCoverageStart,
+    coverageStart: bundled.coverageStart,
+    latestOfficialUrl: bundled.latestOfficialUrl,
+    nextCheckDueAt: bundled.nextCheckDueAt,
+    months: [],
+    releaseDates: [],
+    cityIds: [],
+    featuredCityIds: [],
+    cityMap: {},
+    series: {},
+    latestSeries: {},
+    breadthSeries: {},
+    dataStatus: 'unavailable',
+    statusReason: reason,
   }
-  for (const key of Object.keys(snapshot.breadthSeries || {})) snapshot.breadthSeries[key] = snapshot.breadthSeries[key].map(() => null)
-  snapshot.dataStatus = 'unavailable'
-  snapshot.statusReason = 'known-revoked-source-has-no-valid-cache'
-  return snapshot
 }
 
 function assert(condition, message) {
@@ -62,15 +129,81 @@ function validateRemoteSource(current, manifest, bundled, revisionManifest = nul
   assert(chain.at(-1) === manifest.source_dataset_version, 'correction source chain does not end at the remote source')
 }
 
-function validateCurrent(current, config) {
-  assert(current && DATASET_PATTERN.test(current.dataset_version || ''), 'remote current dataset version is invalid')
-  assert(/^20\d{2}-(0[1-9]|1[0-2])$/.test(current.dataset_as_of || ''), 'remote current month is invalid')
-  assert(major(current.schema_version) === config.remoteSchemaMajor, 'remote current schema is unsupported')
-  const root = `cloud://${config.cloudEnvId}.${config.storageBucket}/housing-data/releases/${current.dataset_version}/`
-  assert(current.manifest_file_id === `${root}manifest.json`, 'remote manifest path is invalid')
-  assert(SHA_PATTERN.test(current.manifest_sha256 || ''), 'remote manifest hash is invalid')
-  assert(Number.isFinite(Date.parse(current.next_check_at || '')), 'remote next check time is invalid')
-  return current
+function validateCurrent(current, config, options = {}) {
+  return validateControlPointer(current, { config, ...options })
+}
+
+function canonicalTimestamp(value, label) {
+  assert(typeof value === 'string' && Number.isFinite(Date.parse(value)), `${label} is invalid`)
+  assert(new Date(value).toISOString() === value, `${label} is not canonical ISO 8601`)
+  return Date.parse(value)
+}
+
+function validateValidationReceipt(receipt, current, nowValue = Date.now()) {
+  assert(hasExactFields(receipt, VALIDATION_RECEIPT_FIELDS), 'remote validation receipt fields are invalid')
+  assert(receipt.receipt_schema_version === VALIDATION_RECEIPT_SCHEMA_VERSION, 'remote validation receipt schema is unsupported')
+  assert(receipt.validator_id === CONTROL_VALIDATOR_ID, 'remote validation receipt validator is not trusted')
+  const validatedAt = canonicalTimestamp(receipt.validated_at, 'remote validation receipt timestamp')
+  const validUntil = canonicalTimestamp(receipt.valid_until, 'remote validation receipt expiry')
+  assert(validUntil > validatedAt && validUntil - validatedAt <= MAX_VALIDATION_RECEIPT_MS, 'remote validation receipt window is invalid')
+  assert(validatedAt >= Date.parse(current.control_generated_at), 'remote validation receipt predates the control pointer')
+  assert(validatedAt <= nowValue + MAX_RECEIPT_CLOCK_SKEW_MS, 'remote validation receipt timestamp is too far in the future')
+  assert(receipt.current_fingerprint === fingerprint(current), 'remote validation receipt current identity is invalid')
+  assert(receipt.manifest_sha256 === current.manifest_sha256, 'remote validation receipt manifest identity is invalid')
+  assert(receipt.revocations_sha256 === current.revocations_sha256, 'remote validation receipt revocations identity is invalid')
+  assert(receipt.control_generation === current.control_generation, 'remote validation receipt control generation is invalid')
+  assert(receipt.revocations_generation === current.revocations_generation, 'remote validation receipt revocations generation is invalid')
+  return {
+    activationAuthorized: validatedAt <= nowValue + MAX_RECEIPT_CLOCK_SKEW_MS && validUntil > nowValue,
+    receipt,
+    validatedAt,
+    validUntil,
+  }
+}
+
+function validateRevocationsRegistry(registry, current) {
+  validateControlRegistry(registry)
+  assert(registry?.registry_schema_version === REGISTRY_SCHEMA_VERSION, 'remote revocations schema is unsupported')
+  assert(Number.isInteger(registry.generation) && registry.generation === current.revocations_generation, 'remote revocations generation is inconsistent')
+  assert(Number.isFinite(Date.parse(registry.generated_at || '')), 'remote revocations timestamp is invalid')
+  assert(Array.isArray(registry.revoked_dataset_versions) && Array.isArray(registry.revoked_source_dataset_versions), 'remote revocations lists are invalid')
+  const validateEntries = (entries, fields, field, replacementField, label, revisionRequired) => {
+    const values = []
+    for (const entry of entries) {
+      assert(hasExactFields(entry, fields), `remote revoked ${label} fields are invalid`)
+      assert(DATASET_PATTERN.test(entry[field] || ''), `remote revoked ${label} version is invalid`)
+      assert(Number.isFinite(Date.parse(entry.revoked_at || '')), `remote revoked ${label} timestamp is invalid`)
+      assert(typeof entry.reason === 'string' && entry.reason.length >= 3, `remote revoked ${label} reason is invalid`)
+      if (revisionRequired) assert(REVISION_ID_PATTERN.test(entry.revision_id || ''), `remote revoked ${label} revision is invalid`)
+      else assert(entry.revision_id === null || REVISION_ID_PATTERN.test(entry.revision_id || ''), `remote revoked ${label} revision is invalid`)
+      if (entry[replacementField] !== null && entry[replacementField] !== undefined) {
+        assert(DATASET_PATTERN.test(entry[replacementField]), `remote revoked ${label} replacement is invalid`)
+        assert(entry[replacementField] !== entry[field], `remote revoked ${label} replaces itself`)
+      }
+      values.push(entry[field])
+    }
+    assert(new Set(values).size === values.length, `remote revoked ${label} versions contain duplicates`)
+    return {
+      entries: entries.map(clone).sort((left, right) => left[field].localeCompare(right[field], 'en')),
+      versions: values.sort(),
+    }
+  }
+  const datasets = validateEntries(registry.revoked_dataset_versions, DATASET_REVOCATION_FIELDS, 'dataset_version', 'replacement_dataset_version', 'dataset', false)
+  const sources = validateEntries(registry.revoked_source_dataset_versions, SOURCE_REVOCATION_FIELDS, 'source_dataset_version', 'replacement_source_dataset_version', 'source', true)
+  const revokedDatasetVersions = datasets.versions
+  const revokedSourceDatasetVersions = sources.versions
+  assert(!revokedDatasetVersions.includes(current.dataset_version), 'remote target dataset has been revoked')
+  assert(!revokedSourceDatasetVersions.includes(current.source_dataset_version), 'remote target source has been revoked')
+  if (current.transition_type === 'rollback') {
+    assert(revokedDatasetVersions.includes(current.rollback_from_dataset_version), 'remote rollback source is not revoked')
+  }
+  return {
+    registry,
+    revokedDatasetVersions,
+    revokedSourceDatasetVersions,
+    revokedDatasetEntries: datasets.entries,
+    revokedSourceDatasetEntries: sources.entries,
+  }
 }
 
 function validateSeries(series, monthCount, label) {
@@ -78,7 +211,13 @@ function validateSeries(series, monthCount, label) {
   for (const code of SERIES_CODES) assert(Array.isArray(series[code]) && series[code].length === monthCount * 4, `${label}/${code} length is invalid`)
 }
 
-function validateManifest(manifest, current, config) {
+function exactStringSet(actual, expected, label) {
+  const left = [...actual].sort((a, b) => a.localeCompare(b, 'en'))
+  const right = [...expected].sort((a, b) => a.localeCompare(b, 'en'))
+  assert(left.length === right.length && left.every((value, index) => value === right[index]), label)
+}
+
+function validateManifest(manifest, current, config, expectedCityIds = bundledSnapshot.cityIds) {
   assert(manifest?.format === config.remoteFormat, 'remote manifest format is invalid')
   assert(major(manifest.remote_schema_version) === config.remoteSchemaMajor, 'remote manifest schema is unsupported')
   assert(manifest.dataset_version === current.dataset_version && manifest.dataset_as_of === current.dataset_as_of, 'remote manifest version is inconsistent')
@@ -90,6 +229,7 @@ function validateManifest(manifest, current, config) {
   assert(manifest.bootstrap_file_id === `${root}bootstrap.json`, 'remote bootstrap path is invalid')
   assert(manifest.city_file_id_template === `${root}cities/{city_id}.json`, 'remote city path template is invalid')
   assert(manifest.city_files && Object.keys(manifest.city_files).length === 70, 'remote city manifest must contain 70 cities')
+  exactStringSet(Object.keys(manifest.city_files), expectedCityIds, 'remote city manifest differs from the authoritative 70-city set')
   for (const [cityId, file] of Object.entries(manifest.city_files)) {
     assert(/^[a-z]+$/.test(cityId), `remote city ID is invalid: ${cityId}`)
     assert(SHA_PATTERN.test(file.sha256 || '') && Number.isInteger(file.bytes), `remote city file metadata is invalid: ${cityId}`)
@@ -131,13 +271,41 @@ function validateRevisionManifest(revision, manifest) {
   return revision
 }
 
-function validateBootstrap(bootstrap, manifest, config) {
+function interpretAuditedLegacyBootstrap(bootstrap, manifest, current) {
+  if (current?.transition_type !== 'migration') return bootstrap
+  const descriptor = AUDITED_LEGACY_MIGRATIONS[current.migration_id]
+  assert(descriptor, 'remote migration bootstrap is not approved')
+  assert(current.manifest_sha256 === descriptor.legacy_manifest_sha256, 'remote migration manifest identity is invalid')
+  assert(manifest.bootstrap_sha256 === descriptor.legacy_bootstrap_sha256, 'remote migration bootstrap hash is invalid')
+  assert(manifest.bootstrap_bytes === descriptor.legacy_bootstrap_bytes, 'remote migration bootstrap size is invalid')
+  assert(bootstrap.sourceCoverageStart === undefined, 'remote migration bootstrap unexpectedly contains source coverage')
+  assert(bootstrap.coverageStart === descriptor.legacy_source_coverage_start, 'remote migration legacy coverage start is invalid')
+  assert(bootstrap.months?.[0] === descriptor.client_coverage_start, 'remote migration client coverage start is invalid')
+  return {
+    ...bootstrap,
+    sourceCoverageStart: descriptor.legacy_source_coverage_start,
+    coverageStart: descriptor.client_coverage_start,
+  }
+}
+
+function validateBootstrap(rawBootstrap, manifest, config, expectedCityIds = bundledSnapshot.cityIds, expectedFeaturedCityIds = bundledSnapshot.featuredCityIds, current = null) {
+  const bootstrap = interpretAuditedLegacyBootstrap(rawBootstrap, manifest, current)
   assert(bootstrap?.remoteFormat === config.remoteFormat, 'remote bootstrap format is invalid')
   assert(major(bootstrap.remoteSchemaVersion) === config.remoteSchemaMajor, 'remote bootstrap schema is unsupported')
   assert(bootstrap.datasetVersion === manifest.dataset_version && bootstrap.datasetAsOf === manifest.dataset_as_of, 'remote bootstrap version is inconsistent')
   assert(Array.isArray(bootstrap.cityIds) && bootstrap.cityIds.length === 70 && new Set(bootstrap.cityIds).size === 70, 'remote bootstrap city IDs are invalid')
+  exactStringSet(bootstrap.cityIds, expectedCityIds, 'remote bootstrap differs from the authoritative 70-city set')
   assert(Array.isArray(bootstrap.featuredCityIds) && bootstrap.featuredCityIds.length === 6, 'remote bootstrap featured cities are invalid')
+  assert(JSON.stringify(bootstrap.featuredCityIds) === JSON.stringify(expectedFeaturedCityIds), 'remote bootstrap featured cities differ from the product baseline')
   assert(Array.isArray(bootstrap.months) && bootstrap.months.length === 120 && bootstrap.months.at(-1) === bootstrap.datasetAsOf, 'remote bootstrap months are invalid')
+  assert(bootstrap.coverageStart === bootstrap.months[0], 'remote bootstrap coverage start is inconsistent')
+  for (let index = 1; index < bootstrap.months.length; index += 1) {
+    const previous = new Date(`${bootstrap.months[index - 1]}-01T00:00:00Z`)
+    previous.setUTCMonth(previous.getUTCMonth() + 1)
+    assert(bootstrap.months[index] === previous.toISOString().slice(0, 7), 'remote bootstrap months are not continuous')
+  }
+  assert(/^20\d{2}-(0[1-9]|1[0-2])$/.test(bootstrap.sourceCoverageStart), 'remote bootstrap source coverage start is invalid')
+  assert(bootstrap.sourceCoverageStart <= bootstrap.coverageStart, 'remote bootstrap source coverage starts after the client window')
   assert(Array.isArray(bootstrap.releaseDates) && bootstrap.releaseDates.length === 120, 'remote release dates are invalid')
   for (const cityId of bootstrap.cityIds) {
     assert(bootstrap.cityMap?.[cityId], `remote city profile is missing: ${cityId}`)
@@ -163,17 +331,321 @@ function validateCityShard(shard, manifest, cityId, config) {
 }
 
 function createDataRuntime({ wxApi = typeof wx === 'undefined' ? null : wx, bundled = bundledSnapshot, config = dataConfig, now = () => Date.now() } = {}) {
-  let activeSnapshot = bundled
-  let activeSource = 'bundled'
+  let bundledValidationError = null
+  try {
+    validateBundledSnapshot(bundled, {
+      cityIds: bundledSnapshot.cityIds,
+      featuredCityIds: bundledSnapshot.featuredCityIds,
+    })
+  } catch (error) {
+    bundledValidationError = error
+    console.error('[data:update] bundled data rejected', error)
+  }
+  let activeSnapshot = bundledValidationError ? unavailableSnapshot(bundled, 'bundled-data-invalid') : bundled
+  let activeSource = bundledValidationError ? 'unavailable' : 'bundled'
   let activeManifest = null
   let activeRevisionManifest = null
   let cachedCityIds = []
+  let controlRecoveryError = null
   const fs = wxApi && typeof wxApi.getFileSystemManager === 'function' ? wxApi.getFileSystemManager() : null
   const userRoot = wxApi?.env?.USER_DATA_PATH ? `${wxApi.env.USER_DATA_PATH}/housing-data` : ''
+
+  function emptyState() {
+    return {
+      stateSchemaVersion: STATE_SCHEMA_VERSION,
+      status: 'idle',
+      active: null,
+      fallback: null,
+      cacheDirectories: [],
+      control: {
+        generation: 0,
+        fingerprint: '',
+        registryGeneration: 0,
+        registrySha256: '',
+        revokedDatasetVersions: [],
+        revokedSourceDatasetVersions: [],
+        revokedDatasetEntries: [],
+        revokedSourceDatasetEntries: [],
+        registryGeneratedAt: '',
+        validatorId: '',
+        checkedAt: 0,
+        validUntil: 0,
+      },
+      schedule: { dataNextCheckAt: 0, controlNextCheckAt: 0, errorCode: '' },
+      pendingRollback: null,
+    }
+  }
+
+  function normalizeControl(value) {
+    const revokedDatasetEntries = normalizeStoredRevocationEntries(value?.revokedDatasetEntries, DATASET_REVOCATION_FIELDS, 'dataset_version')
+    const revokedSourceDatasetEntries = normalizeStoredRevocationEntries(value?.revokedSourceDatasetEntries, SOURCE_REVOCATION_FIELDS, 'source_dataset_version')
+    return {
+      generation: Number.isInteger(value?.generation) && value.generation >= 0 ? value.generation : 0,
+      fingerprint: SHA_PATTERN.test(value?.fingerprint || '') ? value.fingerprint : '',
+      registryGeneration: Number.isInteger(value?.registryGeneration) && value.registryGeneration >= 0 ? value.registryGeneration : 0,
+      registrySha256: SHA_PATTERN.test(value?.registrySha256 || '') ? value.registrySha256 : '',
+      revokedDatasetVersions: uniqueDatasetVersions([
+        ...(Array.isArray(value?.revokedDatasetVersions) ? value.revokedDatasetVersions : []),
+        ...revokedDatasetEntries.map((entry) => entry.dataset_version),
+      ]),
+      revokedSourceDatasetVersions: uniqueDatasetVersions([
+        ...(Array.isArray(value?.revokedSourceDatasetVersions) ? value.revokedSourceDatasetVersions : []),
+        ...revokedSourceDatasetEntries.map((entry) => entry.source_dataset_version),
+      ]),
+      revokedDatasetEntries,
+      revokedSourceDatasetEntries,
+      registryGeneratedAt: Number.isFinite(Date.parse(value?.registryGeneratedAt || '')) ? value.registryGeneratedAt : '',
+      validatorId: value?.validatorId === CONTROL_VALIDATOR_ID ? value.validatorId : '',
+      checkedAt: Number.isFinite(Number(value?.checkedAt)) ? Number(value.checkedAt) : 0,
+      validUntil: Number.isFinite(Number(value?.validUntil)) ? Number(value.validUntil) : 0,
+    }
+  }
+
+  function normalizePendingRollback(value) {
+    if (!value
+      || !DATASET_PATTERN.test(value.fromDatasetVersion || '')
+      || !DATASET_PATTERN.test(value.targetDatasetVersion || '')
+      || !Number.isInteger(value.controlGeneration)
+      || value.controlGeneration <= 0) return null
+    const controlFingerprint = SHA_PATTERN.test(value.controlFingerprint || '') ? value.controlFingerprint : ''
+    return {
+      fromDatasetVersion: value.fromDatasetVersion,
+      targetDatasetVersion: value.targetDatasetVersion,
+      controlGeneration: value.controlGeneration,
+      controlFingerprint,
+    }
+  }
+
+  function structurallyVerifiedControl(control) {
+    return control
+      && control.generation > 0
+      && SHA_PATTERN.test(control.fingerprint)
+      && control.registryGeneration > 0
+      && SHA_PATTERN.test(control.registrySha256)
+      && Boolean(control.registryGeneratedAt)
+      && control.validatorId === CONTROL_VALIDATOR_ID
+      && control.checkedAt > 0
+      && control.validUntil > control.checkedAt
+      && control.validUntil <= control.checkedAt + MAX_VALIDATION_RECEIPT_MS
+      && hasIdentityForEvery(control.revokedDatasetEntries, control.revokedDatasetVersions, 'dataset_version')
+      && hasIdentityForEvery(control.revokedSourceDatasetEntries, control.revokedSourceDatasetVersions, 'source_dataset_version')
+  }
+
+  function mergeRevocationKnowledge(left, right) {
+    const mergeEntries = (first, second, versionField) => {
+      const entries = new Map(first.map((entry) => [entry[versionField], entry]))
+      for (const entry of second) if (!entries.has(entry[versionField])) entries.set(entry[versionField], entry)
+      return [...entries.values()]
+    }
+    return normalizeControl({
+      revokedDatasetVersions: [...left.revokedDatasetVersions, ...right.revokedDatasetVersions],
+      revokedSourceDatasetVersions: [...left.revokedSourceDatasetVersions, ...right.revokedSourceDatasetVersions],
+      revokedDatasetEntries: mergeEntries(left.revokedDatasetEntries, right.revokedDatasetEntries, 'dataset_version'),
+      revokedSourceDatasetEntries: mergeEntries(left.revokedSourceDatasetEntries, right.revokedSourceDatasetEntries, 'source_dataset_version'),
+    })
+  }
+
+  function normalizeState(value) {
+    const state = emptyState()
+    if (!value || ![1, 2, STATE_SCHEMA_VERSION].includes(value.stateSchemaVersion)) return state
+    if (['idle', 'active', 'pending-rollback'].includes(value.status)) state.status = value.status
+    const normalizePointer = (pointer) => pointer
+      && DATASET_PATTERN.test(pointer.datasetVersion || '')
+      && SHA_PATTERN.test(pointer.manifestSha256 || '')
+      && pointer.current
+      ? clone(pointer)
+      : null
+    state.active = normalizePointer(value.active)
+    state.fallback = normalizePointer(value.fallback)
+    if (state.active?.datasetVersion === state.fallback?.datasetVersion) state.fallback = null
+    state.control = normalizeControl(value.control)
+    state.schedule = {
+      dataNextCheckAt: Number.isFinite(Number(value.schedule?.dataNextCheckAt)) ? Number(value.schedule.dataNextCheckAt) : 0,
+      controlNextCheckAt: Number.isFinite(Number(value.schedule?.controlNextCheckAt)) ? Number(value.schedule.controlNextCheckAt) : 0,
+      errorCode: String(value.schedule?.errorCode || '').slice(0, 120),
+    }
+    state.pendingRollback = normalizePendingRollback(value.pendingRollback)
+    if (state.status === 'active' && !state.active) state.status = 'idle'
+    if (state.status === 'pending-rollback' && !state.pendingRollback) state.status = 'idle'
+    state.cacheDirectories = uniqueDatasetVersions([state.active?.datasetVersion, state.fallback?.datasetVersion])
+    return state
+  }
+
+  function loadState() {
+    let state
+    try {
+      const current = wxApi?.getStorageSync?.(STATE_KEY)
+      if ([1, 2, STATE_SCHEMA_VERSION].includes(current?.stateSchemaVersion)) {
+        state = normalizeState(current)
+      } else {
+        const legacyPointer = wxApi?.getStorageSync?.(POINTER_KEY)
+        const legacySchedule = wxApi?.getStorageSync?.(CHECK_KEY)
+        const legacySources = wxApi?.getStorageSync?.(REVOKED_SOURCES_KEY)
+        state = emptyState()
+        if (legacyPointer && DATASET_PATTERN.test(legacyPointer.datasetVersion || '') && SHA_PATTERN.test(legacyPointer.manifestSha256 || '')) {
+          state.active = clone(legacyPointer)
+          state.status = 'active'
+        }
+        state.control.revokedSourceDatasetVersions = uniqueDatasetVersions(legacySources)
+        state.schedule.dataNextCheckAt = Number(legacySchedule?.nextCheckAt) || 0
+        state.schedule.errorCode = String(legacySchedule?.errorCode || '').slice(0, 120)
+      }
+    } catch (_) {
+      state = emptyState()
+    }
+    let tombstone = null
+    try {
+      tombstone = wxApi?.getStorageSync?.(CONTROL_TOMBSTONE_KEY)
+      if (tombstone !== undefined && tombstone !== null && tombstone !== '') {
+        assert(tombstone.schemaVersion === 1, 'stored control tombstone schema is invalid')
+        assert(SHA_PATTERN.test(tombstone.integritySha256 || '')
+          && tombstone.integritySha256 === fingerprint({
+            schemaVersion: tombstone.schemaVersion,
+            control: tombstone.control,
+            pendingRollback: tombstone.pendingRollback || null,
+          }), 'stored control tombstone integrity is invalid')
+        const control = normalizeControl(tombstone.control)
+        const pendingRollback = normalizePendingRollback(tombstone.pendingRollback)
+        if (!control.validatorId) {
+          state.control = mergeRevocationKnowledge(state.control, control)
+          state.status = 'idle'
+          state.active = null
+          state.fallback = null
+          state.pendingRollback = null
+          return state
+        }
+        assert(structurallyVerifiedControl(control), 'stored control tombstone is invalid')
+        assert(!tombstone.pendingRollback || (pendingRollback
+          && pendingRollback.controlGeneration === control.generation
+          && pendingRollback.controlFingerprint === control.fingerprint), 'stored rollback tombstone is invalid')
+        const stateControl = state.control
+        const stateIsNewerOrEqual = stateControl.generation >= control.generation
+          && stateControl.registryGeneration >= control.registryGeneration
+        const tombstoneIsNewerOrEqual = control.generation >= stateControl.generation
+          && control.registryGeneration >= stateControl.registryGeneration
+        assert(stateIsNewerOrEqual || tombstoneIsNewerOrEqual, 'stored control generations are incomparable')
+        if (stateIsNewerOrEqual && (stateControl.generation > control.generation || stateControl.registryGeneration > control.registryGeneration)) {
+          assert(structurallyVerifiedControl(stateControl), 'newer stored main control is invalid')
+          assert(containsEvery(stateControl.revokedDatasetVersions, control.revokedDatasetVersions), 'stored main control removed a dataset revocation')
+          assert(containsEvery(stateControl.revokedSourceDatasetVersions, control.revokedSourceDatasetVersions), 'stored main control removed a source revocation')
+          assertImmutableEntries(stateControl.revokedDatasetEntries, control.revokedDatasetEntries, 'dataset_version', 'dataset')
+          assertImmutableEntries(stateControl.revokedSourceDatasetEntries, control.revokedSourceDatasetEntries, 'source_dataset_version', 'source')
+        } else {
+          assert(containsEvery(control.revokedDatasetVersions, stateControl.revokedDatasetVersions), 'stored control tombstone removed a dataset revocation')
+          assert(containsEvery(control.revokedSourceDatasetVersions, stateControl.revokedSourceDatasetVersions), 'stored control tombstone removed a source revocation')
+          assertImmutableEntries(control.revokedDatasetEntries, stateControl.revokedDatasetEntries, 'dataset_version', 'dataset')
+          assertImmutableEntries(control.revokedSourceDatasetEntries, stateControl.revokedSourceDatasetEntries, 'source_dataset_version', 'source')
+          if (control.generation === stateControl.generation && stateControl.generation > 0) {
+            assert(control.fingerprint === stateControl.fingerprint, 'stored control identity differs at the same generation')
+          }
+          if (control.registryGeneration === stateControl.registryGeneration && stateControl.registryGeneration > 0) {
+            assert(control.registrySha256 === stateControl.registrySha256, 'stored revocations differ at the same generation')
+          }
+          const targetAlreadyActive = state.status === 'active'
+            && state.active?.datasetVersion === pendingRollback?.targetDatasetVersion
+            && stateControl.generation === control.generation
+            && stateControl.fingerprint === control.fingerprint
+          state.control = control
+          if (pendingRollback && !targetAlreadyActive) {
+            state.status = 'pending-rollback'
+            state.active = null
+            state.pendingRollback = pendingRollback
+          }
+        }
+      }
+    } catch (error) {
+      console.error('[data:update] stored control tombstone rejected', error)
+      controlRecoveryError = error
+      const tombstoneControl = normalizeControl(tombstone?.control)
+      state.control = mergeRevocationKnowledge(state.control, tombstoneControl)
+    }
+    return state
+  }
+
+  let localState = loadState()
+
+  function persistState(next) {
+    const normalized = normalizeState(next)
+    wxApi?.setStorageSync?.(STATE_KEY, normalized)
+    localState = normalized
+    try {
+      wxApi?.removeStorageSync?.(POINTER_KEY)
+      wxApi?.removeStorageSync?.(CHECK_KEY)
+      wxApi?.removeStorageSync?.(REVOKED_SOURCES_KEY)
+    } catch (_) {}
+    return localState
+  }
+
+  function getRevokedSources() {
+    return localState.control.revokedSourceDatasetVersions
+  }
+
+  function getRevokedDatasets() {
+    return localState.control.revokedDatasetVersions
+  }
+
+  function controlIsTrusted(control = localState.control) {
+    return controlWasVerified(control)
+      && control.validUntil > now()
+  }
+
+  function controlWasVerified(control = localState.control) {
+    return !controlRecoveryError && structurallyVerifiedControl(control)
+  }
+
+  function storedRegistry(control = localState.control) {
+    if (!control.registryGeneratedAt || control.registryGeneration <= 0) return null
+    return {
+      registry_schema_version: REGISTRY_SCHEMA_VERSION,
+      generation: control.registryGeneration,
+      generated_at: control.registryGeneratedAt,
+      revoked_dataset_versions: control.revokedDatasetEntries.map(clone),
+      revoked_source_dataset_versions: control.revokedSourceDatasetEntries.map(clone),
+    }
+  }
+
+  function activateSafeFallback(control = localState.control, unavailableReason = 'known-revoked-source-has-no-valid-cache') {
+    if (controlRecoveryError) {
+      activeSnapshot = unavailableSnapshot(bundled, 'stored-control-state-invalid')
+      activeSource = 'unavailable'
+      activeManifest = null
+      activeRevisionManifest = null
+      cachedCityIds = []
+      return
+    }
+    if (controlWasVerified(control) && localState.fallback) {
+      try {
+        useCachedPointer(localState.fallback, control)
+        return
+      } catch (error) {
+        console.error('[data:update] cached safe fallback rejected', error)
+      }
+    }
+    if (bundledValidationError) {
+      activeSnapshot = unavailableSnapshot(bundled, 'bundled-data-invalid')
+      activeSource = 'unavailable'
+      activeManifest = null
+      activeRevisionManifest = null
+      cachedCityIds = []
+      return
+    }
+    const bundledRevoked = control.revokedSourceDatasetVersions.includes(bundled.datasetVersion)
+      || control.revokedDatasetVersions.includes(bundled.datasetVersion)
+    activeSnapshot = bundledRevoked ? unavailableSnapshot(bundled, 'known-revoked-source-has-no-valid-cache') : bundled
+    activeSource = bundledRevoked ? 'unavailable' : 'bundled'
+    activeManifest = null
+    activeRevisionManifest = null
+    cachedCityIds = []
+  }
 
   function versionRoot(datasetVersion) {
     assert(DATASET_PATTERN.test(datasetVersion), 'unsafe cache dataset version')
     return `${userRoot}/${datasetVersion}`
+  }
+
+  function temporaryRoot(datasetVersion) {
+    assert(DATASET_PATTERN.test(datasetVersion), 'unsafe temporary cache dataset version')
+    return `${userRoot}/.tmp-${datasetVersion}`
   }
 
   function readSync(path) {
@@ -184,68 +656,174 @@ function createDataRuntime({ wxApi = typeof wx === 'undefined' ? null : wx, bund
     return sha256(utf8Bytes(text))
   }
 
-  function getRevokedSources() {
+  function removeDirectorySync(path) {
+    if (!fs || typeof fs.rmdirSync !== 'function') return false
     try {
-      const value = wxApi?.getStorageSync?.(REVOKED_SOURCES_KEY)
-      return Array.isArray(value) ? value.filter((item) => DATASET_PATTERN.test(item)) : []
-    } catch (_) { return [] }
-  }
-
-  function hydrateCache() {
-    if (!fs || !wxApi?.getStorageSync || !userRoot) return false
-    try {
-      const pointer = wxApi.getStorageSync(POINTER_KEY)
-      if (!pointer || !DATASET_PATTERN.test(pointer.datasetVersion || '')) return false
-      const root = versionRoot(pointer.datasetVersion)
-      const manifestText = readSync(`${root}/manifest.json`)
-      assert(fileHash(manifestText) === pointer.manifestSha256, 'cached manifest hash mismatch')
-      const current = validateCurrent(pointer.current, config)
-      validateRemoteMonth(current, bundled)
-      const manifest = validateManifest(safeParse(manifestText), current, config)
-      assert(!getRevokedSources().includes(manifest.source_dataset_version), 'cached source has been revoked')
-      let revisionManifest = null
-      if (manifest.release_type === 'historical_correction') {
-        const revisionText = readSync(`${root}/revision-manifest.json`)
-        assert(fileHash(revisionText) === manifest.revision_manifest_sha256, 'cached revision manifest hash mismatch')
-        revisionManifest = validateRevisionManifest(safeParse(revisionText), manifest)
-      }
-      validateRemoteSource(current, manifest, bundled, revisionManifest)
-      const bootstrapText = readSync(`${root}/bootstrap.json`)
-      assert(fileHash(bootstrapText) === manifest.bootstrap_sha256, 'cached bootstrap hash mismatch')
-      const bootstrap = validateBootstrap(safeParse(bootstrapText), manifest, config)
-      const cities = []
-      for (const cityId of pointer.cachedCityIds || []) {
-        if (bootstrap.series[cityId]) continue
-        const text = readSync(`${root}/cities/${cityId}.json`)
-        assert(fileHash(text) === manifest.city_files[cityId].sha256, `cached city hash mismatch: ${cityId}`)
-        bootstrap.series[cityId] = validateCityShard(safeParse(text), manifest, cityId, config).series
-        cities.push(cityId)
-      }
-      for (const cityId of bootstrap.cityIds) assert(bootstrap.series[cityId], `cached full city history is missing: ${cityId}`)
-      activeSnapshot = bootstrap
-      activeSource = 'remote'
-      activeManifest = manifest
-      activeRevisionManifest = revisionManifest
-      cachedCityIds = cities
+      fs.rmdirSync(path, true)
       return true
     } catch (error) {
-      console.error('[data:update] cached data rejected', error)
+      if (/ENOENT|not found|no such/i.test(String(error?.errMsg || error?.message || error))) return true
       return false
     }
   }
 
-  const cacheHydrated = hydrateCache()
-  if (!cacheHydrated && getRevokedSources().includes(bundled.datasetVersion)) {
-    activeSnapshot = unavailableSnapshot(bundled)
-    activeSource = 'unavailable'
+  function cleanupOrphanCaches(state = localState) {
+    if (!fs || !userRoot || typeof fs.readdirSync !== 'function') return false
+    const keep = new Set([state.active?.datasetVersion, state.fallback?.datasetVersion].filter(Boolean))
+    let entries = []
+    try { entries = fs.readdirSync(userRoot) || [] } catch (_) { return false }
+    let removed = true
+    for (const name of entries) {
+      const temporary = /^\.tmp-(20\d{2}-(?:0[1-9]|1[0-2])-[a-f0-9]{12})$/.test(name)
+      const version = DATASET_PATTERN.test(name)
+      if ((temporary || version) && !keep.has(name)) removed = removeDirectorySync(`${userRoot}/${name}`) && removed
+    }
+    return removed
   }
 
+  function invalidateCachedRelease(datasetVersion) {
+    if (!fs || !userRoot || !DATASET_PATTERN.test(datasetVersion || '')) return true
+    const manifestPath = `${versionRoot(datasetVersion)}/manifest.json`
+    if (typeof fs.unlinkSync === 'function') {
+      try {
+        fs.unlinkSync(manifestPath)
+        return true
+      } catch (error) {
+        if (/ENOENT|not found|no such/i.test(String(error?.errMsg || error?.message || error))) return true
+      }
+    }
+    if (typeof fs.writeFileSync === 'function') {
+      try {
+        fs.writeFileSync(manifestPath, '', 'utf8')
+        return true
+      } catch (_) {}
+    }
+    return false
+  }
+
+  function persistedRollbackAuthorized(current, control = localState.control) {
+    if (current.transition_type !== 'rollback') return false
+    const entry = control.revokedDatasetEntries.find((item) => item.dataset_version === current.rollback_from_dataset_version)
+    return entry?.replacement_dataset_version === current.dataset_version
+      && control.generation === current.control_generation
+      && control.fingerprint === fingerprint(current)
+      && control.registryGeneration === current.revocations_generation
+      && control.registrySha256 === current.revocations_sha256
+  }
+
+  function readReleaseAtRoot(root, pointer, control = localState.control) {
+    assert(controlWasVerified(control), 'cached data has no previously verified control state')
+    assert(pointer && DATASET_PATTERN.test(pointer.datasetVersion || ''), 'cached pointer is invalid')
+    assert(!control.revokedDatasetVersions.includes(pointer.datasetVersion), 'cached dataset has been revoked')
+    const manifestText = readSync(`${root}/manifest.json`)
+    assert(fileHash(manifestText) === pointer.manifestSha256, 'cached manifest hash mismatch')
+    const current = validateCurrent(pointer.current, config, { allowLegacy: false })
+    const isCurrentPointer = control.fingerprint === fingerprint(current)
+    const rollbackAuthorized = isCurrentPointer && persistedRollbackAuthorized(current, control)
+    if (isCurrentPointer && !rollbackAuthorized) validateRemoteMonth(current, bundled)
+    const manifest = validateManifest(safeParse(manifestText), current, config, bundled.cityIds)
+    assert(!control.revokedSourceDatasetVersions.includes(manifest.source_dataset_version), 'cached source has been revoked')
+    let revisionManifest = null
+    if (manifest.release_type === 'historical_correction') {
+      const revisionText = readSync(`${root}/revision-manifest.json`)
+      assert(utf8Bytes(revisionText).byteLength === manifest.revision_manifest_bytes, 'cached revision manifest size mismatch')
+      assert(fileHash(revisionText) === manifest.revision_manifest_sha256, 'cached revision manifest hash mismatch')
+      revisionManifest = validateRevisionManifest(safeParse(revisionText), manifest)
+    }
+    if (!rollbackAuthorized) validateRemoteSource(current, manifest, bundled, revisionManifest)
+    const registry = storedRegistry(control)
+    if (isCurrentPointer) validateCurrent(current, config, { allowLegacy: false, requireContext: true, manifest, registry })
+    const bootstrapText = readSync(`${root}/bootstrap.json`)
+    assert(utf8Bytes(bootstrapText).byteLength === manifest.bootstrap_bytes, 'cached bootstrap size mismatch')
+    assert(fileHash(bootstrapText) === manifest.bootstrap_sha256, 'cached bootstrap hash mismatch')
+    const bootstrap = validateBootstrap(safeParse(bootstrapText), manifest, config, bundled.cityIds, bundled.featuredCityIds, current)
+    for (const cityId of bootstrap.cityIds) {
+      if (bootstrap.series[cityId]) continue
+      const text = readSync(`${root}/cities/${cityId}.json`)
+      assert(utf8Bytes(text).byteLength === manifest.city_files[cityId].bytes, `cached city size mismatch: ${cityId}`)
+      assert(fileHash(text) === manifest.city_files[cityId].sha256, `cached city hash mismatch: ${cityId}`)
+      bootstrap.series[cityId] = validateCityShard(safeParse(text), manifest, cityId, config).series
+    }
+    validateCompleteSnapshot(bootstrap, { cityIds: bundled.cityIds, featuredCityIds: bundled.featuredCityIds })
+    return { snapshot: bootstrap, manifest, revisionManifest, cachedCityIds: [...bootstrap.cityIds] }
+  }
+
+  function readCachedPointer(pointer, control = localState.control) {
+    return readReleaseAtRoot(versionRoot(pointer.datasetVersion), pointer, control)
+  }
+
+  function useCachedPointer(pointer, control = localState.control) {
+    const cached = readCachedPointer(pointer, control)
+    activeSnapshot = cached.snapshot
+    activeSource = 'remote'
+    activeManifest = cached.manifest
+    activeRevisionManifest = cached.revisionManifest
+    cachedCityIds = cached.cachedCityIds
+    return true
+  }
+
+  function hydrateCache() {
+    if (!fs || !wxApi?.getStorageSync || !userRoot || !controlWasVerified()) return false
+    if (localState.status !== 'pending-rollback') {
+      try {
+        if (localState.active && useCachedPointer(localState.active)) return true
+      } catch (error) {
+        console.error('[data:update] cached data rejected', error)
+      }
+    }
+    try {
+      if (!localState.fallback || !useCachedPointer(localState.fallback)) return false
+      if (localState.status === 'pending-rollback') return true
+      persistState({ ...localState, status: 'active', active: localState.fallback, fallback: null })
+      cleanupOrphanCaches()
+      return true
+    } catch (error) {
+      console.error('[data:update] cached fallback rejected', error)
+      return false
+    }
+  }
+
+  cleanupOrphanCaches()
+  const cacheHydrated = hydrateCache()
+  if (!cacheHydrated) activateSafeFallback()
+
   function getSchedule() {
-    try { return wxApi?.getStorageSync?.(CHECK_KEY) || null } catch (_) { return null }
+    return localState.schedule
   }
 
   function saveSchedule(nextCheckAt, errorCode = '') {
-    try { wxApi?.setStorageSync?.(CHECK_KEY, { nextCheckAt, errorCode }) } catch (_) {}
+    try {
+      persistState({
+        ...localState,
+        schedule: { ...localState.schedule, dataNextCheckAt: nextCheckAt, errorCode },
+      })
+    } catch (_) {}
+  }
+
+  function saveControlCheck(nextCheckAt, errorCode = '') {
+    try {
+      persistState({
+        ...localState,
+        schedule: { ...localState.schedule, controlNextCheckAt: nextCheckAt, errorCode },
+      })
+    } catch (_) {}
+  }
+
+  function persistControlTombstone(control, pendingRollback = null) {
+    const normalized = normalizeControl(control)
+    const normalizedPending = normalizePendingRollback(pendingRollback)
+    assert(structurallyVerifiedControl(normalized), 'verified control tombstone is invalid')
+    assert(!pendingRollback || (normalizedPending
+      && normalizedPending.controlGeneration === normalized.generation
+      && normalizedPending.controlFingerprint === normalized.fingerprint), 'verified rollback tombstone is invalid')
+    const tombstone = {
+      schemaVersion: 1,
+      control: normalized,
+      pendingRollback: normalizedPending,
+    }
+    tombstone.integritySha256 = fingerprint(tombstone)
+    wxApi?.setStorageSync?.(CONTROL_TOMBSTONE_KEY, tombstone)
+    controlRecoveryError = null
   }
 
   function boundedNextCheck(value) {
@@ -274,6 +852,20 @@ function createDataRuntime({ wxApi = typeof wx === 'undefined' ? null : wx, bund
     return new Promise((resolve, reject) => fs.mkdir({ dirPath: path, recursive: true, success: resolve, fail: (error) => /exist/i.test(error?.errMsg || '') ? resolve() : reject(error) }))
   }
 
+  function removeDirectory(path) {
+    if (typeof fs.rmdir !== 'function') return Promise.resolve(removeDirectorySync(path))
+    return new Promise((resolve, reject) => fs.rmdir({
+      dirPath: path,
+      recursive: true,
+      success: resolve,
+      fail: (error) => /ENOENT|not found|no such/i.test(String(error?.errMsg || error?.message || error)) ? resolve() : reject(error),
+    }))
+  }
+
+  function renameDirectory(oldPath, newPath) {
+    return new Promise((resolve, reject) => fs.rename({ oldPath, newPath, success: resolve, fail: reject }))
+  }
+
   async function downloadJson(fileID, expectedHash, expectedBytes) {
     const response = await download(fileID)
     const text = await readFile(response.tempFilePath, 'utf8')
@@ -290,51 +882,285 @@ function createDataRuntime({ wxApi = typeof wx === 'undefined' ? null : wx, bund
 
   async function cacheRelease(current, manifestDownload, revisionDownload, bootstrapDownload, cityDownloads, cityIds) {
     const root = versionRoot(current.dataset_version)
-    await mkdir(`${root}/cities`)
-    await writeFile(`${root}/manifest.json`, manifestDownload.text)
-    if (revisionDownload) await writeFile(`${root}/revision-manifest.json`, revisionDownload.text)
-    await writeFile(`${root}/bootstrap.json`, bootstrapDownload.text)
-    await Promise.all(Object.entries(cityDownloads).map(([cityId, download]) => writeFile(`${root}/cities/${cityId}.json`, download.text)))
+    const tempRoot = temporaryRoot(current.dataset_version)
     const pointer = {
       datasetVersion: current.dataset_version,
+      sourceDatasetVersion: current.source_dataset_version,
       manifestSha256: current.manifest_sha256,
       current,
       cachedCityIds: [...cityIds],
+      verifiedAt: now(),
     }
-    const previousPointer = wxApi.getStorageSync(POINTER_KEY)
-    const previousRevocations = getRevokedSources()
+    const revokedSourceDatasetVersions = revisionDownload
+      ? uniqueDatasetVersions([...getRevokedSources(), ...revisionDownload.data.revoked_source_dataset_versions])
+      : getRevokedSources()
+    const previousState = localState
+    let renamed = false
     try {
-      wxApi.setStorageSync(POINTER_KEY, pointer)
-      if (revisionDownload) {
-        const revoked = [...new Set([...previousRevocations, ...revisionDownload.data.revoked_source_dataset_versions])]
-        wxApi.setStorageSync(REVOKED_SOURCES_KEY, revoked)
+      await removeDirectory(tempRoot)
+      await mkdir(`${tempRoot}/cities`)
+      await writeFile(`${tempRoot}/manifest.json`, manifestDownload.text)
+      if (revisionDownload) await writeFile(`${tempRoot}/revision-manifest.json`, revisionDownload.text)
+      await writeFile(`${tempRoot}/bootstrap.json`, bootstrapDownload.text)
+      await Promise.all(Object.entries(cityDownloads).map(([cityId, item]) => writeFile(`${tempRoot}/cities/${cityId}.json`, item.text)))
+      readReleaseAtRoot(tempRoot, pointer, localState.control)
+
+      await removeDirectory(root)
+      await renameDirectory(tempRoot, root)
+      renamed = true
+      readReleaseAtRoot(root, pointer, localState.control)
+
+      let fallback = null
+      for (const candidate of [previousState.active, previousState.fallback]) {
+        if (!candidate
+          || candidate.datasetVersion === pointer.datasetVersion
+          || getRevokedDatasets().includes(candidate.datasetVersion)
+          || getRevokedSources().includes(candidate.sourceDatasetVersion || candidate.current?.source_dataset_version)) continue
+        try {
+          readCachedPointer(candidate, localState.control)
+          fallback = candidate
+          break
+        } catch (_) {}
       }
+      persistState({
+        ...localState,
+        status: 'active',
+        active: pointer,
+        fallback,
+        pendingRollback: null,
+        control: { ...localState.control, revokedSourceDatasetVersions },
+      })
+      cleanupOrphanCaches()
     } catch (error) {
-      if (previousPointer) wxApi.setStorageSync(POINTER_KEY, previousPointer)
-      else wxApi.removeStorageSync(POINTER_KEY)
-      if (previousRevocations.length) wxApi.setStorageSync(REVOKED_SOURCES_KEY, previousRevocations)
-      else wxApi.removeStorageSync(REVOKED_SOURCES_KEY)
+      await removeDirectory(tempRoot).catch(() => {})
+      if (renamed && previousState.active?.datasetVersion !== current.dataset_version && previousState.fallback?.datasetVersion !== current.dataset_version) {
+        await removeDirectory(root).catch(() => {})
+      }
       throw error
+    }
+  }
+
+  function currentHasControl(current) {
+    return current.control_schema_version === CONTROL_SCHEMA_VERSION
+  }
+
+  function containsEvery(values, required) {
+    const available = new Set(values)
+    return required.every((value) => available.has(value))
+  }
+
+  function hasIdentityForEvery(entries, versions, versionField) {
+    const identities = new Set(entries.map((entry) => entry[versionField]))
+    return versions.every((version) => identities.has(version))
+  }
+
+  function assertImmutableEntries(incomingEntries, previousEntries, versionField, label) {
+    const incoming = new Map(incomingEntries.map((entry) => [entry[versionField], fingerprint(entry)]))
+    for (const entry of previousEntries) {
+      assert(incoming.get(entry[versionField]) === fingerprint(entry), `remote control rewrote a ${label} revocation entry`)
+    }
+  }
+
+  async function applyRemoteControl(current, validationReceipt) {
+    assert(currentHasControl(current), 'legacy remote control is not trusted')
+    const receipt = validateValidationReceipt(validationReceipt, current, now())
+    const registryDownload = await downloadJson(current.revocations_file_id, current.revocations_sha256, undefined)
+    const validated = validateRevocationsRegistry(registryDownload.data, current)
+    const previousControl = localState.control
+    const incomingFingerprint = fingerprint(current)
+    assert(current.control_generation >= previousControl.generation, 'remote control generation moved backwards')
+    assert(current.revocations_generation >= previousControl.registryGeneration, 'remote revocations generation moved backwards')
+    assert(containsEvery(validated.revokedDatasetVersions, previousControl.revokedDatasetVersions), 'remote control removed a dataset revocation')
+    assert(containsEvery(validated.revokedSourceDatasetVersions, previousControl.revokedSourceDatasetVersions), 'remote control removed a source revocation')
+    if (current.revocations_generation === previousControl.registryGeneration && previousControl.registryGeneration > 0) {
+      assert(current.revocations_sha256 === previousControl.registrySha256, 'remote revocations changed without increasing their generation')
+    }
+    if (current.control_generation === previousControl.generation && previousControl.generation > 0) {
+      assert(incomingFingerprint === previousControl.fingerprint, 'remote control changed without increasing its generation')
+      assert(current.revocations_generation === previousControl.registryGeneration, 'remote revocations changed without increasing control generation')
+    }
+    const previousIdentityComplete = hasIdentityForEvery(previousControl.revokedDatasetEntries, previousControl.revokedDatasetVersions, 'dataset_version')
+      && hasIdentityForEvery(previousControl.revokedSourceDatasetEntries, previousControl.revokedSourceDatasetVersions, 'source_dataset_version')
+    if (previousControl.registryGeneration > 0 && !previousIdentityComplete) {
+      assert(current.revocations_generation === previousControl.registryGeneration
+        && current.revocations_sha256 === previousControl.registrySha256, 'remote revocation identities are missing for a newer registry')
+    } else {
+      assertImmutableEntries(validated.revokedDatasetEntries, previousControl.revokedDatasetEntries, 'dataset_version', 'dataset')
+      assertImmutableEntries(validated.revokedSourceDatasetEntries, previousControl.revokedSourceDatasetEntries, 'source_dataset_version', 'source')
+    }
+
+    const priorDatasetVersion = localState.active?.datasetVersion
+      || localState.pendingRollback?.fromDatasetVersion
+      || (activeSource === 'remote' ? activeSnapshot.datasetVersion : null)
+      || bundled.datasetVersion
+    const priorSourceVersion = activeManifest?.source_dataset_version
+      || bundled.datasetVersion
+    const datasetRevoked = Boolean(priorDatasetVersion && validated.revokedDatasetVersions.includes(priorDatasetVersion))
+    const sourceRevoked = Boolean(priorSourceVersion && validated.revokedSourceDatasetVersions.includes(priorSourceVersion))
+    const activeWasRevoked = datasetRevoked || sourceRevoked
+    const pendingMatches = localState.status === 'pending-rollback'
+      && localState.pendingRollback?.fromDatasetVersion === current.rollback_from_dataset_version
+      && localState.pendingRollback?.targetDatasetVersion === current.dataset_version
+      && incomingFingerprint === previousControl.fingerprint
+    const rollbackEntry = validated.revokedDatasetEntries.find((entry) => entry.dataset_version === current.rollback_from_dataset_version)
+    const rollbackBindingValid = rollbackEntry?.replacement_dataset_version === current.dataset_version
+    const sameVerifiedControl = current.control_generation === previousControl.generation
+      && incomingFingerprint === previousControl.fingerprint
+      && current.revocations_generation === previousControl.registryGeneration
+      && current.revocations_sha256 === previousControl.registrySha256
+    const rollbackAlreadyApplied = localState.status === 'active'
+      && localState.active?.datasetVersion === current.dataset_version
+      && sameVerifiedControl
+    const durablePendingRecovery = localState.status === 'active'
+      && localState.active?.datasetVersion === current.rollback_from_dataset_version
+      && activeWasRevoked
+      && sameVerifiedControl
+    const freshRollback = previousControl.generation === 0
+      && localState.status === 'idle'
+      && !localState.active
+      && activeSource !== 'remote'
+    const authorizedRollback = current.transition_type === 'rollback'
+      && rollbackBindingValid
+      && ((current.rollback_from_dataset_version === priorDatasetVersion
+        && (current.control_generation > previousControl.generation || pendingMatches))
+        || rollbackAlreadyApplied
+        || durablePendingRecovery
+        || freshRollback)
+
+    const nextControl = {
+      generation: current.control_generation,
+      fingerprint: incomingFingerprint,
+      registryGeneration: current.revocations_generation,
+      registrySha256: current.revocations_sha256,
+      revokedDatasetVersions: validated.revokedDatasetVersions,
+      revokedSourceDatasetVersions: validated.revokedSourceDatasetVersions,
+      revokedDatasetEntries: validated.revokedDatasetEntries,
+      revokedSourceDatasetEntries: validated.revokedSourceDatasetEntries,
+      registryGeneratedAt: validated.registry.generated_at,
+      validatorId: CONTROL_VALIDATOR_ID,
+      checkedAt: receipt.validatedAt,
+      validUntil: receipt.validUntil,
+    }
+    if (activeWasRevoked) {
+      const rollbackOriginDatasetVersion = current.transition_type === 'rollback' && authorizedRollback
+        ? current.rollback_from_dataset_version
+        : priorDatasetVersion
+      const pendingRollback = {
+        fromDatasetVersion: rollbackOriginDatasetVersion,
+        targetDatasetVersion: current.dataset_version,
+        controlGeneration: current.control_generation,
+        controlFingerprint: incomingFingerprint,
+      }
+      const pendingState = {
+        ...localState,
+        status: 'pending-rollback',
+        active: null,
+        fallback: localState.fallback
+          && !validated.revokedDatasetVersions.includes(localState.fallback.datasetVersion)
+          && !validated.revokedSourceDatasetVersions.includes(localState.fallback.sourceDatasetVersion || localState.fallback.current?.source_dataset_version)
+          ? localState.fallback
+          : null,
+        control: nextControl,
+        pendingRollback,
+      }
+      const invalidated = localState.active?.datasetVersion === priorDatasetVersion
+        ? invalidateCachedRelease(priorDatasetVersion)
+        : true
+      localState = normalizeState(pendingState)
+      activateSafeFallback(nextControl)
+      let tombstoneError = null
+      try {
+        persistControlTombstone(nextControl, pendingRollback)
+      } catch (error) {
+        tombstoneError = error
+      }
+      if (activeSource === 'unavailable') activateSafeFallback(nextControl)
+      let stateError = null
+      try {
+        persistState(pendingState)
+      } catch (error) {
+        stateError = error
+      }
+      if (tombstoneError || stateError) {
+        if (tombstoneError && stateError && !invalidated) {
+          let stateRemoved = false
+          try {
+            wxApi?.removeStorageSync?.(STATE_KEY)
+            stateRemoved = true
+          } catch (_) {}
+          if (!stateRemoved) {
+            const failClosedError = new Error(`revoked cache could not be durably disabled: ${stateError?.message || tombstoneError?.message}`)
+            failClosedError.cause = stateError || tombstoneError
+            throw failClosedError
+          }
+        }
+        if (tombstoneError && stateError) {
+          const persistenceError = new Error(`revocation persistence failed: ${tombstoneError.message}; ${stateError.message}`)
+          persistenceError.cause = stateError
+          throw persistenceError
+        }
+        throw tombstoneError || stateError
+      }
+    } else {
+      persistControlTombstone(nextControl)
+      const active = receipt.activationAuthorized && localState.active?.datasetVersion === current.dataset_version
+        ? { ...localState.active, current, sourceDatasetVersion: current.source_dataset_version }
+        : localState.active
+      persistState({ ...localState, active, control: nextControl })
+      if (activeSource === 'unavailable') activateSafeFallback(nextControl)
+    }
+    return {
+      activationAuthorized: receipt.activationAuthorized,
+      authorizedRollback,
+      activeWasRevoked,
+      priorDatasetVersion,
+      registry: validated.registry,
     }
   }
 
   async function refresh({ requiredCityIds = [], force = false } = {}) {
     if (!config.enabled || !wxApi?.cloud || !fs) return { updated: false, source: activeSource, reason: 'disabled' }
     const schedule = getSchedule()
-    if (!force && Number(schedule?.nextCheckAt) > now()) return { updated: false, source: activeSource, reason: 'not-due' }
+    const controlDue = !controlIsTrusted() || localState.status === 'pending-rollback' || Number(schedule?.controlNextCheckAt) <= now()
+    const dataDue = Number(schedule?.dataNextCheckAt) <= now()
+    if (!force && !controlDue && !dataDue) return { updated: false, source: activeSource, reason: 'not-due' }
+    const sourceBefore = activeSource
+    const snapshotBefore = activeSnapshot
+    let activeWasRevoked = false
     try {
+      const activeDatasetAsOfBeforeControl = localState.active?.datasetVersion?.slice(0, 7)
+        || localState.pendingRollback?.fromDatasetVersion?.slice(0, 7)
+        || activeSnapshot.datasetAsOf
+      const activeSourceVersionBeforeControl = activeManifest?.source_dataset_version || bundled.datasetVersion
       const response = await callFunction(config.manifestFunctionName)
-      const current = validateCurrent(response?.result?.current, config)
-      const remoteUnchanged = activeSource === 'remote' && activeSnapshot.datasetVersion === current.dataset_version
+      const current = validateCurrent(response?.result?.current, config, { allowLegacy: false })
+      const control = await applyRemoteControl(current, response?.result?.validation_receipt)
+      activeWasRevoked = control.activeWasRevoked
+      if (current.transition_type === 'rollback') assert(control.authorizedRollback, 'remote rollback target is not authorized')
+      saveControlCheck(now() + (config.controlCheckIntervalMs || 15 * 60 * 1000))
+      const remoteUnchanged = activeSource === 'remote'
+        && localState.active?.datasetVersion === current.dataset_version
+        && activeSnapshot.datasetVersion === current.dataset_version
       const remoteNextCheck = Date.parse(current.next_check_at)
       saveSchedule(remoteUnchanged && remoteNextCheck <= now()
         ? now() + config.releaseRetryMs
         : boundedNextCheck(current.next_check_at))
       if (remoteUnchanged) return { updated: false, source: activeSource, reason: 'current' }
-      validateRemoteMonth(current, bundled)
-      assert(current.dataset_as_of >= activeSnapshot.datasetAsOf, 'remote data is older than the active snapshot')
+      if (!control.activationAuthorized) {
+        return {
+          updated: activeWasRevoked || sourceBefore !== activeSource || snapshotBefore !== activeSnapshot,
+          source: activeSource,
+          reason: 'activation-not-authorized',
+        }
+      }
+      if (!control.authorizedRollback) validateRemoteMonth(current, bundled)
+      if (current.dataset_as_of < activeDatasetAsOfBeforeControl) {
+        assert(control.authorizedRollback, 'remote data is older than the active snapshot without an authorized rollback')
+      }
       const manifestDownload = await downloadJson(current.manifest_file_id, current.manifest_sha256, undefined)
-      const manifest = validateManifest(manifestDownload.data, current, config)
+      const manifest = validateManifest(manifestDownload.data, current, config, bundled.cityIds)
+      if (currentHasControl(current)) assert(manifest.source_dataset_version === current.source_dataset_version, 'remote current source differs from its manifest')
+      assert(!getRevokedDatasets().includes(manifest.dataset_version), 'remote dataset has been revoked')
       assert(!getRevokedSources().includes(manifest.source_dataset_version), 'remote source has been revoked')
       let revisionDownload = null
       let revisionManifest = null
@@ -342,10 +1168,17 @@ function createDataRuntime({ wxApi = typeof wx === 'undefined' ? null : wx, bund
         revisionDownload = await downloadJson(manifest.revision_manifest_file_id, manifest.revision_manifest_sha256, manifest.revision_manifest_bytes)
         revisionManifest = validateRevisionManifest(revisionDownload.data, manifest)
       }
-      const activeSourceVersion = activeManifest?.source_dataset_version || bundled.datasetVersion
-      validateRemoteSource(current, manifest, bundled, revisionManifest, activeSourceVersion, activeSnapshot.datasetAsOf)
+      validateCurrent(current, config, {
+        allowLegacy: false,
+        requireContext: true,
+        manifest,
+        registry: control.registry,
+      })
+      if (!control.authorizedRollback) {
+        validateRemoteSource(current, manifest, bundled, revisionManifest, activeSourceVersionBeforeControl, activeDatasetAsOfBeforeControl)
+      }
       const bootstrapDownload = await downloadJson(manifest.bootstrap_file_id, manifest.bootstrap_sha256, manifest.bootstrap_bytes)
-      const bootstrap = validateBootstrap(bootstrapDownload.data, manifest, config)
+      const bootstrap = validateBootstrap(bootstrapDownload.data, manifest, config, bundled.cityIds, bundled.featuredCityIds, current)
       const cityIds = bootstrap.cityIds.filter((cityId) => !bootstrap.series[cityId])
       const cityDownloads = {}
       for (let offset = 0; offset < cityIds.length; offset += 8) {
@@ -358,7 +1191,7 @@ function createDataRuntime({ wxApi = typeof wx === 'undefined' ? null : wx, bund
         for (const [cityId, item] of batch) cityDownloads[cityId] = item
       }
       for (const [cityId, item] of Object.entries(cityDownloads)) bootstrap.series[cityId] = item.data.series
-      for (const cityId of bootstrap.cityIds) assert(bootstrap.series[cityId], `remote full city history is missing: ${cityId}`)
+      validateCompleteSnapshot(bootstrap, { cityIds: bundled.cityIds, featuredCityIds: bundled.featuredCityIds })
       await cacheRelease(current, manifestDownload, revisionDownload, bootstrapDownload, cityDownloads, bootstrap.cityIds)
       activeSnapshot = bootstrap
       activeSource = 'remote'
@@ -369,7 +1202,8 @@ function createDataRuntime({ wxApi = typeof wx === 'undefined' ? null : wx, bund
     } catch (error) {
       console.error('[data:update] refresh failed', error)
       saveSchedule(now() + config.failureRetryMs, String(error?.message || 'remote-update-failed').slice(0, 120))
-      return { updated: false, source: activeSource, reason: 'failed', error }
+      saveControlCheck(now() + Math.min(config.failureRetryMs, config.controlCheckIntervalMs || 15 * 60 * 1000), String(error?.message || 'remote-control-failed').slice(0, 120))
+      return { updated: activeWasRevoked || sourceBefore !== activeSource || snapshotBefore !== activeSnapshot, source: activeSource, reason: 'failed', error }
     }
   }
 
@@ -394,8 +1228,12 @@ function createDataRuntime({ wxApi = typeof wx === 'undefined' ? null : wx, bund
       activeSnapshot.series[cityId] = shard.series
       if (!cachedCityIds.includes(cityId)) cachedCityIds.push(cityId)
     }
-    const pointer = wxApi.getStorageSync(POINTER_KEY)
-    wxApi.setStorageSync(POINTER_KEY, { ...pointer, cachedCityIds: [...cachedCityIds] })
+    if (localState.active) {
+      persistState({
+        ...localState,
+        active: { ...localState.active, cachedCityIds: [...cachedCityIds] },
+      })
+    }
     return true
   }
 
@@ -406,16 +1244,34 @@ function createDataRuntime({ wxApi = typeof wx === 'undefined' ? null : wx, bund
     refresh,
     ensureCities,
     clearRemoteCachePointer() {
-      try { wxApi?.removeStorageSync?.(POINTER_KEY) } catch (_) {}
-      const bundledRevoked = getRevokedSources().includes(bundled.datasetVersion)
-      activeSnapshot = bundledRevoked ? unavailableSnapshot(bundled) : bundled
-      activeSource = bundledRevoked ? 'unavailable' : 'bundled'
-      activeManifest = null
-      activeRevisionManifest = null
-      cachedCityIds = []
+      try {
+        persistState({ ...localState, status: 'idle', active: null, fallback: null, pendingRollback: null })
+        const removed = cleanupOrphanCaches()
+        activateSafeFallback()
+        return removed
+      } catch (error) {
+        console.error('[data:update] remote cache pointer clear failed', error)
+        return false
+      }
     },
   }
 }
 
 const runtime = createDataRuntime()
-module.exports = { ...runtime, createDataRuntime, validateCurrent, validateManifest, validateRevisionManifest, validateBootstrap, validateCityShard, POINTER_KEY, CHECK_KEY, REVOKED_SOURCES_KEY }
+module.exports = {
+  ...runtime,
+  createDataRuntime,
+  interpretAuditedLegacyBootstrap,
+  validateCurrent,
+  validateRevocationsRegistry,
+  validateManifest,
+  validateRevisionManifest,
+  validateBootstrap,
+  validateCityShard,
+  validateValidationReceipt,
+  STATE_KEY,
+  CONTROL_TOMBSTONE_KEY,
+  POINTER_KEY,
+  CHECK_KEY,
+  REVOKED_SOURCES_KEY,
+}

@@ -33,6 +33,22 @@ export function cosTimeoutForKey(key) {
   return /(?:^|\/)bootstrap\.json$/.test(key) ? LARGE_TRANSFER_COS_TIMEOUT_MS : DEFAULT_COS_TIMEOUT_MS
 }
 
+export function buildScfInvokeRequest(functionName, cloudEnvId, event) {
+  const request = {
+    FunctionName: functionName,
+    Namespace: cloudEnvId,
+    InvocationType: 'RequestResponse',
+  }
+  if (event === undefined) return request
+  const prototype = event && typeof event === 'object' && !Array.isArray(event) ? Object.getPrototypeOf(event) : undefined
+  if ((prototype !== Object.prototype && prototype !== null)
+    || Object.keys(event).length !== 1
+    || event.action !== 'describe_validator') {
+    throw new Error('SCF event is not an approved plain-object request')
+  }
+  return { ...request, ClientContext: '{"action":"describe_validator"}' }
+}
+
 export function createTencentCloudClient({
   secretId = process.env.TENCENTCLOUD_SECRET_ID,
   secretKey = process.env.TENCENTCLOUD_SECRET_KEY,
@@ -96,11 +112,7 @@ export function createTencentCloudClient({
       throw error
     }
   }
-  const invokeFunction = (functionName) => scf.Invoke({
-    FunctionName: functionName,
-    Namespace: cloudEnvId,
-    InvocationType: 'RequestResponse',
-  })
+  const invokeFunction = (functionName, event) => scf.Invoke(buildScfInvokeRequest(functionName, cloudEnvId, event))
 
   return { bucket, region, cloudEnvId, headObject, getObject, downloadObject, putObject, uploadFile, uploadDirectory, objectExists, invokeFunction }
 }

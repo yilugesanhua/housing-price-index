@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { sha256 } from './remote-data-lib.mjs'
+import { isOfficialReleaseUrl } from './official-source-url.mjs'
 
 function assert(condition, message) {
   if (!condition) throw new Error(`Automatic update gate rejected: ${message}`)
@@ -11,15 +12,6 @@ function addOneMonth(value) {
   assert(/^20\d{2}-(0[1-9]|1[0-2])$/.test(value || ''), 'current dataset month is invalid')
   const date = new Date(Date.UTC(Number(value.slice(0, 4)), Number(value.slice(5, 7)), 1))
   return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, '0')}`
-}
-
-function officialReleaseUrl(value) {
-  try {
-    const url = new URL(value)
-    return url.protocol === 'https:' && url.hostname === 'www.stats.gov.cn' && url.pathname.endsWith('.html') && ['/sj/zxfb/', '/xxgk/sjfb/zxfb2020/'].some((prefix) => url.pathname.startsWith(prefix))
-  } catch {
-    return false
-  }
 }
 
 function calendarText(calendar) {
@@ -41,7 +33,7 @@ export function validateDiscoveryGate({ handoff, discoveryReportText, freshRepor
   assert(handoff.dataset_as_of === discoveryReport.dataset_as_of, 'handoff current month mismatch')
   assert(handoff.expected_stat_month === addOneMonth(handoff.dataset_as_of), 'candidate month is not exactly next')
   assert(handoff.expected_stat_month === discoveryReport.expected_stat_month && handoff.expected_stat_month === discoveryReport.latest_official_month, 'discovery month fields disagree')
-  assert(handoff.official_url === discoveryReport.latest_official_url && officialReleaseUrl(handoff.official_url), 'official release URL is invalid')
+  assert(handoff.official_url === discoveryReport.latest_official_url && isOfficialReleaseUrl(handoff.official_url), 'official release URL is invalid')
   assert(handoff.scheduled_release_at === discoveryReport.scheduled_release_at, 'scheduled release time mismatch')
   const expectedCalendarText = calendarText(freshCalendar)
   assert(handoff.calendar_sha256 === sha256(expectedCalendarText), 'release calendar changed after discovery')

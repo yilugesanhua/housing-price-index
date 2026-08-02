@@ -1,7 +1,7 @@
 {
-  "audit_version": "full-record-audit-v4",
-  "verified_at": "2026-07-28T07:31:29.205Z",
-  "verification_method": "automated-full-record-audit-v4: sha256+official-url+metadata+four-table-whitelist+size-band+locator+raw-cell+schema",
+  "audit_version": "full-record-audit-v5",
+  "verified_at": "2026-07-30T09:26:28.953Z",
+  "verification_method": "automated-full-record-audit-v5: sha256+official-url+metadata+four-table-whitelist+property-type+size-band+locator+raw-cell+schema",
   "batch_count": 126,
   "record_count": 70560,
   "coverage_start": "2016-01",

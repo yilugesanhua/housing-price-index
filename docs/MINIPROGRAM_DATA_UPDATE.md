@@ -2,59 +2,72 @@
 
 ## 状态与目标
 
-本文定义“住房小二”微信小程序的每月无人值守数据更新机制。当前状态为**`v2.3.0` 候选客户端、云端资源、首个远程数据版本和自动化流水线代码均已实现；公开GitHub仓库、默认分支规则集、生产Environment、最小权限写入/监测凭据和完整隔离云演练均已完成，剩余门槛是开发者工具现场检查、Android/iPhone双真机验收和微信审核**。当前微信已发布的 `v2.0.2` 不包含客户端更新层，仍只使用内置数据。首个包含完整自动更新能力的版本完成体验版、双真机和微信审核发布后，才可标记为对用户已启用。
+本文定义“住房小二”微信小程序每月自动数据更新的目标机制。当前运行模式统一标记为 `automation_disabled`：仓库级 `AUTOMATIC_RELEASE_ENABLED` 必须保持 `false`，生产 Environment 级 `PRODUCTION_RELEASE_AUTHORIZED` 必须保持 `false` 或未设置；普通发布、历史修订、回滚、状态部署和待发布恢复只有在两者独立验证且同时为精确字符串 `true` 时才能授权生产写入。[自动更新启用清单](AUTOMATION_ACTIVATION_CHECKLIST.md) 的正确性硬门槛全部关闭后、但D19通知闭环尚未关闭时，最多只能进入 `supervised_automation`，即无需维护人员电脑或逐版本确认，但计划发布日仍须人工巡检运行状态；D19通过后才可称 `unattended_automation`。不得用“无人值守”统称当前或仅有人监督的状态。
 
-2026-07-26 实施记录：
+双开关规则只有一个极窄、一次性人工例外：精确迁移ID `legacy-control-2026-06-e9788d0bddf3` 可在普通自动发布两级开关继续关闭时，经默认分支精确提交、同提交普通CI和生产 Environment 人工批准，把唯一已审计旧生产指针迁移到现行控制协议。`LEGACY_CONTROL_MIGRATION_AUTHORIZED=true` 不得保存为仓库级或 Environment 级持久变量，只能在受保护 job 的人工批准和全部写前门禁通过后写入该 job 的临时环境，job 结束即失效。该授权不得被其他入口读取或复用；它不授权发布新数据、不授权历史修订、回滚、状态部署或恢复，也不改变 `automation_disabled`。本地代码、工作流或本段规范存在都不表示生产迁移已经执行。
+
+当前源码基线为 `apps/miniprogram/`，唯一机器版本源 `apps/miniprogram/config/version.js` 截至2026-07-31的当前值为 `v2.4.1`。现有平台证据只证明 `v2.3.0` 历史候选曾上传到微信开发版本区，并有旧提交上的普通月度远程更新代码、云端演练和自动化测试；没有当前版本体验版、双真机、微信审核或正式发布证据，因此实际线上版本和线上客户端能力无法根据仓库现场核验，执行生产操作前必须在微信平台重新读取。下文带日期、运行ID、远程版本或指针哈希的内容统一属于 `historical_evidence`，只证明当时观察，不是当前生产状态或当前客户端能力。
+
+2026-07-26 历史实施证据：
 
 - 云环境：`cloud1-d3gpdx70w5d05c68c`。
-- 当前有效远程版本：`2026-06-e9788d0bddf3`，源数据版本：`2026-06-4fd1d1a8ff12`。
+- 当次最后核验的有效远程版本：`2026-06-e9788d0bddf3`，源数据版本：`2026-06-4fd1d1a8ff12`；不得在后续日期无现场回读时继续称为“当前”。
 - 云函数、完整文件 ID、70 城分片回读、SHA-256、原子指针、在线首次更新和本地缓存恢复均已验证。
 - 首次远程版本 `2026-06-679ea146d4e2` 使用了不完整文件 ID，已由纠正记录和代码硬门禁标记为不可回滚，并被当前有效版本取代。
-- 当前线上指针已清空对该无效版本的 `previous_dataset_version` 引用；修复经完整版本号确认、远端回读复核并保留独立审计记录。
+- 当次线上指针已清空对该无效版本的 `previous_dataset_version` 引用；修复经完整版本号确认、远端回读复核并保留独立审计记录。
 - `v2.3.0` 仍是候选版本；它将远程更新改为一次下载完整70城历史，未完成用户视觉和双真机确认前不得归档为稳定版。
-- 国家统计局数据首页月度“发布日程”与年度日程的双源识别已经实现；当前正常识别 2026 年剩余发布时间，自动生产发布待私有仓库和测试云联调后启用。
+- 国家统计局数据首页月度“发布日程”与年度日程的双源识别已经实现；当前正常识别 2026 年剩余发布时间。公开源码仓库和测试云基础联调已有记录，但生产自动发布仍受 [自动更新启用清单](AUTOMATION_ACTIVATION_CHECKLIST.md) 的完整现行门槛约束。本条是历史实施证据，不能替代清单中的当前证据。
 
-2026-07-27 自动化实施记录：
+2026-07-27 自动化历史实施证据：
 
 - 只读发现会生成绑定报告哈希、日程哈希、提交SHA、运行ID和幂等键的 `handoff.json`；独立发布流程重新抓取官方页面后才接受交接。
 - 自动候选门禁要求月份严格前进一个自然月、新增560条完整记录、旧月份逐条零变化，并运行全记录审计、`check`、端到端测试、小程序测试和远程快照重建。
-- 官方原始HTML同时生成可持久化的 `.html.gz`；现有126份归档压缩后约4.88MB，CI无本机HTML缓存时仍可解压并按原始SHA审计。
-- 自动发布只允许固定工作流、默认分支、精确提交、运行ID、受保护环境、云环境、数据版本和门禁报告哈希完全一致时切换指针；本地交互确认仍保留。
-- 指针写入、云函数复核、全部70城远端回读和失败自动回滚已接入同一事务；指针中断、守卫失败、回滚成功、回滚失败和无有效目标均有离线故障测试。
+- 官方原始HTML同时生成可持久化的 `.html.gz`；现有126份压缩档及对应 `.batch.json` 由公开源码仓库跟踪，CI无本机HTML缓存时仍可解压并按原始SHA审计。它们是公开复现档案，不等于下文仅维护身份可读的私有运行审计。
+- 自动发布只允许固定工作流、默认分支、精确提交、运行ID、受保护环境、云环境、数据版本和门禁报告哈希完全一致时切换指针；当前本地生产脚本不保留交互式写入旁路，只允许无生产写权限的 `--dry-run` 或受保护工作流调用。
+- 指针写入、云函数复核、全部70城远端回读和失败自动回滚已有局部实现与本地故障测试；I02的统一控制指针验证和I03的历史修订三态、双重撤销、一般legacy拒绝及唯一legacy正向迁移均登记为本地 `implemented/passed_limited`，其中I03的生产迁移仍为 `not_run/not_verified`。I01的早于内置月份合法回滚与安全替代仍为 `partial/passed_limited`。真实云端事务、对象级CAS、受保护Environment、生产迁移和双真机证据未完成，不能据此称为完整事务。
 - 已增加待发布版本每小时自动恢复、发布后24小时全量只读监测、GitHub运行Artifact和私有云审计上传器。
 - 公开仓库 `yilugesanhua/housing-price-index`、`main` 分支规则集和 `housing-data-production` Environment 已创建；初始提交 `4e0713e` 的 `ci / verify` 已通过。
-- 仓库级和Environment级 `AUTOMATIC_RELEASE_ENABLED` 均为 `false`；写入与只读监测 Secrets 已分别配置，完整隔离写入演练未修改线上数据。
+- 仓库级 `AUTOMATIC_RELEASE_ENABLED=false` 的历史配置有记录；生产 Environment 现使用独立的 `PRODUCTION_RELEASE_AUTHORIZED` 授权，当前实际值尚未现场核验，未设置或不为 `true` 时必须失败关闭。写入与只读监测 Secrets 已分别配置，完整隔离写入演练未修改线上数据。
 - `main-production-guard` 禁止删除、强制推送和非线性历史；生产Environment仅允许 `main`。因GitHub个人仓库不允许内置Actions身份绕过必需状态检查，普通CI成功证明由自动发布工作流内部硬门禁验证。
 - 最小权限凭据和完整隔离云演练已完成；双真机和微信审核仍未完成。
 
-2026-07-28 `v2.3.0` 数据安全合并记录：
+2026-07-28 `v2.3.0` 数据安全历史合并证据：
 
 - 自动更新客户端与云端流水线继续使用 `v2.3.0` 候选版本；本次合并不增加功能版本号，也不覆盖任何既有稳定归档。
-- 生产解析器升级为 `official-html-v7-product-housing-only`，只接受数据契约规定的四类商品住宅表；独立审计升级为 `full-record-audit-v4`，旧审计报告不能发布。
+- 生产解析器升级为 `official-html-v7-product-housing-only`，只接受数据契约规定的四类商品住宅表；独立审计当前为 `full-record-audit-v5`，旧审计报告不能发布。
 - 126个月、70,560条记录已经全量重解析和逐条审计。修复2018年3月至12月15个城市共150条新建商品住宅总体记录，并向 `data/normalized/revisions.json` 追加150条可追溯修订；修正后的源数据版本为 `2026-06-4fd1d1a8ff12`。
 - `v2.3.0` 内置完整70城修正数据。若远程清单与内置数据截止月份相同但 `source_dataset_version` 不同，客户端必须拒绝在线包和旧缓存，继续使用内置修正版；只有同月源版本完全一致或远程月份更晚时才允许原子切换。
-- 2026年7月发现同月云端包 `2026-06-ec36ff8fb2e5` 仍引用旧源数据 `2026-06-679ea146d4e2` 后，采用一次性受保护工作流 `manual-corrected-data-publish` 发布修正版。该入口固定绑定修正源版本 `2026-06-4fd1d1a8ff12`、旧云端包、旧源版本、默认分支精确提交、普通CI成功结果、GitHub运行ID和生产Environment；不读取、不修改 `AUTOMATIC_RELEASE_ENABLED`，不能用于任意月份或任意数据版本。
+- 2026年7月发现同月云端包 `2026-06-ec36ff8fb2e5` 仍引用旧源数据 `2026-06-679ea146d4e2` 后，采用一次性受保护工作流 `manual-corrected-data-publish` 发布修正版。该入口固定绑定修正源版本 `2026-06-4fd1d1a8ff12`、旧云端包、旧源版本、默认分支精确提交、普通CI成功结果、GitHub运行ID和生产Environment；这是当时的历史运行记录。当前工作流已统一接入 `AUTOMATIC_RELEASE_ENABLED` 与 `PRODUCTION_RELEASE_AUTHORIZED` 双开关，不能用于任意月份或任意数据版本。
 - 同月人工修订仍必须生成新的不可变云端目录、完整回读70城数据包并逐值重建，最后才切换 `current.json`。两个已知旧版本均保留审计但标记为不可回滚；修正版指针的 `previous_dataset_version` 必须为 `null`，避免发布后异常重新启用已知错误数据。正常下一自然月仍走原自动发现和自动发布流程，本例外不放宽“历史修订必须人工确认”的门禁。
 - 受保护发布运行 `30418908562` 已把生产 `current.json` 原子切换到 `2026-06-e9788d0bddf3`，完整70城包上传前后回读、云函数守卫和指针回读均通过；源数据版本为修正版 `2026-06-4fd1d1a8ff12`，`previous_dataset_version=null`。GitHub仓库级和生产Environment的 `AUTOMATIC_RELEASE_ENABLED` 均保持 `false`。
 - 本机自动化测试、数据校验、生产构建和Web端到端测试通过后，代码可以提交为 `v2.3.0` 候选基线；未完成微信开发者工具现场检查、Android/iPhone双真机验收和微信审核前，不得创建 `release/miniprogram/v2.3.0_*` 稳定归档或开启生产自动发布。
 
-2026-07-29 V7/V4年度全链路回放与生产监测规则：
+2026-07-29 V7/V4年度全链路回放与生产监测历史证据：
 
-- 年度回放必须显式验证生产解析器 `official-html-v7-product-housing-only` 和独立审计 `full-record-audit-v4`，并确认审计覆盖126个批次、70,560条记录；目标月还必须与审计报告中的月份、原始HTML SHA-256和560条记录完全一致。
+- 年度回放必须显式验证生产解析器 `official-html-v7-product-housing-only` 和独立审计 `full-record-audit-v5`，并确认审计覆盖126个批次、70,560条记录；目标月还必须与审计报告中的月份、原始HTML SHA-256和560条记录完全一致。
 - 12轮云端回放必须每轮写入检查点。任何一轮失败都保留已完成证据、停止后续月份；问题修复并通过针对性测试后，必须从第1轮重新执行，不能从失败月份续跑后宣称年度通过。
 - 发布后只读监测分开报告两件事：一是线上版本相对其不可变发布审计、指针修复审计、清单、完整包和70城分片是否自洽；二是该版本相对当前小程序内置源数据是否最新。不得拿后续修正的内置快照直接否定一个哈希和内容均未改变的旧线上包，也不得把旧线上包标成当前正确数据。
 - 同月线上 `source_dataset_version` 与当前内置修正版不同时，监测结果必须标记 `known_stale_source`，客户端动作必须为 `reject_remote_and_keep_bundled_snapshot`。线上包自身任何哈希、结构、70城重建、派生序列或审计链异常仍必须失败关闭。
 - 本次最终12轮证据见 [V7/V4年度回放记录](MINIPROGRAM_12_MONTH_REPLAY_30372208959.md)。生产自动发布开关继续保持关闭，回放不得写入正式版本目录或正式 `current.json`。
 - 修正版发布后的独立生产只读复核运行 `30419441865` 通过：`integrity_status=passed`、`freshness_status=matches_bundled_source`、`client_action=eligible_after_full_validation`，云函数、指针、清单、70城完整包重建和发布审计全部匹配。该监测只读，未修改正式指针。
 
+2026-07-30至2026-07-31本地候选的历史有限证据（后续2026-08-01继续扩展并重新验证）：
+
+- 独立审计器升级为 `full-record-audit-v5`，在原有逐条定位与原始单元格核对之外，对总体和面积分类记录均核对新房/二手房来源类型，并核对面积分类记录的面积段关联；本地全量审计通过126个批次、70,560条记录。该结果未绑定当前候选的普通CI、云端发布或生产指针，不替代外部验收。
+- 小程序快照和远程完整包分开记录 `sourceCoverageStart`（完整官方来源起点）与 `coverageStart`（120个月客户端窗口首月），并校验来源起点格式及其不得晚于客户端窗口；当前 `v2.4.1` 本地候选校验版本月份、发布日期、国家统计局URL、精确权威70城集合及城市名称/搜索/省份/线级资料、有限数/`null`、完整series/latest/breadth和派生变化，逐值验证趋势原始序列并逐月重算涨平跌缺失计数、排名与累计计算，同时执行逐文件写后回读、失败清理、单一schema v2状态、启动孤儿清理、一个安全回退、最长24小时控制状态、早于内置月份的受控回滚和独立 `unavailable` 页面短路。真实默认启动曾暴露“无可信控制状态即错误禁用完整内置快照”的回退；失败证据继续保留，最小修复后首次安装、清储、离线、控制过期、远程损坏、已知撤销、远程安全回退、持久化故障、重启、删除失败及内置来源覆盖起点异常场景已纳入本地回归；该历史阶段小程序203项与 `npm.cmd run check` 通过。后续生产授权、legacy回执和回滚边界定向测试已扩展当前本地证据，仍不替代真实CI、云端、开发者工具、双真机或发布验收。
+- 发布、人工/自动回滚、发布后守卫、只读监测和云函数已复用同一控制指针验证器；历史修订重跑使用`old_active/candidate_active/conflict`三态并要求数据包与源版本双重撤销、精确replacement和同一`revision_id`，证据不足的legacy记录失败关闭。人工回滚已有本地写前`manual-data-rollback-intent-v2`持久化、`old_active/target_active/conflict`三态、原始及收尾`run_id + run_attempt`绑定、按attempt隔离的Artifact、切换后只读`manual-data-rollback-audit-v4`恢复和最终收尾运行监测身份；历史修订全部中断点、真实GitHub跨运行Artifact恢复、真实云端迁移/回滚、对象级CAS和生产监测仍未验证。
+- 当前工作流的外部Action已固定40位完整commit SHA，并由机器测试递归扫描全部 `.github/workflows/*.yml` 与 `*.yaml`；待发布恢复在无Secrets作业中检查状态和官方URL，再要求同一提交的普通CI成功证明，只有受保护生产写入作业可取得生产Secrets。月度发布、待发布恢复、历史修订、固定修正和人工回滚均通过统一授权器要求两个生产开关精确为 `true`；本地生产发布和回滚旁路已关闭。上述结论只来自本地机器扫描和测试，尚无真实GitHub恢复运行、生产Environment策略或变量值现场证据。
+
 | 能力 | 当前状态 |
 | --- | --- |
 | 双源发布日程与正式页面发现 | 已实现并通过真实官方页面验证 |
-| 小程序远程下载、哈希校验、完整70城原子缓存和内置回退 | `v2.3.0` 候选代码已实现，尚未随微信版本发布 |
-| 云存储版本目录、清单云函数、人工发布和回滚工具 | 已实现并通过首个远程版本验证 |
-| CI自动抓取、全量门禁、受限自动发布和私有审计 | 公开仓库、分支规则、最小权限凭据和隔离云演练已完成；生产开关关闭 |
-| 发布后全量守卫、自动回滚和成功/失败通知 | 代码、离线故障测试和隔离云演练均已完成；待首个正式发布后的24小时监测 |
+| 小程序远程下载、哈希校验、完整70城原子缓存和内置回退 | `v2.4.1` 本地候选已完成D08-D10、D12-D14及I02-I03的本地实现；I03仅表示本地`implemented/passed_limited`，生产迁移仍为`not_run/not_verified`，D11、S10和I01继续保持`partial`。默认启动回退已最小修复并恢复本地 `passed_limited`，仍无当前真实CI、真实云端、开发者工具、双真机或正式发布证据 |
+| 云存储版本目录、清单云函数、受保护人工修订/回滚和发布工具 | 基础工具已存在；生产写入仅能从受保护工作流执行，D01、D02、D11及I02-I03关闭前不得视为完整安全闭环 |
+| CI自动抓取、全量门禁、受限自动发布和私有审计 | 公开仓库、分支规则、最小权限凭据和隔离云演练已有历史记录；I09独立状态部署仍未关闭，I12仅有本地SHA固定与机器测试，V14-V18仍缺真实GitHub/Environment/历史Artifact复核，生产授权关闭 |
+| 发布后全量守卫、自动回滚和成功/失败通知 | 已有基础代码和有限演练；D01、D15、D19及I01-I03、I09仍为已批准未关闭项 |
 | 生产自动发布开关 | 未开启 |
+
+已批准的R01-R07、D01-D20、I01-I14、V01-V19目标、当前差距和关闭证据统一登记在 [实施状态登记](IMPLEMENTATION_STATUS.md)。该登记优先于本文件较早日期下的“已实现”概括；文档补充不等于代码完成。生产开关完整门槛只在 [自动更新启用清单](AUTOMATION_ACTIVATION_CHECKLIST.md) 维护，任一适用项未通过时仓库级 `AUTOMATIC_RELEASE_ENABLED` 必须保持 `false`，生产 Environment 级 `PRODUCTION_RELEASE_AUTHORIZED` 必须保持 `false` 或未设置。
 
 ## 备用执行方案：腾讯云定时任务
 
@@ -82,7 +95,7 @@ GitHub Actions 是当前主方案。若后续因平台政策、可用性、公�
 - 自动化运行在 GitHub Actions 和微信云开发中，不依赖维护人员电脑或本地微信开发者工具在线。
 - 不购买独立服务器和域名，复用微信云开发环境 `cloud1-d3gpdx70w5d05c68c`。
 - 不使用数据库保存整套数据；云存储保存版本化文件，云函数只返回当前清单。
-- 在线更新失败时继续使用最近一次有效缓存或小程序内置数据，页面不得空白。
+- 在线更新失败时继续使用最近一份未被撤销且验证通过的缓存或小程序内置数据；不存在时显示明确的数据暂不可用状态，不得展示已知错误数据。
 - 所有线上数据可追溯、可验证、可回滚；只有全部机器门禁通过的候选版本才允许自动发布。
 - 任一来源、结构、完整性、差异、测试或远端复核异常时保持上一有效版本，并通知维护人员人工处理。
 
@@ -96,6 +109,7 @@ GitHub Actions 是当前主方案。若后续因平台政策、可用性、公�
 
 ```text
 只读发现工作流：双源日程 -> 到点轮询 -> 发现正式页面 -> 生成不可变发现报告
+受保护状态部署：重新读取控制基线 -> 只更新状态字段并递增控制代次 -> 写后只读回读
 独立发布工作流：固定来源与提交 -> 抓取 -> 解析 -> 审计 -> 全量门禁 -> 生成候选包
 受限生产发布：上传不可变版本 -> 全量远端回读 -> 最后切换 current.json
 发布后守卫：调用云函数 -> 复核指针/清单/70城分片 -> 失败自动回滚 -> 通知
@@ -108,17 +122,22 @@ GitHub Actions 是当前主方案。若后续因平台政策、可用性、公�
 发现与发布必须是两个权限隔离的工作流：
 
 - `.github/workflows/monthly-data-check.yml` 只读，不持有云端写凭据，不得直接修改 `current.json`。
+- 只读发现每次检查只生成绑定控制指针基线SHA-256、观察时间、结果、下次检查时间和官方来源哈希的不可变报告。用户可见 `data_status` 只能由独立受保护状态部署作业更新；该作业必须重新读取当前指针和撤销登记，保持数据版本、源版本、清单和撤销身份不变，递增 `control_generation`，写后再只读回读。当前仓库没有完成该作业，I09保持未关闭。
 - `.github/workflows/monthly-data-auto-publish.yml` 负责无云凭据的候选生成与受保护环境中的首次发布；两个作业权限隔离。
-- `.github/workflows/monthly-data-pending-publish.yml` 只重试默认分支中状态为 `ready` 的持久化候选，防止一次临时故障永久卡住更新。
+- `.github/workflows/monthly-data-pending-publish.yml` 只重试默认分支中状态为 `ready` 的持久化候选。无Secrets的检查/恢复作业必须先对pending状态字段、官方来源URL白名单、换行或危险字符、不可变候选、重新抓取的官方来源和全部门禁失败关闭；只有其结构化输出通过后，受保护发布作业才可取得生产Secrets。不得把仓库文件中的URL或shell输出直接插入命令字符串。
+- 待发布恢复必须找到同一精确恢复提交上成功完成的普通 `ci.yml` push运行，把CI运行ID、提交SHA、目标数据版本和门禁报告哈希写入恢复门禁；不得复用其他提交、Pull Request或旧候选的CI结果。
 - `.github/workflows/monthly-data-post-publish-monitor.yml` 在发布后24小时使用独立只读身份复核完整远端版本，不拥有指针写权限。
 - 发布后监测直接使用腾讯云官方 COS SDK 与 SCF SDK，不使用 CloudBase CLI 的存储或函数命令，避免 CLI 内部预检查引入与实际读取、调用无关的附加权限。
 - 自动发布工作流只接受默认保护分支上、同一仓库只读发现工作流产生的结构化发现结果；必须重新核验官方 URL、统计月份和源文件哈希，不能信任事件参数直接发布。
-- 生产云凭据只配置在受保护的 GitHub Environment 中，仅自动发布与回滚作业可读取；Fork、Pull Request、任意分支和手动拼接 URL 均不得获得凭据。
+- 生产云凭据只配置在受保护的 GitHub Environment 中，仅受保护生产写入作业（正常发布、待发布恢复、历史修订、固定修正和人工回滚）可读取；Fork、Pull Request、任意分支和手动拼接 URL 均不得获得凭据。仓库级 `AUTOMATIC_RELEASE_ENABLED` 只表达自动化总开关，Environment级 `PRODUCTION_RELEASE_AUTHORIZED` 只表达生产写授权，任一未设置或不为精确字符串 `true` 时都必须失败关闭。
+- 所有可取得生产Secrets的手动入口必须在脚本内同时闭合 `GITHUB_REF`、`GITHUB_WORKFLOW_REF`、检出提交SHA与远端默认分支HEAD；任一不是默认分支精确提交都必须拒绝。Environment只允许 `main` 是纵深防御，不能替代仓库代码中的校验。
 - 自动发布没有通用的 `--skip-validation` 或跳过门禁参数。CI 自动确认必须绑定 GitHub 运行 ID、固定提交 SHA、目标环境、完整 `dataset_version` 和门禁报告哈希，并写入审计记录。
+- 任何直接读取生产Secrets，或生成、下载、上传生产信任链Artifact的非本地GitHub Action，`uses:` 必须固定40位完整commit SHA；禁止 `@v4`、`@v7`、`@main` 等可移动标签。容器Action固定digest，升级必须经过普通Pull Request、CI和人工复核。当前本地机器扫描与失败fixture已通过，因此I12可记为 `implemented/passed_limited`；真实普通CI、受保护Environment执行和依赖更新流程尚未复核前不得记为 `passed`，也不得据此开启生产授权。
 
 禁止事项：
 
 - 只读发现任务直接修改线上 `current.json`，或未经独立发布工作流重新验证就使用发现结果。
+- 把只读检查报告中的 `current/updating/stale` 直接当作已部署控制状态，或让状态部署作业在基线冲突时覆盖较新的指针。
 - 客户端抓取国家统计局页面或自行计算未经过发布门禁的数据。
 - 覆盖已有版本目录，或用相同 `dataset_version` 发布不同内容。
 - 任一校验失败时发布部分城市、部分月份或部分指标。
@@ -147,10 +166,14 @@ GitHub Actions 是当前主方案。若后续因平台政策、可用性、公�
 ```text
 housing-data/
 ├── current.json
+├── control/
+│   └── revocations-<registry_sha256>.json
 └── releases/
     └── <dataset_version>/
         ├── manifest.json
         ├── bootstrap.json
+        ├── revision-manifest.json      仅历史修订版本
+        ├── revision-ledger.json        仅历史修订版本
         └── cities/
             ├── beijing.json
             ├── shanghai.json
@@ -159,10 +182,11 @@ housing-data/
 
 - `releases/<dataset_version>/` 是不可变目录，上传后不得覆盖。
 - `current.json` 是唯一可变指针，必须最后更新。
+- `control/revocations-<registry_sha256>.json` 是不可变撤销登记。新增撤销时上传新登记文件并由新 `current.json` 引用；不得修改旧登记或在回滚时退回较旧撤销状态。
 - 客户端不得自行拼接任意云路径，只能读取云函数返回且通过格式校验的路径。
 - 微信 SDK 使用的完整文件 ID 必须包含环境 ID 与实际存储桶，格式为 `cloud://<env_id>.<bucket>/housing-data/...`；不得使用仅含环境 ID 的简写路径。
-- 原始HTML、审计原文件和引导数据不得上传到小程序公开数据目录。
-- 自动发布的原始HTML、重定向链、响应元数据、解析报告、差异报告和门禁结果保存到仅维护服务身份可读的私有审计目录；客户端可读的 `housing-data/` 不得包含这些文件。
+- 原始HTML、公开源码复现档案、私有运行审计和引导数据均不得上传到小程序公开数据目录；公开源码仓库包含复现档案不代表这些文件可以进入客户端可读范围。
+- 自动发布的原始HTML副本、重定向链、完整响应元数据、解析报告、差异报告和门禁结果保存到仅维护服务身份可读的私有运行审计目录；该目录是公开源码复现档案之外的独立证据副本，客户端可读的 `housing-data/` 不得包含这些文件。
 
 ### 小程序专用紧凑数据
 
@@ -171,6 +195,7 @@ housing-data/
 `bootstrap.json` 是新版小程序一次下载的完整70城紧凑数据包，包含：
 
 - `schema_version`、`dataset_version`、截止月份、发布日期和数据状态。
+- `sourceCoverageStart` 保存完整官方来源覆盖起点；`coverageStart` 只表示当前120个月客户端窗口首月，必须等于 `months[0]`。
 - 月份、发布日期、70城目录和搜索元数据。
 - 70城全部120个月、8种口径的完整历史序列。
 - 最新月份70城市场位置所需的紧凑数值。
@@ -198,14 +223,45 @@ housing-data/
 
 ```text
 dataset_version
+source_dataset_version
 dataset_as_of
 schema_version
+control_schema_version          控制面协议版本
 manifest_file_id
 manifest_sha256
+revocations_file_id
+revocations_sha256
+revocations_generation
+control_generation             每次控制状态变化严格递增，不等同于数据版本
+transition_type                publish、historical_correction、rollback或migration
+rollback_from_dataset_version  仅rollback必填，其他类型必须为空或不存在
+migration_id                   仅migration必填，固定为获准的一次性迁移ID
+migrated_from_current_sha256   仅migration必填，绑定旧指针原始字节
+migrated_from_manifest_sha256  仅migration必填，绑定旧manifest原始字节
+superseded_dataset_version     historical_correction或migration按各自闭合规则填写
+superseded_source_dataset_version historical_correction或migration按各自闭合规则填写
+data_status                    current、updating或stale；unavailable由客户端结合本地状态计算
+status_reason                  机器可读原因码，不承载业务数据
+control_generated_at
+control_valid_until            最长不超过control_generated_at后24小时
 published_at
 previous_dataset_version
 next_check_at
 ```
+
+所有生产指针入口必须执行同一版本化“权威控制指针校验契约”。把指针分类为legacy/controlled只用于选择迁移路径，不能替代安全校验。发布、人工/自动回滚、幂等恢复、legacy迁移、指针修复、发布后守卫和云函数必须调用同一个服务端验证实现；客户端可使用平台适配实现，但必须对同一组正反向fixture产生完全相同的接受/拒绝结果。
+
+该契约至少完整校验：精确字段集合；schema与哈希格式；不可变file ID；正安全整数代次；时间格式和 `control_valid_until`；`data_status/status_reason`；`transition_type` 与manifest发布身份的绑定；指针数据包/源版本与manifest绑定；`rollback_from_dataset_version`、`previous_dataset_version` 的互斥规则；当前目标及源版本未撤销；被回滚数据包与源版本的双重撤销；撤销项 `revision_id` 和replacement精确闭合；控制代次、撤销代次及旧撤销项单调保留。`migration` 是控制面迁移，不是manifest发布类别；它必须保留旧不可变manifest原始字节及其原有字段，不得补写 `release_type=migration`。任一入口弱化、遗漏或另写分支均失败关闭。当前本地候选的发布、人工/自动回滚、幂等恢复、唯一legacy迁移、指针修复、发布后守卫和云函数消费者复用同一服务端验证器；这只登记本地实现范围，真实云函数部署、受保护生产迁移/发布/回滚和Environment证据仍未完成。
+
+`current.json` 是静态、可原子替换的生产控制事实；严格云函数必须在同一次调用中重新下载并完整验证指针、manifest和撤销登记，返回 `response.result={current,validation_receipt}`。回执精确包含 `receipt_schema_version='1.0.0'`、`validator_id='housing-control-validator-v2'`、`validated_at`、`valid_until`、`current_fingerprint`、`manifest_sha256`、`revocations_sha256`、`control_generation` 和 `revocations_generation`；有效期最长10分钟，`current_fingerprint` 是当前指针规范化JSON的SHA-256。回执只证明该次调用在短时间窗内观察到的精确静态身份通过严格验证，不能改写、延长或替代静态指针的 `control_generated_at`、`control_valid_until`，也不能凭一次旧回执授权后续调用。
+
+严格云函数还必须提供只读 `action=describe_validator` 身份预检，精确返回 `response.result.validator` 或平台适配后的等价结果，且字段只能是 `validator_id='housing-control-validator-v2'`、`receipt_schema_version='1.0.0'`、`max_receipt_validity_ms=600000`。该预检不读取或修改生产指针，不证明任何数据已经通过验证；它只证明被调用的精确云环境/函数已部署预期验证器协议。一次性legacy迁移分为两个受保护阶段：写入阶段在旧云函数仍可能不支持该动作时，不调用预检，只绑定固定验证器契约并完成撤销登记、指针切换和直接对象全量回读；部署新版严格云函数后，收尾阶段必须调用并严格核对该预检，再调用普通入口取得新鲜动态回执。缺失、额外字段、错误值、错误环境/函数或调用失败都必须停止收尾并保持已切换指针，不得回写旧指针。审计分别记录 `describe_validator_observed`、`describe_validator_verified`、`cloud_function_response_observed` 和写后动态回执决定的 `strict_validator_verified`，四者不得互相替代。
+
+静态 `control_valid_until` 已过期时，客户端不得仅凭静态指针激活新包；如果同次响应带有新鲜、结构正确且与当前指针、manifest、撤销登记及两类代次完全绑定的 `validation_receipt`，可把它视为本次动态重新授权并继续完整数据门禁。回执结构和身份绑定正确但自身已经过期时，只允许在完整验证撤销登记后单调摄取并先行持久化新增撤销、立即停用命中的坏缓存，不得下载或激活该指针目标数据包。回执缺失、`validator_id` 错误、字段/哈希/代次绑定错误或无法由受信云函数产生时，连新增撤销也不得采信。仅观察到云函数响应不等于严格验证器已部署，迁移审计中的 `cloud_function_response_observed` 与 `strict_validator_verified` 必须分别记录；后者没有独立部署和回读证据时固定为 `false`。
+
+`current.json` 是可原子替换的控制指针，不属于 `releases/<dataset_version>/` 不可变目录。仅更新 `data_status`、撤销登记或检查时间时，必须递增 `control_generation` 并保留同一数据身份；不得覆盖该版本的 `manifest.json` 或 `bootstrap.json`。客户端拒绝较小或重复但内容不同的控制代次；控制有效期决定该状态能否授权新的远程切换，已持久化的撤销事实仍须单调保留。运行时只有在全部本地候选自身校验失败，或都被当前已知撤销排除且没有安全替代时才计算为 `unavailable`，不能仅因控制状态过期而判定不可用。
+
+普通 `publish` 和 `historical_correction` 不得把统计月份降到客户端已经确认的活动月份之前。受控 `rollback` 是唯一允许降月的例外：`control_generation` 必须严格增加，`rollback_from_dataset_version` 必须等于被撤销的活动坏版本，不可变撤销登记中的该版本必须把当前目标登记为精确替代版本，且目标数据包与源版本都未被撤销并通过完整校验。小程序内置 `dataset_as_of` 只是不受控普通发布的防降级基线，不是合法受控回滚的月份下限；精确替代目标早于内置月份时仍按回滚闭环判断，不得先用内置月份比较拒绝。回滚指针的 `previous_dataset_version` 必须为 `null`，防止再次沿旧指针回到已知坏版本；首次发布也可为 `null`，其余普通发布只能引用已经完整验证的安全回退版本。
 
 ### `manifest.json`
 
@@ -213,6 +269,8 @@ next_check_at
 
 ```text
 format                         固定为 housing-miniprogram-data
+release_type                   monthly_update或historical_correction
+source_dataset_version
 bootstrap_file_id
 bootstrap_sha256
 bootstrap_bytes
@@ -221,52 +279,154 @@ city_files                     70个city_id到sha256/bytes的映射
 supported_client_data_major    客户端支持的数据结构主版本
 minimum_app_version            可读取本数据的最低小程序版本
 validation_status              只能为passed
-source_batch_ids               本次新增或修订涉及的来源批次
+source_batch_ids               兼容字段，为下列两个集合的去重并集
+latest_month_source_batch_ids  当前最新月份四类官方表的完整来源批次
+revision_source_batch_ids      本次全部历史修订记录对应的来源批次；无修订时为空
 release_note                   简短、非营销化的数据更新说明
 ```
 
 约束：
 
-- `dataset_version` 使用现有 `YYYY-MM-<内容短哈希>` 规则。
+- `dataset_version` 使用现有 `YYYY-MM-<内容短哈希>` 规则，并遵守 `DATA_CONTRACT.md`“版本身份与独立审计”的规范化哈希输入；任一业务字段变化必须产生新版本。
 - 所有 SHA-256 使用文件原始字节计算，使用小写十六进制或全项目统一格式。
 - `city_files` 必须且只能覆盖共享核心定义的70个城市。
 - `schema_version` 主版本不兼容时禁止远程启用，必须提交新版小程序代码。
-- `minimum_app_version` 高于当前客户端时，客户端继续使用旧数据并提示需要更新小程序。
+- `minimum_app_version` 高于当前客户端时，不启用候选，并提示需要更新小程序。旧数据或内置快照只要自身完整验证通过且不在客户端已持久化或本次在线取得的撤销集合中，就可继续使用；控制状态过期只触发刷新和陈旧提示，不单独使本地数据失效。撤销规则始终优先，已知撤销且没有安全替代时必须进入 `unavailable`，不得为了显示升级提示而继续展示已知错误数据。
+- `latest_month_source_batch_ids` 必须覆盖最新月份四类白名单表；`revision_source_batch_ids` 必须与修订清单及实际受影响记录反查出的批次集合精确相等。兼容字段 `source_batch_ids` 不得替代这两项校验。
 - `next_check_at` 表示客户端下一次检查远程清单的时间，应设置在下一次官方计划发布时间后5至15分钟；它不得复用表示数据处理SLA的 `next_check_due_at`。
+- `release_type` 仍只允许 `monthly_update` 或 `historical_correction`。一次性控制迁移不得修改已经发布的旧manifest；获准旧manifest原本没有该字段时继续保持没有该字段，迁移身份只存在于 `current.json` 和迁移审计中。
+
+### 撤销登记
+
+`current.json` 必须引用一个不可变撤销登记，至少包含：
+
+```text
+registry_schema_version
+generation                     严格递增
+generated_at
+revoked_dataset_versions       数据包版本、撤销时间、revision_id、替代版本和原因
+revoked_source_dataset_versions 源版本、撤销时间、revision_id、替代源版本和原因
+```
+
+客户端、发布守卫和回滚工具必须下载并按 `revocations_sha256` 验证该登记。某个目标只有同时不在两类撤销集合中、完整验证通过且客户端兼容时，计算结果 `rollback_allowed` 才为真；`rollback_allowed` 是依据当前撤销登记得出的判定，不得依赖不可变旧manifest中的历史布尔值。
+
+历史修订必须在同一个 `revision_id` 中原子绑定两类撤销：被替代的 `dataset_version` 精确指向候选数据包，被替代的 `source_dataset_version` 精确指向候选源版本。`candidate_active` 幂等状态只有在双重撤销、replacement、来源链、修订账本和发布身份全部存在且匹配时成立；缺数据包撤销、缺源版本撤销、错replacement或不同 `revision_id` 均为 `conflict`，不得在重跑中补写后把不完整切换冒充成功。legacy控制记录只有在可独立证明旧数据包和旧源版本身份时才允许通过受审计迁移重建双重撤销；证据不足时停止并人工处置，不得只迁移源版本。
+
+回滚只改变活动数据目标，不得降低 `revocations_generation`，也不得把 `current.json` 指回较旧撤销登记。清除本地存储会丢失客户端曾持久化的撤销记忆，这是平台边界；清除后仍可独立校验并使用随包发布的内置快照，同时立即或在网络恢复后取得当前指针及撤销登记。新取得并验证的撤销事实必须立即应用，不能通过清储、离线或重启恢复已知坏版本。
+
+### 一次性旧生产控制指针迁移
+
+`transition_type=migration` 只用于把经独立审计确认的唯一旧生产 `current.json` 升级到现行控制协议，不是新的数据发布类别，不得用于一般legacy修复、历史修订、回滚、普通月度发布或状态部署。当前唯一获准描述符固定为：
+
+```text
+migration_id                     legacy-control-2026-06-e9788d0bddf3
+cloud_env_id                     cloud1-d3gpdx70w5d05c68c
+legacy_current_sha256            8fae20cb98e56d3321be45306a8e2fdbef9e2dc9482791fab79c0687b3de2f4e
+legacy_manifest_sha256           62692a9c33928377b576f4e814e12bcf6cc265779d7564a4eaa6befb540d062e
+legacy_bootstrap_sha256          5cb9082a5c2f931f2e11cf128a3005d922bdf11c4fff9af3357296565b751d91
+dataset_version                  2026-06-e9788d0bddf3
+source_dataset_version           2026-06-4fd1d1a8ff12
+superseded_dataset_version       2026-06-ec36ff8fb2e5
+superseded_source_dataset_version 2026-06-679ea146d4e2
+```
+
+描述符还必须固定存储Bucket、数据截止月、schema、发布时间、下一检查时间、修订ID、两条已知坏数据包撤销和一条已知坏源版本撤销。任一原始字节、字段、环境、文件ID、版本、来源审计、撤销项或替代关系不同都归类为 `conflict`；不得按月份、当前活动版本或相似字段推断缺失身份。
+
+唯一旧bootstrap兼容只在 `migration_id`、`migrated_from_manifest_sha256/current.manifest_sha256` 和旧manifest内的 `bootstrap_sha256` 同时精确等于上述描述符固定值时允许。兼容层不得重写、覆盖或重新上传旧manifest/bootstrap原始字节，也不得补写 `release_type`；只可在内存中把旧bootstrap的 `coverageStart` 解释为完整来源起点 `sourceCoverageStart`，并以 `months[0]` 建立现行客户端窗口 `coverageStart`，随后仍执行完整70城、120个月、城市资料、数值、派生结果和原始SHA-256校验。三重绑定任一不符时必须拒绝，不能把该兼容扩展到其他旧包。
+
+迁移授权与普通生产写入完全隔离：
+
+1. 只能从默认分支精确提交手动触发专用受保护工作流；必须绑定该提交的普通CI成功、精确迁移ID和完整确认串。
+2. 生产 `housing-data-production` Environment 必须由维护人针对该次运行人工批准。仓库和 Environment 都不得持久设置 `LEGACY_CONTROL_MIGRATION_AUTHORIZED`；只有受保护 job 在人工批准、默认分支精确提交、同提交普通CI和固定确认串全部核对后，才可通过该 job 的临时环境设置精确值 `true`，job 结束自动失效。
+3. 仓库级 `AUTOMATIC_RELEASE_ENABLED` 与生产 Environment 级 `PRODUCTION_RELEASE_AUTHORIZED` 必须继续保持 `false` 或未设置。迁移授权不得被其他工作流、脚本或生产写入口读取或复用。
+4. 进入生产 Environment 后，写入阶段必须先持久化不可变intent、完成迁移前第二次70城回读、上传内容寻址双重撤销登记、再次确认旧`current.json`原字节未变，再切换指针并直接回读新指针及完整70城包；该阶段不得调用尚未部署的新验证器。随后必须部署新版严格`getHousingDataManifest`，收尾阶段再执行`describe_validator`只读身份预检并严格核对固定三字段，最后调用普通入口核对十分钟动态回执和第二次完整70城回读。
+5. 未取得上述人工批准、写入阶段任一门禁未通过或收尾阶段预检/回执未通过时，必须失败关闭：写入前不得上传撤销登记或修改`current.json`；指针已切换但收尾失败时不得回写旧指针，只能由精确来源attempt的恢复运行重新收尾。任何阶段都不得生成冒充完整通过的迁移审计。
+
+本地标准入口为 `npm.cmd run miniprogram:data:migrate-legacy-control`，脚本固定传入上述批准的迁移ID且默认不带生产写入参数；入口回归测试必须保持该绑定。直接执行默认入口只能产生本地 dry-run 结果；只有专用受保护工作流按顺序传入`--prepare-intent`、`--apply-intent --apply`和`--finalize-intent`，并满足生产Environment人工批准与双开关关闭门禁时，才允许对应生产阶段。任何本地入口结果都不能据此声明生产迁移、云函数部署或线上控制指针已完成。
+
+执行顺序固定为：
+
+```text
+精确提交与同提交CI -> 本地全量审计和迁移故障测试
+-> 原字节回读旧current/manifest -> 第一次完整下载并逐值验证bootstrap和70城分片
+-> 生成、校验并耐久保存绑定提交/精确run_id+run_attempt/前后指针/撤销登记/验证器契约/首次全量验证的不可变migration intent
+-> 生成并回读内容寻址的第1代不可变双重撤销登记
+-> 再次逐字节确认旧current未变化 -> 原子写入migration指针
+-> 逐字节回读新指针和撤销登记 -> 第二次直接完整下载并逐值验证bootstrap和70城分片
+-> 部署新版严格getHousingDataManifest
+-> describe_validator只读身份预检 -> 调用严格云函数并核对validation_receipt
+-> 写入内嵌同一intent及其SHA-256的不可变迁移审计
+```
+
+迁移指针的 `control_generation` 和 `revocations_generation` 均从1建立，`previous_dataset_version=null`；必须完整保留两个已知坏数据包和一个已知坏源版本的撤销关系。状态只允许：
+
+| 状态 | 判定 | 允许动作 |
+| --- | --- | --- |
+| `ready` | 生产指针原始SHA-256与唯一描述符完全一致 | 允许在全部前置门禁通过后执行一次迁移 |
+| `already_migrated` | 指针、迁移ID、旧指针/manifest身份、撤销登记和代次与唯一迁移结果完全一致 | 只允许只读恢复验证和补存同一不可变审计，不得再次切换 |
+| `conflict` | 当前指针既不是精确旧字节，也不是精确迁移结果 | 立即停止并人工隔离，保持观察到的指针不变 |
+
+`migration intent` 使用 `legacy-control-migration-intent-v3`，必须在任何生产指针写入前形成，使用严格字段集合和规范化JSON，至少绑定 `migration_id`、迁移时间、旧/新指针SHA-256、manifest与撤销登记SHA-256、控制/撤销代次、固定验证器契约SHA-256、第一次完整70城验证报告SHA-256、默认分支精确提交和原始GitHub `run_id + run_attempt`。intent中的验证器字段只表示待部署协议契约，不表示旧云函数已经提供`describe_validator`；真实预检和动态回执只能由收尾阶段写入最终审计。它先作为固定SHA的耐久Artifact保存并由后续阶段逐字节消费；Artifact名称必须为 `legacy-control-migration-intent-<run_id>-<run_attempt>`。最终审计必须自包含该原始intent及其SHA-256，因此Artifact过期后仍可独立复核。
+
+指针尚未写入时任一失败都必须保持旧指针原始字节不变；指针已写成预期迁移结果后不得静默写回legacy，只能按 `already_migrated` 完成严格只读复核。若最终审计尚未生成，只允许通过成对的 `recovery_run_id + recovery_run_attempt` 取得精确原始attempt的intent，逐字节核对当前指针、manifest、双重撤销、提交、`run_id + run_attempt`和全部固定身份，再部署或确认新版严格云函数、取得新鲜严格回执并执行第二次完整70城验证后生成恢复审计；该路径不得再次写撤销登记或 `current.json`，不得重新计算迁移时间，也不得根据当前生产状态推断或补造迁移前验证。只有intent绑定的原始精确attempt可在`ready`状态写生产；同一run的其他attempt和其他run只能在`already_migrated`状态只读收尾。intent缺失、哈希不符、提交/attempt不符或任一身份冲突都必须停止并保持当前指针原字节不变。
+
+迁移审计使用 `legacy-control-migration-audit-v3`，必须分别记录原始和最终收尾的 `run_id + run_attempt`，并记录 `describe_validator_observed`、`describe_validator_verified`、`cloud_function_response_observed` 与 `strict_validator_verified`；审计和诊断Artifact名称同样必须包含当前 `run_id-run_attempt`。只读身份预检通过不证明写后数据通过，写后只观察到响应也不证明严格验证成功。正常完成和写后恢复两种审计都必须要求 `migrated_at` 等于嵌入指针的 `control_generated_at`，提交SHA及原始/收尾attempt等于intent和受保护工作流绑定值，并由无生产凭据的审计作业再次核对。没有新版严格云函数的独立部署、正确身份预检和有效 `validation_receipt` 证据时，`strict_validator_verified` 必须为 `false`，迁移不能标记完整通过。迁移完成后的下一次普通月度发布必须递增 `control_generation` 并原样保留全部既有撤销；撤销集合未变化时继续引用同一代次和哈希，新增撤销时才递增 `revocations_generation` 并生成新内容地址。迁移指针不得成为普通回滚目标。
+
+当前仓库只有上述本地候选实现和待验证工作流；截至本规范更新时没有受保护生产迁移运行、迁移审计、严格云函数部署或生产指针修改证据，不能描述为生产迁移已经完成。
 
 ## 客户端更新规则
 
 ### 数据优先级
 
 ```text
-已验证的新远程缓存 > 已验证的旧远程缓存 > 小程序内置快照
+未被撤销且已验证的新远程缓存 > 未被撤销且已验证的旧远程缓存 > 未被撤销且已验证的小程序内置快照
 ```
 
-- 客户端不得因为一次网络失败从较新的有效缓存退回较旧内置数据。
-- 内置快照必须始终可独立打开首页、筛选和趋势图。
+- 客户端不得因为一次网络失败或普通旧指针从较新的有效缓存退回较旧内置数据；只有满足控制面全部授权条件的 `rollback` 可以受控降月。
+- 合法 `rollback` 的精确替代目标优先于普通远程/内置月份排序。目标早于内置快照时仍可成为唯一安全版本；内置月份比较只能拒绝普通旧发布，不能先于回滚闭环执行。
+- 随包内置快照在构建时全量审计通过，并在客户端完成结构、数值和派生结果校验后，是独立可信基线，可直接打开首页、筛选和趋势图。首次安装、清储、离线、远程控制失败或控制状态过期不单独使它失效；客户端已持久化或在线取得的当前撤销明确命中内置数据包/源版本时，才必须停止使用该快照。
 - 至少每季度发布一次代码维护版以刷新内置兜底数据；安全修复或结构变更不等待季度周期。
+
+`unavailable` 是独立的数据状态，不是把所有数值替换为 `null` 后继续正常计算。进入该状态时必须停止生成和展示排名、同级/省内平均、温度、趋势、累计变化及任何市场结论；只保留数据不可用说明、重新检查和来源/审计入口。正常有效数据状态的页面结构和交互不因本规则改变。
 
 ### 检查频率
 
-- 首次启动使用内置 `next_check_at` 决定是否访问云端。
-- 成功获取清单后使用服务端返回的 `next_check_at`；正常月份不按每次启动调用云函数。
-- 发布窗口内最短检查间隔6小时，其他时间建议1至31天，由发布日程决定。
-- 当前清单的 `next_check_at` 应指向下一次官方计划发布时间后5至15分钟。客户端在该时间检查但线上版本尚未变化时，改用15分钟短重试，直到发现新版本、服务端给出未来检查时间或达到24小时退避上限。
+控制面检查与完整数据包检查必须分开调度。控制面检查只获取 `current.json` 及其撤销登记身份，用于及时获知紧急撤销；完整数据包仍只在发现新版本后下载。
+
+- 首次安装、清除Storage/文件缓存后，在内置快照自身校验通过后即可显示，同时立即发起轻量控制面检查；检查失败时保留该内置快照并标记检查失败/状态陈旧，不单独进入 `unavailable`。
+- 每次冷启动及重新进入前台都应触发轻量控制面检查，同一前台会话复用同一个内部刷新Promise并使用15分钟防抖。页面生命周期 `onShow()` 只负责同步安排该内部异步刷新，必须同步返回 `undefined`，不得返回或等待网络Promise；超时、拒绝和解析失败必须由内部 `catch/finally` 收敛并清除进行中引用，不得阻塞首屏、触发生命周期超时或形成未处理Promise。已验证控制状态的最长有效期为24小时；过期状态不得继续授权新的远程切换，但其中已经持久化的撤销事实仍然有效。网络失败或控制过期时，继续使用自身验证通过且没有已知撤销的本地数据并重试刷新。24小时是控制状态新鲜度和新切换授权上限，不是离线用户获知紧急撤销的保证；只有用户成功联网并取得更高代次控制状态后才能学习新的撤销，不能声称具备服务端主动推送或24小时内强制撤销。
+- 成功获取控制面后使用服务端返回的 `next_check_at` 调度完整版本检查；正常月份不因每次启动重复下载清单或完整70城包。
+- 完整版本常规调度在发布窗口内最短检查间隔6小时，其他时间建议1至31天，由发布日程决定；该限制不适用于轻量控制面检查，也不包括下一条定义的发布时点短重试。
+- 当前清单的 `next_check_at` 应指向下一次官方计划发布时间后5至15分钟。客户端在该时间检查但线上版本尚未变化时，进入最长24小时的发布时点短重试：每15分钟检查一次，直到发现新版本或服务端给出未来检查时间；超过24小时后恢复常规调度。
 - 网络或云端失败采用指数退避，最短1小时、最长24小时；用户手动重试不绕过一分钟防抖。
 - 切换页面、筛选或城市不得触发清单检查。
 
 ### 下载与原子启用
 
-1. 页面先使用当前有效数据渲染，不阻塞首屏等待网络。
-2. 调用云函数获取并校验 `current.json` 字段。
-3. 当前版本未变化时只更新下次检查时间。
-4. 发现新版本后先下载 `manifest.json` 并校验哈希、结构和兼容性。
-5. 一次下载包含70城全部120个月历史的 `bootstrap.json` 到临时目录，校验字节数、SHA-256、版本、70城集合、8种口径、月份长度和记录不变量。
-6. 将完整包写入版本化本地目录；只有文件写入和回读均成功后，才以一个本地元数据指针原子切换活动版本。
-7. 切换后所有70城历史数据均已在本机，城市选择、趋势切换和精确数据查看不得再触发网络下载。
-8. 新版本启用后重新派生页面模型，保留用户筛选和手动选择的定位城市。下载、校验或落盘任一步失败都继续使用上一完整版本。
+1. 先读取版本化主状态与独立控制墓碑并执行启动恢复：控制状态取两者中完整验证且代次不倒退的较新记录，撤销集合只增不减；缓存目录只承认主状态引用的活动目录和安全回退目录，控制墓碑不得引用或激活缓存。删除未被主状态引用的临时目录、已改名但未提交状态的目录及其他孤儿版本目录，再验证被引用目录。客户端已持久化的撤销事实必须优先应用；活动/回退目录通过自身校验且未命中已知撤销时可直接渲染。没有主状态或可用缓存时独立校验随包快照并直接使用，同时异步刷新控制面；控制状态过期或暂不可得不阻塞首屏，但不得据此授权新的远程切换。
+2. 调用严格云函数取得 `response.result={current,validation_receipt}`，先验证回执固定schema、`validator_id`、时间窗、当前指纹、manifest/撤销哈希及两类代次绑定，再下载其引用的不可变撤销登记并校验原始字节哈希、代次和结构；撤销状态不得只依赖本地旧记录。授权按以下三种结果失败关闭：
+   - 静态 `control_valid_until` 未过期且回执新鲜、结构和身份绑定全部正确时，才可继续本次完整门禁。
+   - 静态 `control_valid_until` 已过期，但同次响应回执仍新鲜且全部绑定正确时，可把该回执作为本次动态重新授权，继续完整门禁；它不延长或改写静态指针有效期。
+   - 回执结构和全部身份绑定正确但回执自身已过期时，只允许完整验证并单调持久化新增撤销、立即停用命中缓存；不得下载或激活目标包。回执缺失、`validator_id` 错误、时间/哈希/代次/指纹绑定错误或响应不是受信严格云函数结果时，本次响应整体不可信，连新增撤销也不得采信。
+3. 当前版本未变化时仍要在上一步授权范围内应用更新后的撤销登记，再更新下次检查时间；活动版本或内置源被撤销且没有安全替代时立即进入 `unavailable`。
+   普通客户端更新、普通月度发布、历史修订、回滚、守卫或状态部署遇到legacy生产指针时必须停止；不得通过宽松解析或运行时兼容把legacy指针当作现行受信控制状态。只有“一次性旧生产控制指针迁移”定义的精确迁移ID、原始字节和专用受保护入口可以转换该指针。
+4. 若指针要求降月，必须先验证其为更高控制代次的 `rollback`。已有可信本地活动状态时，`rollback_from_dataset_version`、本地原活动版本、数据包/源版本双重撤销和撤销记录中的精确替代目标必须闭合；首次安装、清储或没有可信本地活动状态时，以当前受信控制指针、当前不可变撤销登记、被撤销版本/源版本和精确替代目标闭合作为依据，不得伪造本地坏活动版本条件。两种路径都必须在启用前完整验证目标包，且目标月份早于内置快照不构成拒绝理由。普通发布、旧控制代次、同代次换内容、撤销代次倒退或替代目标不一致一律失败关闭。坏活动缓存必须在接受有效撤销状态后立即停用，即使替代包随后下载或校验失败，重启也不得复活坏缓存。
+5. 发现新版本后先下载 `manifest.json` 并校验哈希、结构和兼容性。
+6. 一次下载包含70城全部120个月历史的 `bootstrap.json` 到独立临时版本目录。`datasetVersion` 必须使用 `YYYY-MM-<12位十六进制>` 且月份前缀等于 `datasetAsOf`；`releaseDate` 必须是有效ISO日期并等于最新 `releaseDates` 项，`latestOfficialUrl` 必须属于国家统计局HTTPS域名。城市集合必须与权威70城目录精确相等且无额外项，每个城市必须包含非空的 `name`、`search`、`province`、`tier`、`tierLabel`，线级代码与标签必须匹配且城市名称不得重复；数值只能是有限数或契约明确允许的 `null`；月份必须严格升序、连续，`coverageStart === months[0]`、末月等于 `datasetAsOf`、`sourceCoverageStart <= coverageStart`，并与截止月和固定120个月序列长度一致。任一身份、城市资料、窗口或来源字段不合法都必须拒绝。
+7. 客户端逐值校验趋势原始序列，重新计算最新值、排名基础值、逐月涨平跌缺失计数和累计变化；对包内实际存储的 `latestSeries`、`breadthSeries` 及变动率派生字段逐值比较。排名、趋势视图和累计变化不作为包内独立字段重复存储，其计算输入和有限性不变量必须在激活前验证。任一结构、数值或已存储派生结果不一致时不得激活。
+8. 历史修订还必须下载并校验 `revision-manifest.json` 和 `revision-ledger.json`，核对来源链、撤销增量、账本旧前缀、本次追加集合及全部身份哈希。
+9. 关闭临时文件写入后，按预期文件清单逐文件重新读取原始字节，核对文件数量、大小、SHA-256、版本和完整重建结果。缺失、多余、截断、不可解析或回读不一致都必须失败。
+10. 全部回读通过后把临时目录转为正式版本目录，再以一次本地状态原子替换切换活动版本；切换前的活动状态必须保持可恢复。受控回滚时，被撤销坏版本不得作为可恢复活动状态保留。
+11. 切换后所有70城历史数据均已在本机，城市选择、趋势切换和精确数据查看不得再触发网络下载。
+12. 新版本启用后重新派生页面模型，保留用户筛选和手动选择的定位城市。普通更新下载、校验或落盘失败时继续使用上一份未被撤销的完整版本；受控回滚目标失败时不得恢复已撤销坏版本或因内置月份较新而启用已撤销内置快照，只能使用另一个已验证且未撤销的安全版本，否则进入 `unavailable`。
 
-缓存文件使用 `wx.env.USER_DATA_PATH` 和 `FileSystemManager` 管理；`wx.setStorage` 只保存小型活动指针、检查时间和状态，不保存整套 JSON。
+缓存文件使用 `wx.env.USER_DATA_PATH` 和 `FileSystemManager` 管理；`wx.setStorage` 只保存小型状态，不保存整套 JSON。
+
+### 本地状态事务与缓存保留
+
+客户端只允许维护一个带 `state_schema_version` 的本地状态记录，同时包含活动数据版本、活动源数据版本、撤销登记代次与哈希、已撤销数据包/源版本集合、完整缓存目录、唯一安全回退目录、检查时间和更新状态。活动指针、撤销列表和缓存索引不得分开提交；新状态只能通过单次原子替换生效，失败时旧状态保持不变。
+
+所有普通月度和历史修订下载失败都必须删除临时文件及半包目录。由于进程被杀或崩溃时失败回调可能不执行，每次启动还必须以主状态中的活动目录和唯一安全回退目录引用作为缓存目录唯一真相，幂等删除所有未被引用的临时、半包、已改名未提交和孤儿版本目录；独立控制墓碑只保存已验证控制和撤销事实，不得引用缓存。清理中断后下次启动继续执行，且不得先激活这些目录。新版本成功激活后，本地只保留当前活动版本和一个未被撤销、完整验证且客户端兼容的安全回退版本；其余旧缓存按版本目录清理。该本地规则不改变云端不可变版本的长期保留要求。
 
 ### 失败与降级
 
@@ -275,11 +435,13 @@ release_note                   简短、非营销化的数据更新说明
 - 云函数、下载或磁盘写入失败。
 - SHA-256、文件大小或 `dataset_version` 不匹配。
 - JSON无法解析、结构版本不兼容或缺少70城。
-- 数据截止月份早于当前有效缓存。
+- 普通发布的数据截止月份早于当前有效缓存；已通过全部授权闭环的受控 `rollback` 不适用本条，改按回滚规则验证。
+- 当前控制指针、撤销登记无法取得或验证；该失败阻断新的远程切换，但不使当前已验证且没有已知撤销的本地数据失效。
+- `validation_receipt` 缺失、过期且请求试图超出仅撤销摄取范围，或schema、验证器身份、时间、指纹、文件哈希和代次任一绑定失败。
 - `validation_status` 不是 `passed`。
 - `minimum_app_version` 不满足。
 
-失败时记录不含位置、用户标识和筛选内容的错误码；页面继续使用旧数据。连续失败不得删除最近一次有效缓存。
+失败时记录不含位置、用户标识和筛选内容的错误码；页面继续使用自身验证通过且未命中客户端已知撤销的活动缓存、安全回退缓存或随包内置快照。远程包下载、哈希、结构、兼容性、完整重建失败，控制状态过期，或首次安装/清储后暂时离线，都不单独触发 `unavailable`。已持久化或在线取得的撤销判定必须优先且单调生效；仅当全部本地候选自身校验失败，或都被已知撤销排除且没有安全替代时进入 `unavailable`。`minimum_app_version`、旧缓存优先级和升级提示都不能覆盖撤销判定。连续失败不得删除当前有效缓存或唯一安全回退缓存。
 
 ## 月度标准操作流程
 
@@ -296,12 +458,39 @@ release_note                   简短、非营销化的数据更新说明
 
 ### 2. 到点发现正式页面
 
+本节是月度发现运行时刻的唯一权威文档来源。README、交接单和审计记录只能引用本节，不得复制另一份具体时间表。当前执行契约如下：
+
+| 用途 | 北京时间 | UTC Cron | 运行边界 |
+| --- | --- | --- | --- |
+| 每日日程同步 | 每天09:00 | `0 1 * * *` | 只同步官方双源日程；是否访问正式发布列表仍由脚本判断 |
+| 发布前预检查 | 发布窗口内09:27 | `27 1 10-22 * *` | 每月10日至22日仅为Cron唤醒范围，非已核验发布日期不访问正式发布列表 |
+| 高频发现 | 发布窗口内09:32至10:27，每5分钟 | `32,37,42,47,52,57 1 10-22 * *` 与 `2,7,12,17,22,27 2 10-22 * *` | 只在双源核验后的具体发布日期检查 |
+| 高频终查 | 发布窗口内10:30 | `30 2 10-22 * *` | 仍未发现时停止高频检查、保留上月数据并通知 |
+| 延迟补查 | 发布窗口内12:00、16:00 | `0 4,8 10-22 * *` | 覆盖官方偶发延迟，不恢复全天高频轮询 |
+
+`.github/workflows/monthly-data-check.yml` 是可执行配置，必须与上表逐项一致。任何运行时刻变更都必须在同一提交中更新工作流与本节，并由CI解析两边的规范化时间集合进行相等校验；只检查某几个Cron字符串或依赖人工目视不构成关闭证据。该一致性校验尚未实现，本轮不修改工作流或测试代码，R07保持 `partial/not_tested`。
+
+当前时刻表不能保证所有正式页面可访问时点都在60分钟内被发现：若页面在10:30之后出现，下一次12:00补查可能已经超过正式SLA目标；12:00之后出现则可能要到16:00。SLA起点仍严格保持“正式数据页面可访问”，不得改用预告时间或其他替代起点掩盖该缺口。当前只能把10至25分钟作为09:30常规发布且高频发现正常运行时的预期；在调度或等价监控补齐覆盖并完成云端验证前，不得声称60分钟正式SLA已经生效。该项属于I08的已披露未关闭边界，本轮不修改工作流。
+
 - GitHub每天北京时间09:00同步官方发布日程。每月10日至22日只是Cron可唤醒范围，脚本必须根据双源核验后的具体发布日期决定是否访问正式发布列表，非发布日期只同步日程。
 - 已核验发布日期按国家统计局通常09:30发布的规律集中检查：北京时间09:27预检查，09:32至10:27每5分钟检查一次。10:30仍未发现时停止高频检查、保留上月数据并通知；当天12:00和16:00各补查一次，以覆盖官方偶发延迟。
 - “发现新月份”是正常成功结果，与发布预告逾期、官方页面结构异常、网络失败等任务异常使用不同状态。自动发布工作流必须读取并验证发现报告和 `handoff.json`，仅确认 `update_available` 后才进入耗时构建。
 - 正式页面只能从国家统计局发布列表分页发现，不猜测文章URL；必须记录最终HTTPS URL、重定向链、HTTP状态、标题、抓取时间和HTML SHA-256。
 - 发现页确认目标统计月份严格等于当前线上 `dataset_as_of` 的下一个自然月后，生成结构化发现报告并触发独立自动发布工作流。
 - 同一统计月份使用并发锁和幂等键；重复发现不得产生第二次发布。
+
+#### 检查结果与用户可见状态责任链
+
+只读发现对每次计划检查负责生成观察报告，不负责部署页面状态。状态转换责任固定如下：
+
+| 观察结果 | 只读发现输出 | 允许的受保护状态部署 |
+| --- | --- | --- |
+| 未到发布日期或按期无更新 | `no_update`及下一检查时间 | 只可在重新验证当前指针后续期 `current`，不得改变数据身份 |
+| 已发现严格下一月 | `update_available`及不可变handoff | 发布作业开始后可部署 `updating`，随后由成功发布切回 `current` |
+| 超过正式SLA、检查过期或门禁失败 | 原因码和故障身份 | 可部署 `stale`；不得切换数据包或伪装为最新 |
+| 基线指针、撤销登记或数据身份冲突 | `control_conflict` | 禁止写入并通知人工 |
+
+独立状态部署作业必须重新下载当前 `current.json` 和撤销登记，确认观察报告绑定的基线仍有效，保持 `dataset_version`、`source_dataset_version`、manifest身份和撤销身份不变，只更新允许的状态/检查字段并递增 `control_generation`，最后逐字节回读。监测作业继续只读。I09实现和故障测试完成前，当前模式仍为 `automation_disabled`；维护人在计划发布日可以按未来 `supervised_automation` 的责任流程核对观察报告、发布、守卫和监测，但不能把报告生成等同于状态已部署，也不能因此开启生产开关。
 
 ### 3. 自动抓取与准确性门禁
 
@@ -329,17 +518,17 @@ npm run miniprogram:data:prepare
 npm run miniprogram:data:stage
 npm run miniprogram:data:verify-remote
 npm run miniprogram:data:publish -- --env=cloud1-d3gpdx70w5d05c68c --dataset=<dataset_version>
-npm run miniprogram:data:rollback -- --env=cloud1-d3gpdx70w5d05c68c --dataset=<dataset_version>
-npm run miniprogram:data:repair-current -- --env=cloud1-d3gpdx70w5d05c68c --dataset=<active_dataset_version>
 ```
 
-- 本地交互发布仍要求输入完整 `dataset_version`。
+- 本地脚本不得执行生产发布或回滚；本地只允许无生产凭据的 `--dry-run`。人工回滚没有可直接复制执行的通用CLI，必须通过 `.github/workflows/manual-data-rollback.yml` 的受保护 `workflow_dispatch` 入口；生产发布、历史修订、固定修正和人工回滚都必须从受保护的默认分支工作流进入，并由统一授权器核对双开关、同提交普通CI、Environment和目标身份。
+- 旧 `miniprogram:data:repair-current` 会在不完整控制协议下直接覆盖 `current.json`，已按失败关闭原则禁用。需要改变当前控制指针时必须使用受审计发布/回滚流程；未来若恢复独立修复工具，必须保留不可变撤销登记、递增 `control_generation`、写前逐字节复核线上基线并通过云函数守卫。
 - CI自动发布模式必须验证受保护环境、默认分支、固定提交SHA、GitHub运行ID、统计月份、目标云环境和门禁报告哈希；它不是可供本地使用的跳过确认开关。
 - 先检查远端版本目录不存在；若已存在，只允许内容哈希完全一致的幂等重试。
 - 依次上传完整70城 `bootstrap.json`、用于旧版兼容和审计的70个城市分片以及 `manifest.json`，然后下载完整版本逐文件复核大小、SHA-256、结构和快照重建结果。
-- 所有不可变版本文件复核通过后才生成 `current.json`；`current.json` 必须最后上传并立即回读逐字节比较。
-- `previous_dataset_version` 只能指向通过本地发布审计、云端回读和客户端兼容性检查的上一有效版本。
-- 发布记录同时写入私有云端审计目录和GitHub运行Artifact；记录官方URL、源HTML哈希、提交SHA、运行ID、所有门禁结果和云端文件哈希。
+- 切换前必须完成候选全部正确性门禁、独立审计身份核对、远端逐文件回读、完整70城逐值重建和客户端兼容性验证，同时完整验证一个未被撤销且 `rollback_allowed=true` 的安全回退目标。缺少安全回退目标时禁止切换。
+- 切换前保存线上 `current.json` 原始字节和SHA-256。所有不可变版本文件及安全回退目标复核通过后才生成新指针；`current.json` 必须最后上传并立即回读逐字节比较。切换前任一步失败时线上指针原始字节和哈希必须保持不变。
+- 普通发布的 `previous_dataset_version` 只能指向已通过完整下载、发布审计、云端回读、70城重建、客户端兼容和撤销状态检查的上一有效版本；受控回滚必须设为 `null`。
+- 完整发布记录写入仅维护身份可读的私有云端审计目录，包含官方URL、源HTML哈希、提交SHA、运行ID、全部门禁结果和云端文件哈希。GitHub运行Artifact只保存非敏感发布证据和 `private-audit-reference.json`；该引用只含私有manifest哈希、文件数、字节数和状态，不得上传 `work/private-audit/` 正文或任何凭据/内部访问地址。
 
 ### 5. 自动上线后验证与回滚
 
@@ -349,14 +538,20 @@ npm run miniprogram:data:repair-current -- --env=cloud1-d3gpdx70w5d05c68c --data
 2. 重新下载 `current.json`、`manifest.json`、完整70城 `bootstrap.json` 和全部70个兼容分片并复核哈希，而不是只抽查两城。
 3. 用远端文件精确重建内置快照，验证六城首页、70城市场快照、排名、温度、趋势、累计变化和精确数据所需值。
 4. 确认旧版本目录仍存在且符合回滚条件。
-5. 任一发布后验证失败时立即把指针原子恢复到上一有效版本，再次回读验证，并生成不可变回滚记录。
-6. 成功或失败均发送通知；成功通知包含统计月份、官方URL、版本号、哈希、记录差异和上线时间，失败通知包含停止阶段、错误码和是否已回滚。
+5. 任一发布后验证失败时，先生成新一代不可变撤销登记，把失败候选登记为已撤销并把预验证旧版本登记为精确替代目标；再写入更高 `control_generation`、`transition_type=rollback`、`rollback_from_dataset_version=<失败候选>` 且 `previous_dataset_version=null` 的回滚指针。回读控制指针、撤销登记和完整目标包全部通过后才确认恢复，并生成不可变回滚记录。
+6. 成功或失败均写入可追踪通知；成功记录包含统计月份、官方URL、版本号、哈希、记录差异和上线时间，失败记录包含停止阶段、错误码和是否已回滚。
+
+#### 通知闭环
+
+通知使用去重GitHub Issue或等价的明确渠道。同一故障指纹更新同一记录，不重复创建噪声；记录至少包含 `open|acknowledged|recovered` 状态、严重级别、发布阶段、`dataset_version`、可选 `revision_id`、运行ID、责任人、确认截止时间、首次/最近发生时间和恢复证据。恢复后必须更新或关闭原记录，不能只让后续任务变绿。
+
+D19取得通过证据前，该通知闭环仍是目标而非当前能力。即使 [自动更新启用清单](AUTOMATION_ACTIVATION_CHECKLIST.md) 的正确性硬门槛全部通过并启用正确性自动发布，也只能按该清单运行“有人监督自动化”并执行计划发布日人工巡检；D19关闭后，才可把正常月份描述为无需人工查看运行状态。
 
 发布后24小时继续监测云函数错误、下载失败和流量预算。无法获得客户端匿名聚合指标时，不得虚构“用户端全部成功”；以云端调用和下载指标作为有限证据。
 
 ### 6. 人工介入例外
 
-正常月份无需人工操作。以下任一情况进入人工隔离队列：
+D19关闭并完成通知闭环演练后，正常月份无需人工操作；此前按启用清单执行有人监督巡检。以下任一情况进入人工隔离队列：
 
 - 两个官方日程冲突、正式页面逾期、官方域名或重定向异常。
 - 报告名称候选不唯一、页面结构变化、70城或任一口径缺失。
@@ -375,7 +570,9 @@ npm run miniprogram:data:repair-current -- --env=cloud1-d3gpdx70w5d05c68c --data
 - **正常月度更新**：统计月份严格前进一个自然月，旧记录零变化时，继续使用自动发现、自动门禁和受限自动发布流程。
 - **历史数据修订**：统计局正式修订历史值、解析器识别错误、数据转换或映射规则错误、人工复核发现历史值不一致时，必须进入人工隔离、全量重建和受保护修订发布流程。
 
-已在 `v2.4.0` 候选代码中实现“受审计历史修订协议”；当前已发布的 `v2.3.0` 仍只允许“远端月份更新”或“同月且 `source_dataset_version` 与内置版本一致”的数据包。`v2.4.0` 完成微信开发者工具和真机验证并正式发布前，同月历史修订仍必须同时发布新的云端不可变版本和包含相同修正版内置数据的小程序版本，不得把候选代码能力描述为线上客户端已经支持。
+同月、同源版本且业务内容零变化的重建不属于上述任一发布通道。纯重抓或运行元数据变化必须幂等结束；工具、审计身份或发布格式变化产生的候选只能用于验证，未经单独批准的协议/兼容性/安全发布方案不得切换 `current.json`，也不得伪装成正常月度或历史修订。
+
+`v2.4.0` 起建立受审计历史修订协议，当前 `v2.4.1` 本地候选继续补齐控制面、双重撤销、受控回滚和客户端失败关闭；[实施状态登记](IMPLEMENTATION_STATUS.md) 仍有 `partial/not_started/not_tested` 项，[自动更新启用清单](AUTOMATION_ACTIVATION_CHECKLIST.md) 也未满足，不能描述为完整安全闭环。现有平台证据只证明 `v2.3.0` 开发版曾上传，不证明其正式发布；执行生产操作前必须在微信平台核验实际线上版本。线上客户端被证明支持当前协议前，同月历史修订仍必须同时发布新的云端不可变版本和包含相同修正版内置数据的小程序版本，不得把候选代码能力描述为线上客户端已经支持。
 
 ### 2. 修订触发与处置等级
 
@@ -394,7 +591,8 @@ npm run miniprogram:data:repair-current -- --env=cloud1-d3gpdx70w5d05c68c --data
 
 ```text
 revision_id
-revision_type                  official_revision | parser_error | transform_error | mapping_error
+release_type                   固定为historical_correction
+reason_type                    official_revision | parser_error | transform_error | mapping_error
 discovered_at
 dataset_as_of
 supersedes_source_dataset_version
@@ -402,7 +600,8 @@ affected_months
 affected_city_ids
 affected_record_count
 official_urls
-source_batch_ids
+latest_month_source_batch_ids
+revision_source_batch_ids
 reason
 approval_status
 approved_at
@@ -410,6 +609,8 @@ approved_by
 ```
 
 每条获准修改必须记录唯一业务键、旧值、新值、统计月份、城市、住宅类型、面积分类、指标、官方表格类型、原始行列定位和来源批次。只写“数字已修正”或只记录汇总数量不能作为发布证据。
+
+`latest_month_source_batch_ids` 必须覆盖当前最新月份四类白名单表；`revision_source_batch_ids` 必须覆盖所有被修改历史记录的实际来源批次。私有审计收集到的批次集合必须与后者精确相等，并逐批保存URL、原始SHA-256、归档定位和恢复结果；缺一、多一、重复或仍按单一原始文件处理都必须阻断发布。
 
 ### 4. 全量重建与差异门禁
 
@@ -435,13 +636,28 @@ release_type: historical_correction
 revision_id
 source_dataset_version
 supersedes_source_dataset_version
+source_version_chain
+revoked_dataset_versions
+revoked_source_dataset_versions
 revision_manifest_file_id
 revision_manifest_sha256
+revision_ledger_file_id
+revision_ledger_sha256
 changed_record_count
+candidate_records_sha256
+source_index_sha256
+baseline_revision_ledger_sha256
+result_revision_ledger_sha256
+appended_revisions_sha256
+commit_sha
 validation_status: passed
 ```
 
-`revision_manifest` 必须包含全部修改项及其旧值、新值、原因、来源和原始单元格定位，并绑定生产解析器版本、独立审计版本、审计报告哈希、提交SHA、GitHub运行ID和批准信息。它与完整70城数据包都必须使用不可变文件ID和SHA-256；只提供修订说明而没有完整数据包不得切换。
+`revision_manifest` 必须包含全部修改项及其旧值、新值、`reason_type`、人工说明、来源和原始单元格定位，并绑定生产解析器版本、独立审计版本、完整候选记录哈希、完整来源索引哈希、修订账本前后哈希、审计报告哈希、精确提交SHA、GitHub运行ID和批准信息。发布门禁必须独立重算并逐项核对这些身份；记录数、批次数或版本名称相同不能替代完整内容哈希。
+
+修订账本必须作为 `revision-ledger.json` 写入本次不可变发布目录，并由 `revision_ledger_file_id` 和 `revision_ledger_sha256` 绑定。它必须完整保留旧前缀，本次新增集合必须与批准差异逐项一致，且 `supersedes_revision_id` 链连续。修订清单、完整70城包和账本身份都必须使用不可变文件ID和SHA-256；只提供修订说明而没有完整数据包或完整账本不得切换。
+
+`source_version_chain` 必须连接被替代源版本和新源版本；本次撤销的源版本/数据包版本必须同时写入修订清单，并准确追加到新一代不可变撤销登记。版本号计算遵守 `DATA_CONTRACT.md` 的规范化哈希字段全集，任一业务字段变化必须生成新版本。
 
 ### 6. 小程序接收与本地缓存
 
@@ -454,7 +670,7 @@ validation_status: passed
 5. 一次性下载完整70城数据包，校验版本、结构、大小、SHA-256、修订清单和全部派生序列，写入临时目录后原子切换。本次更新完成后切换城市不得再次下载。
 6. 下载、空间、写入、哈希、修订链或完整重建任一步失败时删除临时文件，保持上一份未被撤销的有效版本。
 
-客户端必须持久化已撤销的源版本列表。已获知某个内置或缓存版本存在错误后，不得在清缓存、重启、断网或远端暂时不可用时静默回退到该版本；没有其他有效版本时显示明确的“数据暂不可用”，而不是展示已知错误数据。
+客户端必须把活动版本、缓存索引和完整控制状态写入单一主状态事务，并把最近完整验证的控制代次与不可变撤销集合先写入独立、只增不减的控制墓碑。启动时合并两者，以不倒退的较新受信控制为准；墓碑不得保存活动指针或缓存目录。主状态提交失败、正常重启、短暂断网或控制状态过期不得缩小撤销集合，也不得静默回退到已撤销版本；没有其他有效版本时进入 `unavailable`。用户或系统清除全部Storage/文件后会丢失曾持久化的撤销记忆，此时回到随代码包发布时的独立内置基线：内置快照自身校验通过即可使用，并立即或在网络恢复后刷新控制面。新取得并验证的撤销必须先持久化墓碑并立即停用命中的内置/缓存版本；清储不是解除客户端当前仍持有撤销事实的手段，也不能把已经重新获知的坏版本复活。
 
 ### 7. 内置数据同步策略
 
@@ -467,7 +683,19 @@ validation_status: passed
 
 ### 8. 受保护发布与回滚
 
-历史修订只能由独立受保护工作流发布。工作流必须绑定默认分支精确提交、普通CI成功结果、GitHub运行ID、目标云环境、`revision_id`、新旧源版本和门禁报告哈希，并要求人工确认；不得依赖正常月度自动发布开关，也不得提供跳过差异、审计、远端回读或指针守卫的参数。
+历史修订只能由独立受保护工作流发布。工作流必须绑定默认分支精确提交、普通CI成功结果、GitHub运行ID、目标云环境、`revision_id`、新旧源版本和门禁报告哈希，并要求人工确认；除唯一legacy迁移外，必须同时通过 `AUTOMATIC_RELEASE_ENABLED=true` 与 `PRODUCTION_RELEASE_AUTHORIZED=true`，不得依赖缺少任一开关的旁路，也不得提供跳过差异、审计、远端回读或指针守卫的参数。
+
+工作流重跑必须先把远端状态归类为：
+
+| 状态 | 判定 | 允许动作 |
+| --- | --- | --- |
+| `old_active` | 当前指针仍为获准修订的被替代版本，候选不可变文件身份匹配 | 允许完成首次切换 |
+| `candidate_active` | 当前指针已经是本次候选，候选、数据包与源版本双重撤销、两类replacement、`revision_id`、新旧来源链、修订账本和发布身份全部匹配 | 只允许幂等复核、恢复监测或补齐已生成证据的索引登记；不得补做切换前门禁、补写缺失撤销，也不得再次按旧来源切换 |
+| `conflict` | 指针、候选、来源链、修订账本或运行身份任一不属于前两种状态 | 立即停止，保持指针不变并通知人工 |
+
+每个上传、回读、指针写入、守卫和监测中断点都必须有从上述状态恢复的确定性测试。不得在同一次重跑中同时把活动版本当作新来源和旧来源。
+
+旧控制协议或legacy修订记录缺少数据包/源版本任一撤销时，不得归类为 `candidate_active`。只有受保护迁移能从不可变发布审计独立证明两类旧身份、同一修订和精确替代目标时，才允许一次性生成完整双重撤销；否则归类为 `conflict` 并保持指针不变。
 
 发布顺序固定为：
 
@@ -477,7 +705,11 @@ validation_status: passed
 -> 原子切换 current.json -> 云函数守卫 -> 独立只读生产监测
 ```
 
-被确认含有错误数据的版本必须保留原始发布审计，同时新增纠正记录并设置 `rollback_allowed=false` 和替代版本；不得删除、覆盖或继续作为 `previous_dataset_version`。指针切换前失败时线上保持不变；切换后失败时只能回滚到未被撤销且完整验证过的版本。没有有效回滚目标时失败关闭并告警，不得重新启用已知错误数据。
+被确认含有错误数据的版本必须保留原始发布审计，同时把该数据包版本和源版本追加到新一代不可变撤销登记并记录替代版本，使依据当前登记计算出的 `rollback_allowed=false`；不得修改旧manifest来“设置”该值，也不得删除、覆盖或继续把错误版本作为 `previous_dataset_version`。所有候选正确性检查和安全回退目标验证必须在切换前完成；没有有效回滚目标时禁止切换。切换前失败时线上指针原始字节和SHA-256保持不变；切换后只允许对已预验证的目标执行恢复，不得重新启用已知错误数据。
+
+#### 统一发布登记与监测
+
+普通月度、人工修正版、历史修订和受控回滚必须进入同一发布登记与私有审计索引。每小时只读监测从全部不可变 `published` 发布审计和 `rolled_back` 回滚审计中选择最近24小时内的最新控制事件，不得只依赖 `latest-auto-release.json`；历史修订或回滚成功后必须与普通发布进入同一24小时监测窗口。恢复型人工回滚的即时工作流触发必须绑定审计中的 `finalizer_commit_sha`、`finalizer_github_run_id` 和 `finalizer_github_run_attempt`，原始提交和attempt只用于追溯及证明谁准备了Intent；审计还必须保存并验证收尾提交对应的 `finalizer_ordinary_ci_run_id`。24小时年龄仍以不可变Intent中的 `prepared_at`（即审计 `rolled_back_at`）计算，不因后续恢复收尾而重新起算。已有耐久审计由新run恢复提交时，当前实现仍依赖每小时调度而非新run即时触发，故D15继续保持`partial/passed_limited`；超过原Intent的24小时窗口后不得伪称已自动监测。故障、确认和恢复记录都必须绑定适用的 `revision_id`、`dataset_version`、提交SHA及精确运行attempt。未完成登记或未成功进入监测窗口视为发布失败，不能用人工查看一次运行摘要代替。
 
 ### 9. 验收与故障测试
 
@@ -492,21 +724,27 @@ validation_status: passed
 - 完整70城下载后切换城市零下载，首页、排名、温度、趋势和累计变化均来自同一原子版本。
 - 至少12轮历史全链路回放，并逐轮记录解析、审计、构建、上传、回读、切换和客户端可用耗时。
 
-所有测试、发布和监测证据必须进入版本控制中的发布审计或受保护Artifact。没有客户端匿名聚合遥测时，只能报告云端和模拟客户端验证范围，不得声称所有真实用户均已成功更新。
+所有测试、发布和监测证据必须进入版本控制中的非敏感发布审计、权限受控的Artifact或私有云端审计目录。完整私有运行审计不得进入公开或普通Actions可见Artifact；GitHub只保存非敏感证据及其哈希引用。没有客户端匿名聚合遥测时，只能报告云端和模拟客户端验证范围，不得声称所有真实用户均已成功更新。
 
 ### 10. 实施与验证状态
 
-1. **已实现**：修订申请、逐字段差异、`revision_manifest` schema、完整包哈希和来源链校验。
-2. **已实现**：独立历史修订门禁与 `historical-data-correction` 受保护工作流；继续复用全量解析、V4审计、70城整包、原子指针和只读监测能力。
-3. **已实现**：小程序修订链、撤销列表、完整70城原子缓存、同月未标记冲突拒绝、坏链/损坏清单/撤销来源拒绝，以及失败写入不激活、不记录撤销。
-4. **发布前待完成**：微信开发者工具与双真机检查、无正确缓存时的页面不可用状态验收，以及至少12轮历史全链路回放和逐步骤耗时记录。
-5. `v2.4.0` 真实设备验证并上线后，后续一般历史修订才允许在人工批准后仅通过云端发布；重大修订仍按内置数据策略评估紧急小程序发版。
+1. 当前代码已有修订申请、逐字段差异、受保护工作流、修订链、撤销列表、完整70城缓存和有限故障测试；历史修订、固定修正和人工回滚现在共享双开关授权器，本地旁路已失败关闭，但这些基础能力不能证明D01-D20或I01-I14已经关闭。
+2. 生产自动发布完整硬门槛只在 [自动更新启用清单](AUTOMATION_ACTIVATION_CHECKLIST.md) 维护；各编号状态、阻断范围和关闭证据以 [实施状态登记](IMPLEMENTATION_STATUS.md) 为准。清单任一适用项未通过时，仓库级 `AUTOMATIC_RELEASE_ENABLED` 必须保持 `false`，生产 Environment 级 `PRODUCTION_RELEASE_AUTHORIZED` 必须保持 `false` 或未设置。唯一legacy迁移可按本文件专节使用独立一次性授权，但不改变这两个普通开关、不能被其他生产写入复用，也不构成自动发布启用证据。
+3. D17-D19分别限制跨年SLA、历史页面修订发现和通知闭环声明；D20限制共享计算逻辑重构。文档落地不改变这些项目的未验证状态。
+4. 微信开发者工具、双真机、`unavailable`状态、历史修订专门回放和当前版本上线证据仍须按对应编号补齐。普通月度更新的12轮回放只证明其指定提交、运行和有限场景。
+5. 本次信任模型修正已按用户确认范围完成最小运行时代码、测试和规范更新，未重设计正常页面；D10、D13已恢复为本地 `implemented/passed_limited`，S10和I01恢复为本地 `partial/passed_limited`。仍须以微信开发者工具真实默认启动、真实云函数、Android/iPhone和本节外部验收矩阵留证，不能把本地结果写成CI、部署、上传、审核或发布通过。
 
 ## 回滚规范
 
-- `current.json.previous_dataset_version` 必须指向上一个已验证版本。
-- 回滚只允许选择云端已存在、清单哈希已登记且客户端兼容的版本。
-- 回滚先验证目标版本，再原子更新 `current.json`；不得删除问题版本，以便审计。
+- 普通发布的 `current.json.previous_dataset_version` 必须指向上一个未被撤销、`rollback_allowed=true` 且完整验证过的版本；首次发布可以为 `null`。执行回滚时该字段必须为 `null`，回滚来源只由 `rollback_from_dataset_version` 和当前不可变撤销登记共同证明，禁止形成回滚环。
+- 人工和自动回滚使用相同的目标验证标准：完整下载目标版本的 `manifest.json`、`bootstrap.json`、70个兼容分片及其引用的修订文件，逐文件校验大小与SHA-256，完整重建70城数据和派生结果，并验证客户端兼容性及当前撤销登记。随后根据目标版本重新生成拟写入的 `current.json` 字段，但必须保留最新撤销登记代次，不能把目标版本的历史指针当成回滚依据。
+- 因数据或来源身份不可信而回滚时，必须在同一撤销登记代次中同时登记被回滚数据包版本和源版本；两条记录使用同一稳定 `revision_id`、撤销时间和原因，并分别精确指向替代数据包与替代源版本。任一侧缺失、replacement不闭合、`revision_id`不同或替代源仍等于坏源都必须在写指针前失败关闭。客户端只有在回滚来源、本地原活动版本、两类撤销项和替代目标完全一致时才可突破普通防降级规则。撤销目标后必须先停用本地坏缓存，替代目标失败时不得恢复坏缓存。
+- 人工回滚只能通过 `.github/workflows/manual-data-rollback.yml` 执行。入口必须绑定默认分支精确提交、同一提交的 `.github/workflows/ci.yml` push 成功记录、生产 Environment、目标版本二次确认和两个生产开关；回滚作业只持有仓库读取权限，完成后的不可变回滚审计由无云密钥的独立作业写回。`scripts/miniprogram/rollback-remote-data.mjs` 在本地不得通过终端确认绕过该流程。
+- 任何生产对象写入前，必须先成功持久化内容寻址的`manual-data-rollback-intent-v2` Artifact。Intent绑定原始及目标`current.json`原字节和SHA-256、撤销登记原字节和SHA-256、完整目标验证输出、目标manifest哈希、原始提交、精确`run_id + run_attempt`及同提交普通CI身份；Artifact名称必须为`manual-data-rollback-intent-<run_id>-<run_attempt>`。`old_active`仅允许Intent绑定的原始精确attempt执行撤销登记和指针写入；同一run的其他attempt及其他恢复run不得重放旧Intent写生产。`target_active`只允许完整只读复核并重建审计，不得递增代次或重写任何生产对象；任何其他当前指针字节均为`conflict`并立即失败关闭。
+- 人工回滚审计使用`manual-data-rollback-audit-v4`，同时保存Intent原始提交/`run_id + run_attempt`、最终收尾提交/`run_id + run_attempt`、原始普通CI和`finalizer_ordinary_ci_run_id`；审计及诊断Artifact名称必须包含对应`run_id-run_attempt`。指针已经切换但审计生成或提交中断时，后续运行必须成对提供精确`recovery_run_id + recovery_run_attempt`，复用对应attempt的耐久Intent，确认`target_active`后只读重建审计；已有耐久审计时，无云密钥作业直接校验并恢复提交，不得再次进入生产Environment。本地实现和有限测试不能替代真实GitHub跨运行Artifact、受保护Environment、真实云端中断恢复或对象级CAS证据。
+- 内置快照月份只是不受控普通发布的防降级基线，不是受控回滚下限。已有可信本地状态时回滚闭合本地坏活动版本；首次安装或无可信本地状态时，在线取得的回滚闭合当前受信控制指针、不可变撤销项和精确替代目标。两种路径都允许目标早于内置月份；目标完整验证失败时继续使用另一份自身验证通过且未命中已知撤销的数据，不存在时才进入 `unavailable`。
+- 拟写入的回滚指针、撤销登记和目标manifest必须通过“清单契约”定义的统一权威控制指针验证器；分类器、字段非空检查或任一入口的局部验证都不能替代。
+- 只有上述检查全部通过后才允许原子更新 `current.json`；只验证manifest、版本存在或字段非空都不构成合格回滚。不得删除问题版本，以便审计。
 - 回滚后记录原因、操作时间、操作人、原版本、目标版本和验证结果。
 - 数据错误修复后发布新的 `dataset_version`，不得覆盖或“修补”已发布版本目录。
 
@@ -518,7 +756,10 @@ validation_status: passed
 - 发布权限只授予受保护的CI服务身份和必要维护人员；生产环境与测试环境使用不同目录或不同云环境。
 - 云开发发布凭据只保存在GitHub受保护Environment的Secrets中，设置最小存储写入和云函数调用权限；不得出现在仓库、日志、Artifact、客户端、版本归档或Pull Request运行环境。
 - 优先使用GitHub OIDC或平台支持的短期凭据；若云开发工具只能使用长期凭据，必须使用独立最小权限服务身份、设置轮换周期并验证吊销流程。
-- 自动发布只允许来自默认保护分支的固定提交；工作流文件、发布脚本、校验规则或依赖锁文件发生变化时，必须先通过普通CI，不能在同一次未审查变更中取得生产凭据并发布。
+- 自动发布、历史修订、固定修正和人工回滚只允许来自默认保护分支的固定提交；工作流文件、发布脚本、校验规则或依赖锁文件发生变化时，必须先通过同一提交的普通CI，不能在同一次未审查变更中取得生产凭据并发布。
+- 待发布恢复和其他自动Secret入口必须在进入生产Environment前证明同一精确提交的普通 `ci.yml` push运行成功；CI运行ID、提交SHA、数据版本和门禁报告哈希必须进入授权记录，不能引用其他提交或Pull Request结果。
+- 手动Secret入口必须在仓库脚本中拒绝非默认分支和非远端默认分支HEAD；Environment分支规则只作为第二道防线。
+- 生产信任链中的所有非本地GitHub Action必须固定到40位完整commit SHA，范围包括直接读取生产Secrets的作业，以及生成或传递其候选、发现报告、CI证明和Artifact的上游/下游作业。禁止 `@v4`、`@v7`、分支名等可移动引用；本地Action使用受同一提交保护的 `./` 路径，容器Action固定digest。依赖更新通过普通Pull Request、CI、变更日志/来源审查和人工批准，机器扫描发现可移动引用时必须在Environment Secrets可用前失败。
 - 自动发布工作流使用环境并发锁，同一时间最多一个生产指针写操作；取消旧运行不得发生在 `current.json` 上传过程中。
 - 所有写操作保留云端审计日志；长期凭据不得进入客户端、版本归档和CI构件。
 - 远程数据只包含公开统计数据和必要来源信息，不上传用户位置或本地筛选状态。
@@ -530,23 +771,30 @@ validation_status: passed
 
 1. **生成层**：实现紧凑 `bootstrap`、城市分片、清单、哈希、体积门禁和本地故障测试。
 2. **云端层**：创建只读清单云函数、测试/生产目录、上传、远端回读、指针切换和回滚命令。
-3. **客户端层**：实现检查调度、文件缓存、哈希校验、原子启用、按需城市下载和三级回退。
+3. **客户端层**：实现检查调度、完整70城 `bootstrap` 下载、文件缓存、哈希与全量重建校验、原子启用和未撤销版本回退；70个城市分片只供旧客户端兼容和云端逐城审计，新客户端切换城市不得下载分片。
 4. **上线层**：完成双真机、弱网、损坏数据和回滚演练，发布首个支持远程更新的小程序代码版本。
 5. **自动化层**：实现双源日程、只读发现、受限自动发布、私有审计、通知、发布后守卫和自动回滚；先在测试云环境用历史页面演练，再显式开启生产自动发布开关。
 
-生产自动发布默认关闭。只有历史页面回放、测试环境完整发布、指针切换中断、损坏文件、双源冲突、凭据失效和自动回滚演练全部通过，才能在受保护环境中把 `automatic_release_enabled` 设为 `true`。第一版只做全量版本切换，不做用户灰度或运营后台。
+生产自动发布默认关闭。仓库级自动化总开关的唯一有效名称是 `AUTOMATIC_RELEASE_ENABLED`，生产 Environment 的独立写授权名称是 `PRODUCTION_RELEASE_AUTHORIZED`；两者职责不同、不得复用或互相替代，且普通发布、历史修订、回滚、状态部署和待发布恢复必须在两者分别为精确字符串 `true` 时才可生产写入。唯一legacy迁移只可使用本文件专节定义的独立一次性授权，迁移前后两个普通开关均保持关闭，且该例外不得扩展到其他写入。完整启用硬门槛唯一以 [每月自动更新启用清单](AUTOMATION_ACTIVATION_CHECKLIST.md) 为准；[项目执行指南](../AGENTS.md) 只规定失败关闭边界，[实施状态登记](IMPLEMENTATION_STATUS.md) 只提供各编号的实现、验证和证据状态。本节不复制门槛清单。历史页面回放、测试环境完整发布、故障演练、legacy迁移、上传开发版、提交审核或审核通过均不能单独满足任何启用门槛。本段只约束启用条件，不改变C02既定的SLA起点；第一版只做全量版本切换，不做用户灰度或运营后台。
 
 ## 长期维护职责
 
 | 频率 | 事项 |
 | --- | --- |
-| 每次官方发布 | 自动发现、门禁、发布、复核、通知和24小时观察；异常才人工介入 |
+| 每次官方发布 | 自动发现生成只读报告；独立状态部署、候选门禁、发布、复核、通知和24小时观察按各自权限执行。D19关闭前维护人按监督时点人工巡检 |
 | 每月 | 检查云存储、下载流量、函数调用、错误率和预算告警 |
+| 每季度 | 复核已纳入生产的历史官方页面URL与原始哈希；变化只创建隔离修订任务 |
 | 每季度 | 发布小程序维护版，刷新内置兜底数据并复测客户端兼容性 |
 | 每半年 | 实际执行一次回滚演练，确认历史版本仍可下载和启用 |
-| 每年 | 更新国家统计局发布日程，检查云开发套餐、权限和存储保留量 |
+| 每年 | 更新国家统计局发布日程和官方法定节假日配置，检查覆盖年份、云开发套餐、权限和存储保留量 |
 
-自动任务负责正常月份的来源固定、差异报告、门禁、发布和回滚。维护人员负责处理隔离异常、审查官方历史修订、轮换凭据和维护解析器。每次人工重跑仍必须使用完整门禁；人工身份不得拥有跳过验证的发布路径。
+只读发现任务负责来源固定和观察报告，且永远无生产写权限；独立状态部署任务负责在数据身份不变时部署 `current/updating/stale` 控制状态；发布任务负责候选与 `current` 数据切换；监测任务只读。维护人员负责D19关闭前的计划时点巡检、处理隔离异常、审查官方历史修订、轮换凭据和维护解析器。每次人工重跑仍必须使用完整门禁；人工身份不得拥有跳过验证的发布路径。
+
+法定工作日配置必须记录年份、官方来源、发布时间、配置版本和覆盖状态。下一年度配置尚未公布时标记 `waiting_for_official_calendar`，不得自行猜测节假日；该状态只限制跨入未覆盖年度的SLA计算，不阻断当前已覆盖年份的正常发布。
+
+### 历史页面复核
+
+历史页面复核发现URL、重定向链或原始内容哈希变化时，只创建唯一隔离修订任务并保存新旧证据，不得直接修改标准化数据、远程版本或 `current.json`。在该能力取得通过证据前，不得声称系统可以自动发现统计局事后修订。
 
 ## 成本与保留策略
 
@@ -560,25 +808,45 @@ validation_status: passed
 
 ## 验收门槛
 
-首次发布远程更新能力前必须覆盖：
+首次启用远程更新能力，或变更远程格式、历史修订协议和客户端更新规则前，必须覆盖：
 
-- 首次安装在线、首次安装离线、旧缓存启动和清缓存启动。
+- 首次安装和清除Storage/文件缓存后，无论在线或离线，完整内置快照自身校验通过即正常展示；控制面检查并行执行，失败或超时只产生检查失败/状态陈旧，不得锁死页面。旧缓存启动、清缓存启动和远程哈希损坏分别验证相同的“当前已验证且未命中已知撤销数据继续可用”优先级。
+- 冷启动和每次重新进入前台验证：`onShow()` 同步返回 `undefined`，远程刷新在内部异步执行；同一前台会话的重复触发复用一个进行中Promise并服从15分钟防抖，超时、拒绝、解析失败均由内部 `catch/finally` 收敛。首屏不得等待网络，不得出现生命周期超时或未处理Promise。
+- `validation_receipt` 正向覆盖静态指针有效、新鲜回执动态重新授权过期静态指针两种完整门禁；反向覆盖回执自身过期时只单调摄取撤销、不下载/不激活，以及回执缺失、验证器身份错误、当前指纹/manifest/撤销哈希/两类代次任一错绑时连撤销也不采信。所有分支必须证明当前安全页面不变，已知坏缓存不会复活。
+- 合法受控回滚目标早于内置月份、内置快照自身已撤销、已有坏活动缓存、首次安装/无可信本地状态及回滚后重启均分别通过；内置月份比较不得拒绝已闭合的精确替代目标。替代包损坏时不得恢复被撤销版本；另有安全本地数据则保留，没有时进入 `unavailable`。
+- 已持久化撤销在离线、控制过期、重启和远程失败时持续生效；在线重新取得的更高代次撤销立即生效。控制状态过期并刷新失败时继续使用自身验证通过且未命中已知撤销的数据；清除Storage/文件缓存后回到独立内置基线，重新联网后再应用当前撤销。冷启动/重新进入前台的轻量控制面检查、防抖、24小时新鲜度、新远程切换授权边界和紧急撤销优先级均有测试。
 - 无新版本、有新版本、部分上传、下载中断、超时和云函数不可用。
 - 清单、bootstrap、城市分片分别发生哈希错误和JSON损坏。
-- 远程版本较旧、结构主版本不兼容、最低小程序版本不满足。
+- 远程版本较旧、结构主版本不兼容、最低小程序版本不满足；旧版本同时被撤销时必须进入 `unavailable`，不得停留在升级提示后继续展示错误数据。
 - 磁盘空间不足、缓存清理、横竖屏切换和更新时切换筛选。
+- 临时/半包目录在正常失败回调中被清除；在写入、改名、状态提交各点强制终止进程后，下一次启动按主状态中的缓存引用幂等删除全部未引用孤儿目录。成功后本地只保留活动版本和一个安全回退版本；主状态记录在任一写入中断后仍保持一致，已验证撤销还须证明在主状态提交失败时由独立控制墓碑保留且重启不复活命中版本。
 - 新版本启用后六城、市场位置、温度历史、趋势、累计变化和精确数据与标准发布数据逐值一致。
-- `current.json` 最后切换的原子性，以及回滚到上一版本的完整演练。
+- 精确70城集合、有限数/允许的 `null`、月份连续性及排名、温度、趋势和累计变化逐值重算；落盘后逐文件回读失败不得激活。
+- 所有正确性检查和安全回退验证先于 `current.json` 切换；失败时旧指针原始字节和SHA-256不变。
+- 人工和自动回滚均完整下载、逐文件核对并重建目标版本，且验证 `rollback_allowed`、撤销状态和客户端兼容性。
 - Android和iPhone真机各一台，至少一次弱网和断网恢复测试。
 - 体积、存储、函数调用和下载流量不超过本文预算。
 - 新月度日历与年度日程一致、任一来源单独故障、双源日期冲突、名称变体和候选歧义。
-- 正式页面尚未出现、发布逾期、重复发现、同月并发运行和同版本幂等重试。
+- 正式页面尚未出现、发布逾期、重复发现、同月并发运行和同版本幂等重试；同月同源零业务变化只能幂等结束，不能冒充月度更新或历史修订切换指针。
+- 历史修订 `old_active`、`candidate_active`、`conflict` 三态，以及每个中断点的幂等恢复。
+- `candidate_active` 分别故障注入缺数据包撤销、缺源版本撤销、错误replacement、不同 `revision_id` 和legacy身份不足，均在写前失败且不能靠重跑补写后冒充成功。
+- 人工回滚在任何生产写入前持久化内容寻址Intent；分别覆盖`old_active`仅原始精确attempt可写、同run不同attempt及其他恢复run禁止重放、`target_active`只读重建审计和`conflict`失败关闭。恢复输入必须覆盖“两项都空、两项都填、仅run ID、仅attempt”四种组合；Intent、Artifact attempt、原始/目标指针原字节、撤销登记原字节、目标manifest、普通CI、收尾普通CI、原始attempt或最终收尾attempt任一身份被篡改都必须拒绝。
+- 人工回滚审计v4分别绑定原始attempt和最终收尾attempt；已有耐久审计必须由无云密钥作业恢复提交，恢复型即时监测只接受最终收尾attempt身份，原始attempt不得错误触发。真实GitHub跨运行Artifact恢复和真实云端中断恢复完成前只能登记`passed_limited`。
+- 唯一legacy迁移分别覆盖 `ready` 首次迁移、`already_migrated` 幂等只读复核和 `conflict` 原字节不变；验证迁移前后指针SHA-256、旧manifest/bootstrap原字节、两次完整70城逐值校验、双重撤销及代次、下一次普通发布保留撤销、授权结束撤销，以及普通入口拒绝legacy。写入阶段只绑定`legacy-control-migration-intent-v3`中的固定验证器契约并完成直接对象回读；严格函数部署后，收尾阶段再验证`describe_validator`精确三字段和十分钟回执。该intent和审计v3必须绑定原始/收尾`run_id + run_attempt`，Artifact按attempt隔离，同run不同attempt在`ready`状态必须拒绝生产写；恢复必须使用`getWorkflowRunAttempt`精确定位来源attempt。`describe_validator_observed`、`describe_validator_verified`、`cloud_function_response_observed` 与 `strict_validator_verified` 必须分开断言；收尾预检/回执缺失或错配必须失败关闭，没有独立部署和新鲜有效回执时最后一项为 `false`，不得把迁移写成完整通过。
+- 唯一旧bootstrap兼容必须同时精确绑定迁移ID、旧manifest SHA-256和旧bootstrap SHA-256，仅在内存中转换覆盖起点语义；任一身份不符、试图改写旧字节、补写manifest发布类别或扩展到第二个旧包都必须失败。
 - 非官方重定向、验证码/拦截页、HTML结构变化、缺城、缺表、重复记录、旧月份修订和异常差异隔离。
-- 未通过门禁时生产凭据不可用且 `current.json` 不变；全部门禁通过时自动发布无需本机或人工输入。
+- 独立审计绑定完整候选记录哈希、来源索引哈希和提交SHA；修订账本旧前缀、追加集合和修订链全部一致。
+- 多月份历史修订的私有审计覆盖全部 `revision_source_batch_ids`，并自动进入统一发布登记和24小时只读监测。
+- 法定工作日配置覆盖当前SLA年份；历史官方页面哈希变化只生成隔离修订任务。
+- 未通过门禁时生产凭据不可用且 `current.json` 不变；全部正确性门禁通过时自动发布无需本机或逐版本人工输入。D19关闭前仍按有人监督模式检查运行状态，不得据此声称通知闭环已经无人值守。
 - 指针上传前中断、指针上传后复核失败、自动回滚成功，以及自动回滚本身失败时的高优先级通知。
+- 同一故障通知去重、责任人确认、确认超时和恢复后关闭原记录的完整生命周期。
 - GitHub默认分支/环境保护、Secrets脱敏、Fork和Pull Request无法读取生产凭据。
+- 发布、回滚、守卫、云函数、迁移和修复入口共享同一控制指针验证契约；负代次、非法哈希、空状态原因、转换类型错配、撤销代次倒退和replacement不闭合的fixture在所有实现中一致失败。
+- 只读发现没有写凭据；独立状态部署作业在基线一致时只改变允许的状态字段并递增控制代次，在基线冲突、撤销变化、回读失败时保持原指针。观察报告与已部署状态分别留证。
+- 生产信任链所有外部 `uses:` 通过机器扫描固定40位完整commit SHA或容器digest；可移动标签、reusable workflow遗漏和间接Artifact链均有失败fixture。
 
-在首个支持远程数据的代码版本完成真机验收和微信审核发布、自动化层完成测试环境演练并显式开启生产开关前，不得向现有用户承诺每月自动更新已经启用。当前已发布的 `v2.0.2` 仍以版本内置数据为准。
+现有平台证据只证明 `v2.3.0` 开发版曾上传，不证明体验版、双真机、审核或正式发布；实际线上版本及普通月度能力必须在微信平台现场核验。[自动更新启用清单](AUTOMATION_ACTIVATION_CHECKLIST.md) 未全部通过时，`AUTOMATIC_RELEASE_ENABLED` 不得开启；当前 `v2.4.1` 完成真实CI、云端、开发者工具、双真机和微信审核发布前，不得描述为线上客户端已经支持受审计历史修订协议。
 
 ## 2026-07-27 云端联调记录
 
@@ -587,12 +855,23 @@ validation_status: passed
 - `.github/workflows/cloud-write-rehearsal.yml` 是独立手动演练入口。它只允许写入 `housing-data/rehearsals/<github-run-id>-<attempt>/`，并执行上传、HEAD、下载、字节数与 SHA-256 回读校验；脚本硬性拒绝 `housing-data/current.json`、`housing-data/releases/` 及其他非演练路径。
 - 演练对象默认保留用于审计，不自动申请删除权限；其体积不足 1KB，可在后续存储维护窗口按明确前缀清理。
 - 隔离写入工作流运行 `30263193696` 已在真实 GitHub Environment 中通过；两个演练对象均完成上传、HEAD、下载、字节数与 SHA-256 复核。随后运行 `30263278546` 的只读全量监测再次确认正式 `current.json` 未变化、云函数响应有效且 70 城完整版本可重建。
-- 同一隔离工作流还必须覆盖受控指针切换、故障自动回滚、恢复回读，以及完整70城候选包、70个兼容分片和清单的目录上传、全量下载和逐值重建；客户端还必须证明一次更新后70城全部在本地且切换城市零下载。通过后再评估人工监护的正式指针演练。这些演练完成前 `AUTOMATIC_RELEASE_ENABLED` 必须保持 `false`。
+- 同一隔离工作流还必须覆盖受控指针切换、故障自动回滚、恢复回读，以及完整70城候选包、70个兼容分片和清单的目录上传、全量下载和逐值重建；客户端还必须证明一次更新后70城全部在本地且切换城市零下载。通过后再评估人工监护的正式指针演练。该历史演练即使完成也不能替代 [实施状态登记](IMPLEMENTATION_STATUS.md) 的现行关闭证据或 [自动更新启用清单](AUTOMATION_ACTIVATION_CHECKLIST.md)，生产开关继续保持 `false`。
 - 上述完整隔离演练已由运行 `30264827489` 通过：70 个城市分片全部上传并回读，候选版本 `2026-06-613e79a55a31` 完整重建通过；隔离指针成功切换，故意触发发布后守卫失败后自动回滚并确认恢复。紧随其后的只读生产复核运行 `30265087706` 再次通过，正式版本仍为 `2026-06-ec36ff8fb2e5`，`current.json` 哈希保持 `d2ef3cd4248c0bb8ad1bda305a11587db1ca38012d952178e8cdbae32e8a3c96`。
 
 ## 完整历史回放规范
 
-使用 `npm run miniprogram:data:replay -- --months=12`，按时间顺序对最近12个已核验月份做确定性回放。当前样本从2025年6月基线开始，依次模拟2025年7月至2026年6月的12次月度更新，覆盖发布日程、正式页面发现、官方HTML重解析、候选门禁、70城发布包、隔离云上传、隔离指针切换和小程序客户端启用。
+### 当前版本的两条独立证据链
+
+每个改变自动更新客户端、远程协议、解析器、审计器或发布门禁的小程序版本，都必须在该版本的精确提交上重新形成两条互不替代的证据链：
+
+1. **普通月度更新12次执行**：每次独立回放仍须覆盖官方来源解析、560条新增记录逐值核对、历史零变化、候选构建、损坏包拒绝、隔离上传与回读、隔离指针切换、完整70城客户端激活和切城零下载。当前 `v2.4.1` 证据由两组各6轮的连续生产等价转移组成，不得误写成12个不同月份。
+2. **历史修订专项故障回放**：使用同一版本的受审计历史修订协议，覆盖单条、多城市、多月份、150条以上修订，以及未批准差异、批准项缺失、旧值不匹配、修订链断裂、撤销冲突、三态重跑、指针切换前后中断、无安全回退和已知错误版本不可恢复。至少执行12轮顺序回放；每轮必须包含一个应成功案例和规定的失败关闭案例。
+
+两条报告都必须绑定 `app_version`、精确 `source_commit_sha`、`source_dataset_version`、`parser_version`、`audit_version`、工作流文件SHA-256、GitHub运行ID、测试云环境、起止时间和逐阶段耗时。任一身份不同、证据缺失或只提供汇总截图时，不得合并结论。
+
+现有 `MINIPROGRAM_12_MONTH_REPLAY_*.md` 记录的是指定旧提交和 `v2.3.0` 普通月度能力，不能证明当前 `v2.4.1` 的历史修订协议安全。当前已新增 [`MINIPROGRAM_V2_4_1_12_MONTH_REPLAY.md`](MINIPROGRAM_V2_4_1_12_MONTH_REPLAY.md)，证明未提交工作区候选的普通月度12次本地隔离执行；尚无同时满足普通月度与历史修订两条证据链的精确候选/真实云端报告，因此R02为 `partial/passed_limited`，不得据此开启生产自动发布。
+
+使用 `npm run miniprogram:data:replay -- --months=6`，按时间顺序对当前可用的最近6个已核验月份做确定性回放；需要满足“至少12次执行”时，必须从第1轮重新启动第二组独立的6轮，不能伪造覆盖起点之前的官方数据。当前 `v2.4.1` 两组报告均从 `2025-12 -> 2026-01` 开始，连续到 `2026-05 -> 2026-06`，合计12次执行。原因是正式数据覆盖从 `2016-01` 开始且客户端固定120个月窗口，当前可生成的生产等价连续转移只有这6步；任何覆盖外月份只能作为显式测试填充，不能进入生产数据。
 
 - 云端模式只能写入 `housing-data/rehearsals/<github-run-id>/full-auto-update-year/`；脚本通过 `assertRehearsalKey` 拒绝生产 `current.json` 和 `releases/` 路径。
 - 12轮严格顺序执行。任一轮失败立即停止，写入失败月份、已完成轮次、错误和问题清单；修复后必须从第1轮重新开始，后续月份不得掩盖前序失败。
@@ -601,11 +880,11 @@ validation_status: passed
 - 客户端每轮必须从上一月快照启动，一次下载并激活目标月完整70城远程快照；随后至少切换一个常用城市和两个非常用城市，证明不产生新的下载请求。
 - 每轮反向回放故意删除一条官方记录；门禁必须在上传和指针切换前失败，隔离指针内容及SHA-256必须保持不变。
 - COS对象操作每批最多10个，普通对象由SDK执行单次60秒请求超时；约1.35MB的完整 `bootstrap.json` 由SDK执行单次180秒请求超时。每个对象最多3次幂等重试，SDK确认前一次超时请求已中止后才允许重试，避免请求重叠。三次失败后停止当轮并保留上一月指针，不得继续下一轮。
-- 2025年7月至11月的历史客户端窗口早于项目2016年1月覆盖起点，演练仅用 `null` 填充覆盖外月份并在问题报告披露。所有覆盖内数值和目标月560条记录仍必须与官方归档逐条一致；该填充不得进入生产数据。
+- 不得使用2016年1月覆盖起点以前的月份伪造12个月生产数据。若未来数据覆盖范围扩大，再按同一协议增加连续转移；当前报告只记录覆盖内月份，任何测试填充都必须单独标注并禁止进入生产数据。
 - GitHub手动入口为 `.github/workflows/full-auto-update-replay.yml`，报告保留90天。每次修改解析器、数据门禁、远程格式、客户端运行时或生产发布工作流后，都必须重新执行。
-- 本回放通过不代表生产自动发布已开启。`AUTOMATIC_RELEASE_ENABLED` 继续保持 `false`，直到双真机验收、微信审核发布和其余故障演练完成后由维护人明确授权。
+- 本回放通过不代表生产自动发布已开启。`AUTOMATIC_RELEASE_ENABLED` 继续保持 `false`，直到 [自动更新启用清单](AUTOMATION_ACTIVATION_CHECKLIST.md) 全部适用项通过并由维护人明确授权。
 
-时效按“官方正式页面可访问”开始计算。正常09:30发布时，09:32至10:27每5分钟检查，发现等待通常为0至5分钟，另计GitHub少量排队时间；完整CI检查、构建和端到端测试通常需要5至15分钟；最新最终候选12轮云端实测每轮数据门禁、发布包、全量回读、隔离切换和客户端激活为30.5至130.8秒，平均66.6秒，详见 `docs/MINIPROGRAM_12_MONTH_REPLAY_30411300588.md`。正常目标为正式页面出现后10至25分钟可用，服务目标为30分钟，GitHub异常排队时保守目标为45分钟。若10:30前未发现，当天仅在12:00和16:00补查，不承诺30分钟目标。新用户打开或已有用户重新进入前台后即可检查新指针；任一数据门禁失败时不承诺更新时间，继续保留上月数据，符合“宁可不更新，也不能错误更新”的原则。
+时效按“官方正式页面可访问”开始计算。正常09:30发布时，09:32至10:27每5分钟检查，发现等待通常为0至5分钟，另计GitHub少量排队时间；完整CI检查、构建和端到端测试通常需要5至15分钟。当前 `v2.4.1` 本地隔离回放的内部流水线单轮为6.868至14.069秒，12次平均9.956秒；该数字不是实际云端发布时间耗时，详见 [`MINIPROGRAM_V2_4_1_12_MONTH_REPLAY.md`](MINIPROGRAM_V2_4_1_12_MONTH_REPLAY.md)。统一层级目标为：10至25分钟正常预期、30分钟内部SLO、45分钟预警、60分钟正式SLA。当前 `automation_disabled` 状态下这些只是条件目标和历史耗时参照，不是已生效生产承诺；而且10:30后的12:00/16:00补查不能保证从任意正式页面可访问时点起60分钟内发现，所以即使未来启用自动发布，在补齐调度覆盖和云端验证前也不得声称正式SLA已达成。新用户打开或已有用户重新进入前台后才可检查新指针。任一数据门禁失败时不承诺更新时间，继续保留上月数据，符合“宁可不更新，也不能错误更新”的原则。
 
 ### 2026-07-28 回放记录
 

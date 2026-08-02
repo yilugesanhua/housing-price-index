@@ -30,6 +30,92 @@ const DEFAULT_STATE = {
   cities: ['beijing'],
 }
 
+function hasUsableSnapshot(value = snapshot) {
+  return value?.dataStatus !== 'unavailable'
+    && Array.isArray(value?.months)
+    && value.months.length > 0
+    && Array.isArray(value?.cityIds)
+    && value.cityIds.length > 0
+    && Boolean(value?.cityMap?.[DEFAULT_STATE.focusCity])
+}
+
+function makeUnavailableView() {
+  return {
+    state: { ...DEFAULT_STATE, cities: [...DEFAULT_STATE.cities] },
+    propertyLabel: LABELS.property[DEFAULT_STATE.propertyType],
+    metricLabel: LABELS.metric[DEFAULT_STATE.metric],
+    sizeLabel: LABELS.size[DEFAULT_STATE.sizeBand],
+    rangeLabel: LABELS.range[DEFAULT_STATE.range],
+    propertyIndex: 0,
+    metricIndex: 0,
+    sizeIndex: 0,
+    rangeIndex: 1,
+    focusCityIndex: -1,
+    focusCityName: '',
+    focusTone: 'flat',
+    focusMovement: '',
+    focusMagnitude: '—',
+    focusRank: '—',
+    rankedCount: 0,
+    featuredCards: [],
+    counts: { up: 0, flat: 0, down: 0, missing: 0 },
+    selectedCities: [],
+    cityOptions: [],
+    market: {
+      total: 0,
+      upWidth: '0%',
+      flatWidth: '0%',
+      downWidth: '0%',
+      nationalCount: 0,
+      nationalRank: '—',
+      nationalRows: [],
+      tierLabel: '',
+      tierCount: 0,
+      tierRank: '—',
+      tierRows: [],
+      province: '',
+      provinceCount: 0,
+      provinceRank: '—',
+      provinceRows: [],
+    },
+    breadthHistory: [],
+    breadthChartData: [],
+    cumulativeData: [],
+    cumulativeLatest: [],
+    cumulativeStartMonth: '',
+    exactMonths: [],
+    exactMonthLabels: [],
+    exactMonthIndex: -1,
+    exactMonth: '',
+    exactData: [],
+  }
+}
+
+function removeLocationCache() {
+  try { wx.removeStorageSync(LOCATION_CACHE_KEY) } catch (_) {}
+}
+
+function readValidLocationCache() {
+  let cached = null
+  try { cached = wx.getStorageSync(LOCATION_CACHE_KEY) } catch (_) { return null }
+  if (!cached) return null
+  const locatedAt = Number(cached.locatedAt)
+  const age = Date.now() - locatedAt
+  const knownCity = hasUsableSnapshot() && Boolean(snapshot.cityMap[cached.cityId])
+  const valid = typeof cached.cityId === 'string'
+    && /^[a-z]+$/.test(cached.cityId)
+    && Number.isFinite(locatedAt)
+    && locatedAt > 0
+    && age >= 0
+    && age < locationConfig.cacheDurationMs
+    && knownCity
+  if (!valid) {
+    removeLocationCache()
+    return null
+  }
+  return { cityId: cached.cityId, locatedAt }
+}
+
 function formatChange(value) {
   if (value === null || value === undefined) return '—'
   return `${value > 0 ? '+' : ''}${Number(value).toFixed(1)}%`
@@ -315,12 +401,16 @@ Page({
     sizeOptions: OPTIONS.size.map((item) => item.label),
     rangeOptions: OPTIONS.range.map((item) => item.label),
     dataNotice: '',
+    dataUnavailable: !hasUsableSnapshot(),
+    dataRetrying: false,
+    dataUnavailableMessage: '当前没有可验证的住宅价格数据。请联网重试；在撤销状态和完整数据包验证通过前，不展示排名、趋势或市场结论。',
     pickerOpen: false,
     exactOpen: false,
     showExactData: false,
     hiddenCityIds: [],
     searchText: '',
     scrollIntoView: '',
+    rankingScrollCity: hasUsableSnapshot() ? DEFAULT_STATE.focusCity : '',
     activeSection: 'overview',
     analysisNavFixed: false,
     trendChartError: false,
@@ -328,7 +418,7 @@ Page({
     breadthChartError: false,
     locationStatus: 'idle',
     locatedCityId: '',
-    ...makeView(DEFAULT_STATE),
+    ...(hasUsableSnapshot() ? makeView(DEFAULT_STATE) : makeUnavailableView()),
     onInitChart(F2, config) {
       try {
       console.info('[chart:init] trend', { width: config.width, height: config.height })
@@ -447,26 +537,47 @@ Page({
     const routeState = parseQuery(query)
     let stored = null
     let focusSource = ''
-    let cachedLocation = null
     try { stored = wx.getStorageSync(STORAGE_KEY) } catch (_) {}
     try { focusSource = wx.getStorageSync(FOCUS_SOURCE_KEY) } catch (_) {}
-    try { cachedLocation = wx.getStorageSync(LOCATION_CACHE_KEY) } catch (_) {}
-    if (cachedLocation && snapshot.cityMap[cachedLocation.cityId] && Date.now() - Number(cachedLocation.locatedAt) < locationConfig.cacheDurationMs) {
-      this.setData({ locatedCityId: cachedLocation.cityId })
-    }
-    this.applyState(normalizeState(routeState || stored || DEFAULT_STATE), false)
-    if (!routeState && focusSource !== 'manual' && locationConfig.autoLocate && locationConfig.cloudEnvId) {
-      this.locateCurrentCity({ useCache: true })
-    }
+    const cachedLocation = readValidLocationCache()
+    this._pendingStateCandidate = routeState || stored || DEFAULT_STATE
+    this._hasRouteState = Boolean(routeState)
+    this._focusSource = focusSource
+    if (cachedLocation) this.setData({ locatedCityId: cachedLocation.cityId })
+    if (!hasUsableSnapshot()) return
+    this.applyState(normalizeState(this._pendingStateCandidate), false)
+    this._pendingStateCandidate = null
+    this.maybeAutoLocate()
     const overdue = snapshot.nextCheckDueAt && Date.now() > new Date(snapshot.nextCheckDueAt).getTime()
     if (snapshot.dataStatus !== 'current' || overdue) this.setData({ dataNotice: `当前数据可能未及时更新，请以国家统计局最新发布为准。数据截至 ${snapshot.datasetAsOf}。` })
-    this.refreshRemoteData()
   },
 
-  async refreshRemoteData() {
+  onShow() {
+    void this.refreshRemoteData()
+  },
+
+  refreshRemoteData(options = {}) {
+    if (this._refreshPromise) return this._refreshPromise
+    this._refreshPromise = this.performRemoteRefresh(options)
+      .catch((error) => {
+        console.error('[data:update] page refresh failed', error)
+        snapshot = dataRuntime.getSnapshot()
+        if (!hasUsableSnapshot()) this.enterUnavailableState()
+        return { updated: false, source: dataRuntime.getSource(), reason: 'page-refresh-failed', error }
+      })
+      .finally(() => { this._refreshPromise = null })
+    return this._refreshPromise
+  },
+
+  async performRemoteRefresh({ force = false } = {}) {
     const requiredCityIds = [...new Set([...(this.data.state?.cities || []), this.data.state?.focusCity].filter(Boolean))]
-    const result = await dataRuntime.refresh({ requiredCityIds })
-    if (!result.updated) return
+    const result = await dataRuntime.refresh({ requiredCityIds, force })
+    snapshot = dataRuntime.getSnapshot()
+    if (!hasUsableSnapshot()) {
+      this.enterUnavailableState()
+      return result
+    }
+    if (!result.updated && !this.data.dataUnavailable) return result
     await dataRuntime.ensureCities([...(this.data.state?.cities || []), this.data.state?.focusCity].filter(Boolean))
     snapshot = dataRuntime.getSnapshot()
     LOCATION_CITY_IDS = [...snapshot.cityIds].sort((left, right) => left.localeCompare(right, 'en'))
@@ -477,13 +588,60 @@ Page({
       coverageStart: snapshot.coverageStart,
       latestOfficialUrl: snapshot.latestOfficialUrl,
       focusCityNames: LOCATION_CITY_IDS.map((id) => snapshot.cityMap[id].name),
-      dataSourceLabel: '云端数据已更新',
+      dataSourceLabel: dataRuntime.getSource() === 'remote' ? '云端数据已更新' : '内置数据',
       dataNotice: snapshot.dataStatus !== 'current' || overdue ? `当前数据可能未及时更新，请以国家统计局最新发布为准。数据截至 ${snapshot.datasetAsOf}。` : '',
+      dataUnavailable: false,
+      dataUnavailableMessage: '',
     })
-    this.applyState(normalizeState(this.data.state), false)
+    this.applyState(normalizeState(this._pendingStateCandidate || this.data.state), false)
+    this._pendingStateCandidate = null
+    this.maybeAutoLocate()
+    return result
+  },
+
+  enterUnavailableState() {
+    if (!this.data.dataUnavailable) this._pendingStateCandidate = this.data.state
+    ;[this.chart, this.cumulativeChart, this.breadthChart].forEach((chart) => {
+      if (chart && typeof chart.destroy === 'function') chart.destroy()
+    })
+    this.chart = null
+    this.cumulativeChart = null
+    this.breadthChart = null
+    this.setData({
+      ...makeUnavailableView(),
+      datasetAsOf: snapshot.datasetAsOf,
+      releaseDate: formatReleaseDate(snapshot.releaseDate),
+      latestOfficialUrl: snapshot.latestOfficialUrl,
+      focusCityNames: [],
+      pickerOpen: false,
+      analysisNavFixed: false,
+      dataNotice: '',
+      dataUnavailable: true,
+      dataUnavailableMessage: '当前没有可验证的住宅价格数据。请联网重试；在撤销状态和完整数据包验证通过前，不展示排名、趋势或市场结论。',
+      dataSourceLabel: '数据暂不可用',
+    })
+  },
+
+  async retryData() {
+    if (this.data.dataRetrying) return
+    this.setData({ dataRetrying: true, dataUnavailableMessage: '正在重新取得并校验完整数据，请稍候。' })
+    try {
+      await this.refreshRemoteData({ force: true })
+      if (this.data.dataUnavailable) this.setData({ dataUnavailableMessage: '仍未取得通过校验的数据。请检查网络后重试，或查看数据来源与审计说明。' })
+    } finally {
+      this.setData({ dataRetrying: false })
+    }
+  },
+
+  maybeAutoLocate() {
+    if (this._autoLocationAttempted || this._hasRouteState || this._focusSource === 'manual') return
+    if (!locationConfig.autoLocate || !locationConfig.cloudEnvId || !hasUsableSnapshot()) return
+    this._autoLocationAttempted = true
+    this.locateCurrentCity({ useCache: true })
   },
 
   onReady() {
+    if (this.data.dataUnavailable) return
     this.drawSparklines()
     wx.createSelectorQuery().select('.analysis-nav').boundingClientRect((rect) => {
       if (rect) this._analysisNavTop = rect.top
@@ -493,7 +651,7 @@ Page({
   onShareAppMessage() {
     const state = this.data.state
     const path = `/pages/index/index?v=1&metric=${state.metric}&type=${state.propertyType}&range=${state.range}&cities=${state.cities.join(',')}&focus=${state.focusCity}&size=${state.sizeBand}`
-    return { title: `住房小二 · 数据截至${snapshot.datasetAsOf}`, path }
+    return { title: this.data.dataUnavailable ? '住房小二 · 数据暂不可用' : `住房小二 · 数据截至${snapshot.datasetAsOf}`, path }
   },
 
   getTrendData() {
@@ -515,6 +673,7 @@ Page({
   },
 
   drawSparklines() {
+    if (this.data.dataUnavailable) return
     const width = 66
     const height = 24
     this.data.featuredCards.forEach((card) => {
@@ -542,11 +701,13 @@ Page({
 
   applyState(state, persist = true) {
     const hiddenCityIds = (this.data.hiddenCityIds || []).filter((id) => state.cities.includes(id))
-    this.setData({ ...makeView(state, this.data.searchText || '', hiddenCityIds), hiddenCityIds }, () => {
-      this.drawSparklines()
-      if (this.chart) this.chart.changeData(this.getTrendData())
-      if (this.cumulativeChart) this.cumulativeChart.changeData(this.getCumulativeData())
-      if (this.breadthChart) this.breadthChart.changeData(this.data.breadthChartData)
+    this.setData({ ...makeView(state, this.data.searchText || '', hiddenCityIds), hiddenCityIds, rankingScrollCity: '' }, () => {
+      this.setData({ rankingScrollCity: state.focusCity }, () => {
+        this.drawSparklines()
+        if (this.chart) this.chart.changeData(this.getTrendData())
+        if (this.cumulativeChart) this.cumulativeChart.changeData(this.getCumulativeData())
+        if (this.breadthChart) this.breadthChart.changeData(this.data.breadthChartData)
+      })
     })
     if (persist) {
       try { wx.setStorageSync(STORAGE_KEY, state) } catch (_) {}
@@ -582,9 +743,8 @@ Page({
     }
 
     if (options.useCache) {
-      let cached = null
-      try { cached = wx.getStorageSync(LOCATION_CACHE_KEY) } catch (_) {}
-      if (cached && snapshot.cityMap[cached.cityId] && Date.now() - Number(cached.locatedAt) < locationConfig.cacheDurationMs) {
+      const cached = readValidLocationCache()
+      if (cached) {
         this.selectFocusCity(cached.cityId, 'location')
         return
       }

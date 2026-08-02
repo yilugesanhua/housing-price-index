@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict'
+import { readFileSync } from 'node:fs'
 import { createRequire } from 'node:module'
 import { readdir, readFile, stat } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import test from 'node:test'
+import { runInNewContext } from 'node:vm'
 
 const root = resolve(import.meta.dirname, '../..')
 const require = createRequire(import.meta.url)
@@ -12,10 +14,50 @@ function loadPageConfig(relativePath) {
   let pageConfig
   globalThis.Page = (config) => { pageConfig = config }
   const pagePath = resolve(root, relativePath)
-  delete require.cache[require.resolve(pagePath)]
-  require(pagePath)
-  delete globalThis.Page
+  const pageModulePath = require.resolve(pagePath)
+  let runtimeModule = null
+  let originalRuntime = null
+  if (relativePath === 'apps/miniprogram/pages/index/index.js') {
+    const bundled = require(snapshotPath)
+    const runtimePath = require.resolve(resolve(root, 'apps/miniprogram/utils/data-runtime.js'))
+    require(runtimePath)
+    runtimeModule = require.cache[runtimePath]
+    originalRuntime = runtimeModule.exports
+    runtimeModule.exports = {
+      getSnapshot: () => bundled,
+      getSource: () => 'bundled',
+      hasCity: (cityId) => Boolean(bundled.series[cityId]),
+      refresh: async () => ({ updated: false, source: 'bundled', reason: 'not-due' }),
+      ensureCities: async () => true,
+    }
+  }
+  try {
+    delete require.cache[pageModulePath]
+    require(pageModulePath)
+  } finally {
+    if (runtimeModule) runtimeModule.exports = originalRuntime
+    delete globalThis.Page
+  }
   return pageConfig
+}
+
+function loadHomeWithRuntime(runtime) {
+  const pagePath = resolve(root, 'apps/miniprogram/pages/index/index.js')
+  const pageDirectory = resolve(root, 'apps/miniprogram/pages/index')
+  let pageConfig
+  const context = {
+    Page(config) { pageConfig = config },
+    console: { info() {}, error() {} },
+    Date,
+    setTimeout,
+    clearTimeout,
+    require(specifier) {
+      if (specifier === '../../utils/data-runtime.js') return runtime
+      return require(resolve(pageDirectory, specifier))
+    },
+  }
+  runInNewContext(readFileSync(pagePath, 'utf8'), context, { filename: pagePath })
+  return { pageConfig, context }
 }
 
 function pageHarness(config) {
@@ -63,6 +105,9 @@ test('mini program snapshot covers 70 cities and 120 months', async () => {
   assert.equal(snapshot.featuredCityIds.length, 6)
   assert.equal(snapshot.months.length, 120)
   assert.equal(snapshot.months.at(-1), snapshot.datasetAsOf)
+  assert.equal(snapshot.coverageStart, snapshot.months[0])
+  assert.match(snapshot.sourceCoverageStart, /^20\d{2}-(0[1-9]|1[0-2])$/)
+  assert.ok(snapshot.sourceCoverageStart <= snapshot.coverageStart)
   for (const id of snapshot.cityIds) {
     assert.equal(Object.keys(snapshot.series[id]).length, 8)
     for (const values of Object.values(snapshot.series[id])) assert.equal(values.length, 480)
@@ -117,7 +162,7 @@ test('mini program shows and logs one explicit candidate build version', async (
   assert.equal(JSON.parse(homeConfig).navigationBarTitleText, '住房小二')
   assert.equal(JSON.parse(projectConfig).projectname, '住房小二')
   assert.equal(JSON.parse(projectConfig).libVersion, '3.17.0')
-  assert.match(homeScript, /title: `住房小二 · 数据截至\$\{snapshot\.datasetAsOf\}`/)
+  assert.match(homeScript, /this\.data\.dataUnavailable \? '住房小二 · 数据暂不可用' : `住房小二 · 数据截至\$\{snapshot\.datasetAsOf\}`/)
   assert.match(homeMarkup, /<image class="brand-mark" src="\/assets\/housing-assistant\.png"/)
 })
 
@@ -146,9 +191,9 @@ test('home uses native page scrolling and stable chart hosts', async () => {
   assert.equal(wxml.match(/<picker[^>]+aria-label=/g)?.length, 6)
   assert.match(wxml, /<input class="search"[^>]+aria-label="搜索趋势城市"/)
   assert.equal(wxml.match(/class="ranking-scroll" scroll-y/g)?.length, 3)
-  assert.match(wxml, /scroll-into-view="national-rank-\{\{state\.focusCity\}\}"/)
-  assert.match(wxml, /scroll-into-view="tier-rank-\{\{state\.focusCity\}\}"/)
-  assert.match(wxml, /scroll-into-view="province-rank-\{\{state\.focusCity\}\}"/)
+  assert.match(wxml, /scroll-into-view="national-rank-\{\{rankingScrollCity\}\}"/)
+  assert.match(wxml, /scroll-into-view="tier-rank-\{\{rankingScrollCity\}\}"/)
+  assert.match(wxml, /scroll-into-view="province-rank-\{\{rankingScrollCity\}\}"/)
   assert.doesNotMatch(wxml, /class="focus-entry"/)
   assert.match(wxss, /\.f2-chart\s*\{[^}]*display:\s*block[^}]*position:\s*relative[^}]*height:\s*100%/s)
   assert.match(wxss, /\.nav-row\s*\{[^}]*display:\s*flex[^}]*gap:\s*8rpx/s)
@@ -220,7 +265,8 @@ test('fuzzy location capability is declared and reverse geocoding keeps the map 
   ])
 
   const app = JSON.parse(appConfig)
-  assert.equal(app.permission['scope.userFuzzyLocation'].desc.includes('城市'), true)
+  assert.equal(app.permission['scope.userFuzzyLocation'].desc.includes('腾讯位置服务'), true)
+  assert.equal(app.permission['scope.userFuzzyLocation'].desc.includes('最长24小时'), true)
   assert.equal(app.requiredPrivateInfos.includes('getFuzzyLocation'), true)
   assert.equal(app.requiredPrivateInfos.includes('getLocation'), false)
   assert.match(await readFile(resolve(root, 'apps/miniprogram/pages/index/index.js'), 'utf8'), /\[location:fuzzy\] getFuzzyLocation failed/)
@@ -250,6 +296,10 @@ test('home uses the global range for trends and exposes chart failure fallbacks'
   assert.match(script, /value:\s*\{\s*tickCount:\s*5,\s*formatter:\s*formatIndex\s*\}/)
   assert.match(script, /item\.value\s*=\s*formatChange\(item\.origin\s*&&\s*item\.origin\.change\)/)
   assert.match(script, /`\$\{formatChartMonth\(month\)\}涨跌幅 \$\{item\.name\}`/)
+  assert.match(wxml, /class="unavailable-state" wx:if="\{\{dataUnavailable\}\}"/)
+  assert.match(wxml, /bindtap="retryData"/)
+  assert.match(wxml, /查看数据来源与审计说明/)
+  assert.doesNotMatch(wxml, /可展开“查看精确数据”读取对应月份数值/)
   assert.doesNotMatch(wxml, /class="history-detail"/)
   assert.doesNotMatch(wxml, /缺失月份会断线|不按0计算|颜色与线型共同用于区分城市|中途缺少环比数据时停止后续计算|不跨越缺口拼接/)
   assert.match(wxml, /class="chart-note" wx:if="\{\{selectedCities\.length\}\}">注：虚线为0%基准线；曲线位于基准线上方表示上涨，位于下方表示下跌。<\/text>/)
@@ -337,17 +387,25 @@ test('resize and unload update and destroy all chart instances', async () => {
 })
 
 test('source page can confirm and clear saved filter state', async () => {
-  const [wxml, script] = await Promise.all([
+  const [wxml, script, appConfig] = await Promise.all([
     readFile(resolve(root, 'apps/miniprogram/pages/source/source.wxml'), 'utf8'),
     readFile(resolve(root, 'apps/miniprogram/pages/source/source.js'), 'utf8'),
+    readFile(resolve(root, 'apps/miniprogram/app.json'), 'utf8'),
   ])
 
   assert.match(wxml, /bindtap="clearSavedState"/)
-  assert.match(wxml, /经用户授权后，小程序获取当前位置并通过腾讯位置服务解析所在省市/)
-  assert.match(wxml, /不保存精确经纬度/)
+  assert.match(wxml, /获取模糊位置信息，经项目云函数提交腾讯位置服务/)
+  assert.match(wxml, /项目业务代码不持久化经纬度/)
+  assert.match(wxml, /最长24小时/)
   assert.match(script, /clearSavedState\(\)/)
+  assert.match(script, /snapshot\.sourceCoverageStart \|\| snapshot\.coverageStart/)
   assert.match(script, /wx\.showModal\(/)
-  assert.match(script, /wx\.removeStorageSync\(STORAGE_KEY\)/)
+  assert.match(script, /housing-view-state-v1/)
+  assert.match(script, /housing-focus-source-v1/)
+  assert.match(script, /housing-location-cache-v1/)
+  const fuzzyLocationDescription = JSON.parse(appConfig).permission['scope.userFuzzyLocation'].desc
+  assert.match(fuzzyLocationDescription, /项目云函数提交腾讯位置服务/)
+  assert.match(fuzzyLocationDescription, /cityId\/locatedAt 最长24小时/)
 })
 
 test('source page describes validated remote updates instead of version-only data', async () => {
@@ -368,7 +426,7 @@ test('source page clears local filters only after confirmation', () => {
 
   pageConfig.clearSavedState()
 
-  assert.deepEqual(removed, ['housing-view-state-v1'])
+  assert.deepEqual(removed, ['housing-view-state-v1', 'housing-focus-source-v1', 'housing-location-cache-v1'])
   assert.equal(toasts.length, 1)
   assert.equal(toasts[0].icon, 'success')
   delete globalThis.wx
@@ -415,6 +473,148 @@ test('mini program home view derives the final mobile overview model', () => {
   assert.equal(pageConfig.data.showExactData, false)
   assert.equal(typeof pageConfig.data.onInitCumulativeChart, 'function')
   assert.equal(typeof pageConfig.data.onInitBreadthChart, 'function')
+})
+
+test('home starts from the real bundled runtime without a remote control state', () => {
+  const bundled = require(snapshotPath)
+  const { createDataRuntime } = require(resolve(root, 'apps/miniprogram/utils/data-runtime.js'))
+  const runtime = createDataRuntime({ wxApi: null, bundled })
+  const { pageConfig } = loadHomeWithRuntime(runtime)
+
+  assert.equal(runtime.getSource(), 'bundled')
+  assert.equal(runtime.getSnapshot(), bundled)
+  assert.equal(pageConfig.data.dataUnavailable, false)
+  assert.equal(pageConfig.data.featuredCards.length, 6)
+  assert.equal(pageConfig.data.market.nationalRows.length, 70)
+  assert.equal(Object.values(pageConfig.data.counts).reduce((sum, value) => sum + value, 0), 70)
+})
+
+test('home fails closed without trusted data and rebuilds the full view only after retry validation', async () => {
+  const bundled = require(snapshotPath)
+  const unavailable = {
+    ...bundled,
+    months: [],
+    releaseDates: [],
+    cityIds: [],
+    featuredCityIds: [],
+    cityMap: {},
+    series: {},
+    latestSeries: {},
+    breadthSeries: {},
+    dataStatus: 'unavailable',
+  }
+  let current = unavailable
+  let allowRecovery = false
+  const refreshOptions = []
+  const runtime = {
+    getSnapshot: () => current,
+    getSource: () => current === bundled ? 'remote' : 'unavailable',
+    hasCity: (cityId) => Boolean(current.series?.[cityId]),
+    ensureCities: async () => true,
+    refresh: async (options) => {
+      refreshOptions.push(options)
+      if (!allowRecovery) return { updated: false, source: 'unavailable', reason: 'failed' }
+      current = bundled
+      return { updated: true, source: 'remote' }
+    },
+  }
+  const isolatedHome = loadHomeWithRuntime(runtime)
+  const page = pageHarness(isolatedHome.pageConfig)
+  isolatedHome.context.wx = {
+    getStorageSync(key) { return key === 'housing-focus-source-v1' ? 'manual' : null },
+    removeStorageSync() {},
+    setStorageSync() {},
+    createCanvasContext: canvasContextStub,
+  }
+
+  assert.equal(page.data.dataUnavailable, true)
+  assert.equal(page.data.featuredCards.length, 0)
+  assert.equal(page.data.market.nationalRows.length, 0)
+  page.onLoad({})
+  assert.equal(page.onShow(), undefined)
+  const firstRefresh = page._refreshPromise
+  assert.ok(firstRefresh && typeof firstRefresh.then === 'function')
+  assert.equal(page.onShow(), undefined)
+  assert.equal(page._refreshPromise, firstRefresh)
+  await firstRefresh
+  assert.equal(page._refreshPromise, null)
+  assert.equal(refreshOptions.length, 1)
+  assert.equal(page.data.dataUnavailable, true)
+
+  allowRecovery = true
+  await page.retryData()
+  assert.equal(refreshOptions.at(-1).force, true)
+  assert.equal(page.data.dataUnavailable, false)
+  assert.equal(page.data.featuredCards.length, 6)
+  assert.equal(page.data.market.nationalRows.length, 70)
+})
+
+test('home onShow keeps a trusted snapshot when the internal remote refresh rejects', async () => {
+  const bundled = require(snapshotPath)
+  const timeout = new Error('(in promise) SystemError timeout')
+  const runtime = {
+    getSnapshot: () => bundled,
+    getSource: () => 'bundled',
+    hasCity: (cityId) => Boolean(bundled.series?.[cityId]),
+    ensureCities: async () => true,
+    refresh: async () => { throw timeout },
+  }
+  const isolatedHome = loadHomeWithRuntime(runtime)
+  const page = pageHarness(isolatedHome.pageConfig)
+  isolatedHome.context.wx = {
+    getStorageSync(key) { return key === 'housing-focus-source-v1' ? 'manual' : null },
+    removeStorageSync() {},
+    setStorageSync() {},
+    createCanvasContext: canvasContextStub,
+  }
+
+  page.onLoad({})
+  assert.equal(page.data.dataUnavailable, false)
+  assert.equal(page.onShow(), undefined)
+  const refresh = page._refreshPromise
+  assert.ok(refresh && typeof refresh.then === 'function')
+  const result = await refresh
+
+  assert.equal(result.updated, false)
+  assert.equal(result.source, 'bundled')
+  assert.equal(result.reason, 'page-refresh-failed')
+  assert.equal(result.error, timeout)
+  assert.equal(page._refreshPromise, null)
+  assert.equal(page.data.dataUnavailable, false)
+  assert.equal(page.data.featuredCards.length, 6)
+})
+
+test('location cache is deleted when startup or locate-on-click finds an expired or invalid record', () => {
+  const startupPage = pageHarness(loadPageConfig('apps/miniprogram/pages/index/index.js'))
+  const startupStorage = new Map([
+    ['housing-focus-source-v1', 'manual'],
+    ['housing-location-cache-v1', { cityId: 'beijing', locatedAt: Date.now() - 25 * 60 * 60 * 1000 }],
+  ])
+  const startupRemoved = []
+  globalThis.wx = {
+    getStorageSync: (key) => startupStorage.get(key),
+    removeStorageSync(key) { startupRemoved.push(key); startupStorage.delete(key) },
+    setStorageSync() {},
+    createCanvasContext: canvasContextStub,
+  }
+  startupPage.onLoad({})
+  assert.deepEqual(startupRemoved, ['housing-location-cache-v1'])
+
+  const locatePage = pageHarness(loadPageConfig('apps/miniprogram/pages/index/index.js'))
+  const locateStorage = new Map([
+    ['housing-location-cache-v1', { cityId: 'not-a-city', locatedAt: Date.now() + 60_000 }],
+  ])
+  const locateRemoved = []
+  globalThis.wx = {
+    cloud: { callFunction() {} },
+    getStorageSync: (key) => locateStorage.get(key),
+    removeStorageSync(key) { locateRemoved.push(key); locateStorage.delete(key) },
+    getFuzzyLocation(options) { options.fail(new Error('permission denied')) },
+    showToast() {},
+  }
+  locatePage.locateCurrentCity({ useCache: true })
+  assert.deepEqual(locateRemoved, ['housing-location-cache-v1'])
+  delete globalThis.wx
 })
 
 test('all F2 time-category values use iOS-safe complete dates', () => {
@@ -480,5 +680,32 @@ test('trend defaults to one city and location replaces the trend city', () => {
   assert.deepEqual(page.data.state.cities, ['fuzhou', 'shanghai'])
   page.resetCities()
   assert.deepEqual(page.data.state.cities, ['fuzhou'])
+  delete globalThis.wx
+})
+
+test('filter reset re-arms ranking scroll targets for an unchanged focus city', () => {
+  const page = pageHarness(loadPageConfig('apps/miniprogram/pages/index/index.js'))
+  globalThis.wx = { setStorageSync() {}, createCanvasContext: canvasContextStub }
+  page.applyState({ ...page.data.state, focusCity: 'fuzhou', propertyType: 'resale', metric: 'yoy', range: 120 })
+  const rankingTargets = []
+  const setData = page.setData
+  page.setData = function (update, callback) {
+    if (Object.hasOwn(update, 'rankingScrollCity')) rankingTargets.push(update.rankingScrollCity)
+    setData.call(this, update, callback)
+  }
+
+  page.resetFilters()
+
+  assert.equal(page.data.state.focusCity, 'fuzhou')
+  assert.deepEqual(rankingTargets, ['', 'fuzhou'])
+  const nationalCurrent = page.data.market.nationalRows.find((item) => item.current)
+  const tierCurrent = page.data.market.tierRows.find((item) => item.current)
+  const provinceCurrent = page.data.market.provinceRows.find((item) => item.current)
+  assert.equal(nationalCurrent?.id, 'fuzhou')
+  assert.equal(nationalCurrent?.rank, page.data.market.nationalRank)
+  assert.equal(tierCurrent?.id, 'fuzhou')
+  assert.equal(tierCurrent?.rank, page.data.market.tierRank)
+  assert.equal(provinceCurrent?.id, 'fuzhou')
+  assert.equal(provinceCurrent?.rank, page.data.market.provinceRank)
   delete globalThis.wx
 })

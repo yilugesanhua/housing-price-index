@@ -65,13 +65,28 @@ function countDirections(values) {
   }, [0, 0, 0, 0])
 }
 
+function nextMonth(value) {
+  const date = new Date(`${value}-01T00:00:00Z`)
+  date.setUTCMonth(date.getUTCMonth() + 1)
+  return date.toISOString().slice(0, 7)
+}
+
 export function validateBundledSnapshot(snapshot) {
   assert(snapshot && typeof snapshot === 'object', 'snapshot must be an object')
   assert(Array.isArray(snapshot.cityIds) && snapshot.cityIds.length === 70, 'snapshot must contain 70 cities')
   assert(new Set(snapshot.cityIds).size === 70, 'snapshot city IDs must be unique')
   assert(Array.isArray(snapshot.featuredCityIds) && snapshot.featuredCityIds.length === 6, 'snapshot must contain six featured cities')
   assert(Array.isArray(snapshot.months) && snapshot.months.length === 120, 'snapshot must contain 120 months')
+  assert(snapshot.months.every((month) => /^20\d{2}-(0[1-9]|1[0-2])$/.test(month)), 'snapshot months must use YYYY-MM')
+  for (let index = 1; index < snapshot.months.length; index += 1) {
+    assert(snapshot.months[index] === nextMonth(snapshot.months[index - 1]), 'snapshot months must be continuous')
+  }
   assert(snapshot.months.at(-1) === snapshot.datasetAsOf, 'snapshot latest month must match datasetAsOf')
+  assert(snapshot.coverageStart === snapshot.months[0], 'snapshot coverageStart must match the first client-window month')
+  if (snapshot.sourceCoverageStart !== undefined) {
+    assert(/^20\d{2}-(0[1-9]|1[0-2])$/.test(snapshot.sourceCoverageStart), 'snapshot sourceCoverageStart is invalid')
+    assert(snapshot.sourceCoverageStart <= snapshot.coverageStart, 'snapshot source coverage cannot start after the client window')
+  }
   assert(Array.isArray(snapshot.releaseDates) && snapshot.releaseDates.length === snapshot.months.length, 'release dates must align with months')
   for (const cityId of snapshot.cityIds) {
     assert(snapshot.cityMap?.[cityId], `missing city profile: ${cityId}`)
@@ -106,6 +121,7 @@ export function buildBootstrap(snapshot) {
     datasetAsOf: snapshot.datasetAsOf,
     releaseDate: snapshot.releaseDate,
     coverageStart: snapshot.coverageStart,
+    sourceCoverageStart: snapshot.sourceCoverageStart,
     latestOfficialUrl: snapshot.latestOfficialUrl,
     generatedAt: snapshot.generatedAt,
     dataStatus: snapshot.dataStatus,
@@ -239,6 +255,7 @@ export function buildRemoteRelease(snapshot, { cloudEnvId, storageBucket, minimu
   const manifestText = stableJson(manifest)
   const current = {
     dataset_version: datasetVersion,
+    source_dataset_version: snapshot.datasetVersion,
     dataset_as_of: snapshot.datasetAsOf,
     schema_version: snapshot.schemaVersion,
     manifest_file_id: `${releaseRoot}/manifest.json`,

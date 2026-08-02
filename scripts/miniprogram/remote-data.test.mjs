@@ -32,6 +32,19 @@ test('remote mini program release is compact and exactly reconstructs bundled da
   assert.deepEqual(verifyReleaseAgainstSnapshot(snapshot, candidate), [])
 })
 
+test('remote release rejects false or discontinuous client-window coverage metadata', () => {
+  assert.throws(() => buildRemoteRelease({ ...snapshot, coverageStart: snapshot.sourceCoverageStart }, {
+    cloudEnvId: 'cloud1-d3gpdx70w5d05c68c', storageBucket: '636c-cloud1-d3gpdx70w5d05c68c-1456861154',
+    minimumAppVersion: versionConfig.version, nextCheckAt: '2026-08-17T01:40:00.000Z', sourceBatchIds: ['official-html-test'],
+  }), /coverageStart must match/)
+  const discontinuous = structuredClone(snapshot)
+  discontinuous.months[1] = discontinuous.months[0]
+  assert.throws(() => buildRemoteRelease(discontinuous, {
+    cloudEnvId: 'cloud1-d3gpdx70w5d05c68c', storageBucket: '636c-cloud1-d3gpdx70w5d05c68c-1456861154',
+    minimumAppVersion: versionConfig.version, nextCheckAt: '2026-08-17T01:40:00.000Z', sourceBatchIds: ['official-html-test'],
+  }), /months must be continuous/)
+})
+
 test('legacy monthly package without release_type remains compatible', () => {
   const candidate = release()
   delete candidate.manifest.release_type

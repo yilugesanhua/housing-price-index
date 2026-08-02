@@ -84,6 +84,7 @@ try {
     readPointerText,
     guardCandidate: async () => { throw new Error('intentional isolated post-switch guard failure') },
     guardRollback: guardPointer,
+    prepareRollback: async () => ({ ...successfulPointer, previous_dataset_version: null }),
     recordRollback: async () => { rollbackRecorded = true },
     recordFailure: async ({ rollbackStatus }) => { failureRecorded = rollbackStatus === 'succeeded' },
   })

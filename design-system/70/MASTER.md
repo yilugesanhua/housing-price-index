@@ -1,8 +1,9 @@
 # Design System Master File
 
-> **LOGIC:** When building a specific page, first check `design-system/pages/[page-name].md`.
-> If that file exists, its rules **override** this Master file.
-> If not, strictly follow the rules below.
+> **状态：历史设计工具输出（非权威）**
+> 本文件保留2026-07-16生成结果，仅供追溯当时的设计探索。当前唯一权威设计规范是 [`DESIGN.md`](../../DESIGN.md)，当前界面事实以 `apps/web/` 和 `apps/miniprogram/` 为准；不得直接执行本文的字体、颜色、CTA、动效或布局建议。
+
+> **原生成器逻辑（已失效）：** 页面覆盖文件曾被设定为优先于本文件；该规则只用于理解历史输出，不得覆盖当前 `DESIGN.md`。
 
 ---
 

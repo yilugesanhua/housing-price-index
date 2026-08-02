@@ -1,7 +1,7 @@
 import type { ParsedBatch } from "./types";
 
-export const FULL_RECORD_AUDIT_METHOD = "automated-full-record-audit-v4: sha256+official-url+metadata+four-table-whitelist+size-band+locator+raw-cell+schema";
-export const FULL_RECORD_AUDIT_VERSION = "full-record-audit-v4";
+export const FULL_RECORD_AUDIT_METHOD = "automated-full-record-audit-v5: sha256+official-url+metadata+four-table-whitelist+property-type+size-band+locator+raw-cell+schema";
+export const FULL_RECORD_AUDIT_VERSION = "full-record-audit-v5";
 
 export interface AuditReport {
   audit_version: string;

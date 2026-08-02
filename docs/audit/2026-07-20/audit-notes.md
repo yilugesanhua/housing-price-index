@@ -1,5 +1,8 @@
 # Web Interface Guidelines 审查记录
 
+> **状态：历史Web审查证据（只读）**
+> 本文仅适用于所列日期、规则版本和文件状态，不代表当前小程序或 `v2.4.0` 已通过审查。
+
 审查日期：2026-07-20
 规则来源：`https://raw.githubusercontent.com/vercel-labs/web-interface-guidelines/main/command.md`（本次联网获取）
 审查范围：`apps/web/src/App.tsx`、`apps/web/src/styles.css`、`apps/web/src/TrendChart.tsx`、`apps/web/src/BreadthHistoryChart.tsx`、`apps/web/index.html`

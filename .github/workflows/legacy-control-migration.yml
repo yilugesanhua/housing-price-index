@@ -1,0 +1,417 @@
+name: legacy-control-migration
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Type legacy-control-2026-06-e9788d0bddf3 to migrate the exact audited production pointer
+        required: true
+        type: string
+      recovery_run_id:
+        description: Optional failed legacy-control-migration run ID whose immutable intent must be finalized read-only
+        required: false
+        type: string
+      recovery_run_attempt:
+        description: Required attempt number when recovery_run_id is provided
+        required: false
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: housing-data-production-publish
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    outputs:
+      commit_sha: ${{ steps.identity.outputs.commit_sha }}
+      origin_run_id: ${{ steps.identity.outputs.origin_run_id }}
+      origin_run_attempt: ${{ steps.identity.outputs.origin_run_attempt }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          fetch-depth: 0
+          persist-credentials: false
+      - id: identity
+        name: Lock migration to the reviewed default-branch commit
+        env:
+          CONFIRMATION: ${{ inputs.confirmation }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          RECOVERY_RUN_ID: ${{ inputs.recovery_run_id }}
+          RECOVERY_RUN_ATTEMPT: ${{ inputs.recovery_run_attempt }}
+          REPOSITORY_AUTOMATIC_RELEASE_ENABLED: ${{ vars.AUTOMATIC_RELEASE_ENABLED }}
+          OUTSIDE_ENV_PRODUCTION_AUTHORIZATION: ${{ vars.PRODUCTION_RELEASE_AUTHORIZED }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$CONFIRMATION" = "legacy-control-2026-06-e9788d0bddf3"
+          test "$REPOSITORY_AUTOMATIC_RELEASE_ENABLED" = "false"
+          test -z "$OUTSIDE_ENV_PRODUCTION_AUTHORIZATION" || test "$OUTSIDE_ENV_PRODUCTION_AUTHORIZATION" = "false"
+          test -z "$RECOVERY_RUN_ID" || [[ "$RECOVERY_RUN_ID" =~ ^[0-9]+$ ]]
+          test -z "$RECOVERY_RUN_ATTEMPT" || [[ "$RECOVERY_RUN_ATTEMPT" =~ ^[1-9][0-9]*$ ]]
+          if [[ -n "$RECOVERY_RUN_ID" || -n "$RECOVERY_RUN_ATTEMPT" ]]; then
+            test -n "$RECOVERY_RUN_ID"
+            test -n "$RECOVERY_RUN_ATTEMPT"
+          fi
+          test "$(git branch --show-current)" = "$DEFAULT_BRANCH"
+          commit_sha="$(git rev-parse HEAD)"
+          test "$commit_sha" = "$GITHUB_SHA"
+          origin_run_id="${RECOVERY_RUN_ID:-$GITHUB_RUN_ID}"
+          origin_run_attempt="${RECOVERY_RUN_ATTEMPT:-$GITHUB_RUN_ATTEMPT}"
+          echo "commit_sha=$commit_sha" >> "$GITHUB_OUTPUT"
+          echo "origin_run_id=$origin_run_id" >> "$GITHUB_OUTPUT"
+          echo "origin_run_attempt=$origin_run_attempt" >> "$GITHUB_OUTPUT"
+      - name: Require successful ordinary CI for this exact commit
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        with:
+          script: |
+            const runs = await github.paginate(github.rest.actions.listWorkflowRuns, {
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: '.github/workflows/ci.yml',
+              head_sha: context.sha,
+              event: 'push',
+              status: 'success',
+              per_page: 100,
+            })
+            if (!runs.some((run) => run.path === '.github/workflows/ci.yml'
+              && run.head_sha === context.sha
+              && run.event === 'push'
+              && run.conclusion === 'success')) {
+              core.setFailed(`No successful ordinary CI push run found for ${context.sha}`)
+            }
+      - name: Bind a requested recovery intent to this workflow and exact commit
+        if: inputs.recovery_run_id != ''
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        env:
+          RECOVERY_RUN_ID: ${{ inputs.recovery_run_id }}
+          RECOVERY_RUN_ATTEMPT: ${{ inputs.recovery_run_attempt }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        with:
+          script: |
+            const { data: run } = await github.rest.actions.getWorkflowRunAttempt({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              run_id: Number(process.env.RECOVERY_RUN_ID),
+              attempt_number: Number(process.env.RECOVERY_RUN_ATTEMPT),
+            })
+            if (run.path !== '.github/workflows/legacy-control-migration.yml'
+              || run.event !== 'workflow_dispatch'
+              || run.status !== 'completed'
+              || run.head_branch !== process.env.DEFAULT_BRANCH
+              || run.head_repository?.full_name !== `${context.repo.owner}/${context.repo.repo}`
+              || run.head_sha !== context.sha
+              || String(run.run_attempt) !== process.env.RECOVERY_RUN_ATTEMPT) {
+              core.setFailed('Recovery run is not an exact same-commit legacy migration origin')
+            }
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Revalidate the fixed evidence and deterministic migration candidate without production credentials
+        run: |
+          node --test scripts/miniprogram/legacy-control-migration.test.mjs scripts/miniprogram/control-plane.test.mjs scripts/miniprogram/publish-remote-data-guards.test.mjs
+          npm run miniprogram:data:migrate-legacy-control -- --migration=legacy-control-2026-06-e9788d0bddf3
+
+  migrate:
+    needs: prepare
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    permissions:
+      actions: read
+      contents: read
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    environment: housing-data-production
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.prepare.outputs.commit_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify the candidate commit is still the default-branch head
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          EXPECTED_SHA: ${{ needs.prepare.outputs.commit_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$DEFAULT_BRANCH"
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          test "$(git rev-parse "origin/$DEFAULT_BRANCH")" = "$EXPECTED_SHA"
+      - name: Verify ordinary release gates remain closed before any migration preparation
+        env:
+          AUTOMATIC_RELEASE_ENABLED: ${{ vars.AUTOMATIC_RELEASE_ENABLED }}
+          PRODUCTION_RELEASE_AUTHORIZED: ${{ vars.PRODUCTION_RELEASE_AUTHORIZED }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$AUTOMATIC_RELEASE_ENABLED" = "false"
+          test -z "$PRODUCTION_RELEASE_AUTHORIZED" || test "$PRODUCTION_RELEASE_AUTHORIZED" = "false"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - id: download_intent
+        name: Reuse the immutable intent from this run or an explicit recovery origin
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: legacy-control-migration-intent-${{ needs.prepare.outputs.origin_run_id }}-${{ needs.prepare.outputs.origin_run_attempt }}
+          path: work/downloaded-legacy-control-migration-intent
+          run-id: ${{ needs.prepare.outputs.origin_run_id }}
+          github-token: ${{ github.token }}
+      - id: intent
+        name: Prepare or validate the immutable migration intent without production writes
+        env:
+          CONFIRMATION: ${{ inputs.confirmation }}
+          RECOVERY_RUN_ID: ${{ inputs.recovery_run_id }}
+          RECOVERY_RUN_ATTEMPT: ${{ inputs.recovery_run_attempt }}
+          ORIGIN_RUN_ID: ${{ needs.prepare.outputs.origin_run_id }}
+          ORIGIN_RUN_ATTEMPT: ${{ needs.prepare.outputs.origin_run_attempt }}
+          TENCENTCLOUD_SECRET_ID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
+          TENCENTCLOUD_SECRET_KEY: ${{ secrets.TENCENTCLOUD_SECRET_KEY }}
+          CI_PRODUCTION_ENVIRONMENT: housing-data-production
+          CI_COMMIT_SHA: ${{ needs.prepare.outputs.commit_sha }}
+          AUTOMATIC_RELEASE_ENABLED: ${{ vars.AUTOMATIC_RELEASE_ENABLED }}
+          PRODUCTION_RELEASE_AUTHORIZED: ${{ vars.PRODUCTION_RELEASE_AUTHORIZED }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t downloaded < <(find work/downloaded-legacy-control-migration-intent -type f -name 'legacy-control-migration-intent-*.json' -print 2>/dev/null || true)
+          if test "${#downloaded[@]}" -eq 0; then
+            test -z "$RECOVERY_RUN_ID"
+            npm run miniprogram:data:migrate-legacy-control -- \
+              --migration=legacy-control-2026-06-e9788d0bddf3 \
+              --confirmation="$CONFIRMATION" \
+              --env=cloud1-d3gpdx70w5d05c68c \
+              --prepare-intent
+            mapfile -t prepared < <(find work/control-migrations/legacy-control-2026-06-e9788d0bddf3/immutable-intent -type f -name 'legacy-control-migration-intent-*.json' -print)
+            test "${#prepared[@]}" -eq 1
+            intent_path="${prepared[0]}"
+            prepared_here=true
+          else
+            test "${#downloaded[@]}" -eq 1
+            intent_path="${downloaded[0]}"
+            prepared_here=false
+          fi
+          npm run miniprogram:data:migrate-legacy-control -- \
+            --migration=legacy-control-2026-06-e9788d0bddf3 \
+            --verify-intent="$intent_path" \
+            --origin-run-id="$ORIGIN_RUN_ID" \
+            --origin-run-attempt="$ORIGIN_RUN_ATTEMPT"
+          echo "intent_path=$intent_path" >> "$GITHUB_OUTPUT"
+          echo "prepared_here=$prepared_here" >> "$GITHUB_OUTPUT"
+      - name: Persist the immutable intent before any production object write
+        if: steps.intent.outputs.prepared_here == 'true'
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: legacy-control-migration-intent-${{ needs.prepare.outputs.origin_run_id }}-${{ needs.prepare.outputs.origin_run_attempt }}
+          path: ${{ steps.intent.outputs.intent_path }}
+          if-no-files-found: error
+          retention-days: 90
+      - name: Recheck the reviewed commit immediately before migration authorization
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          EXPECTED_SHA: ${{ needs.prepare.outputs.commit_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$DEFAULT_BRANCH"
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          test "$(git rev-parse "origin/$DEFAULT_BRANCH")" = "$EXPECTED_SHA"
+      - name: Grant job-scoped migration authorization only after the immutable intent is durable
+        env:
+          AUTOMATIC_RELEASE_ENABLED: ${{ vars.AUTOMATIC_RELEASE_ENABLED }}
+          PRODUCTION_RELEASE_AUTHORIZED: ${{ vars.PRODUCTION_RELEASE_AUTHORIZED }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$AUTOMATIC_RELEASE_ENABLED" = "false"
+          test -z "$PRODUCTION_RELEASE_AUTHORIZED" || test "$PRODUCTION_RELEASE_AUTHORIZED" = "false"
+          test -f "${{ steps.intent.outputs.intent_path }}"
+          echo "LEGACY_CONTROL_MIGRATION_AUTHORIZED=true" >> "$GITHUB_ENV"
+      - name: Apply the immutable intent or recheck an interrupted pointer switch
+        env:
+          CONFIRMATION: ${{ inputs.confirmation }}
+          ORIGIN_RUN_ID: ${{ needs.prepare.outputs.origin_run_id }}
+          ORIGIN_RUN_ATTEMPT: ${{ needs.prepare.outputs.origin_run_attempt }}
+          TENCENTCLOUD_SECRET_ID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
+          TENCENTCLOUD_SECRET_KEY: ${{ secrets.TENCENTCLOUD_SECRET_KEY }}
+          CI_PRODUCTION_ENVIRONMENT: housing-data-production
+          CI_COMMIT_SHA: ${{ needs.prepare.outputs.commit_sha }}
+          AUTOMATIC_RELEASE_ENABLED: ${{ vars.AUTOMATIC_RELEASE_ENABLED }}
+          PRODUCTION_RELEASE_AUTHORIZED: ${{ vars.PRODUCTION_RELEASE_AUTHORIZED }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run miniprogram:data:migrate-legacy-control -- \
+            --migration=legacy-control-2026-06-e9788d0bddf3 \
+            --confirmation="$CONFIRMATION" \
+            --env=cloud1-d3gpdx70w5d05c68c \
+            --apply-intent="${{ steps.intent.outputs.intent_path }}" \
+            --origin-run-id="$ORIGIN_RUN_ID" \
+            --origin-run-attempt="$ORIGIN_RUN_ATTEMPT" \
+            --apply
+      - name: Deploy the strict manifest function only after the pointer switch
+        env:
+          TENCENTCLOUD_SECRETID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
+          TENCENTCLOUD_SECRETKEY: ${{ secrets.TENCENTCLOUD_SECRET_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -n "$TENCENTCLOUD_SECRETID"
+          test -n "$TENCENTCLOUD_SECRETKEY"
+          npx --no-install tcb fn deploy getHousingDataManifest --force -e cloud1-d3gpdx70w5d05c68c
+      - name: Finalize the migrated pointer with the deployed strict validator
+        env:
+          CONFIRMATION: ${{ inputs.confirmation }}
+          ORIGIN_RUN_ID: ${{ needs.prepare.outputs.origin_run_id }}
+          ORIGIN_RUN_ATTEMPT: ${{ needs.prepare.outputs.origin_run_attempt }}
+          TENCENTCLOUD_SECRET_ID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
+          TENCENTCLOUD_SECRET_KEY: ${{ secrets.TENCENTCLOUD_SECRET_KEY }}
+          CI_PRODUCTION_ENVIRONMENT: housing-data-production
+          CI_COMMIT_SHA: ${{ needs.prepare.outputs.commit_sha }}
+          AUTOMATIC_RELEASE_ENABLED: ${{ vars.AUTOMATIC_RELEASE_ENABLED }}
+          PRODUCTION_RELEASE_AUTHORIZED: ${{ vars.PRODUCTION_RELEASE_AUTHORIZED }}
+          LEGACY_CONTROL_MIGRATION_AUTHORIZED: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run miniprogram:data:migrate-legacy-control -- \
+            --migration=legacy-control-2026-06-e9788d0bddf3 \
+            --confirmation="$CONFIRMATION" \
+            --env=cloud1-d3gpdx70w5d05c68c \
+            --finalize-intent="${{ steps.intent.outputs.intent_path }}" \
+            --origin-run-id="$ORIGIN_RUN_ID" \
+            --origin-run-attempt="$ORIGIN_RUN_ATTEMPT"
+      - name: Recheck the migrated pointer, cloud function, registry, and all 70 cities read-only
+        env:
+          TENCENTCLOUD_MONITOR_SECRET_ID: ${{ secrets.TENCENTCLOUD_MONITOR_SECRET_ID }}
+          TENCENTCLOUD_MONITOR_SECRET_KEY: ${{ secrets.TENCENTCLOUD_MONITOR_SECRET_KEY }}
+        run: >-
+          node scripts/miniprogram/monitor-remote-release.mjs
+          --env=cloud1-d3gpdx70w5d05c68c
+          --dataset=2026-06-e9788d0bddf3
+          --migration-audit-dir=work/control-migrations/legacy-control-2026-06-e9788d0bddf3/immutable-audit
+          --integrity-only
+      - name: Upload immutable migration audit for the credential-free commit job
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: legacy-control-migration-audit-${{ github.run_id }}-${{ github.run_attempt }}
+          path: work/control-migrations/legacy-control-2026-06-e9788d0bddf3/immutable-audit/
+          if-no-files-found: error
+          retention-days: 90
+      - name: Upload migration diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: legacy-control-migration-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            work/control-migrations/legacy-control-2026-06-e9788d0bddf3/
+            work/post-publish-monitor/2026-06-e9788d0bddf3/
+          if-no-files-found: warn
+          retention-days: 90
+
+  audit:
+    needs: [prepare, migrate]
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    permissions:
+      actions: read
+      contents: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.prepare.outputs.commit_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Require the reviewed migration commit to remain the exact default-branch head
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          EXPECTED_SHA: ${{ needs.prepare.outputs.commit_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$DEFAULT_BRANCH"
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          test "$(git rev-parse "origin/$DEFAULT_BRANCH")" = "$EXPECTED_SHA"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: legacy-control-migration-audit-${{ github.run_id }}-${{ github.run_attempt }}
+          path: work/downloaded-legacy-control-migration-audit
+      - name: Validate and install only the immutable migration audit
+        env:
+          MIGRATION_ID: legacy-control-2026-06-e9788d0bddf3
+          EXPECTED_COMMIT_SHA: ${{ needs.prepare.outputs.commit_sha }}
+          ORIGIN_RUN_ID: ${{ needs.prepare.outputs.origin_run_id }}
+          ORIGIN_RUN_ATTEMPT: ${{ needs.prepare.outputs.origin_run_attempt }}
+          FINALIZER_RUN_ID: ${{ github.run_id }}
+          FINALIZER_RUN_ATTEMPT: ${{ github.run_attempt }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t audit_files < <(find work/downloaded-legacy-control-migration-audit -type f -name 'legacy-control-migration-*.json' -print)
+          test "${#audit_files[@]}" -eq 1
+          export AUDIT_PATH="${audit_files[0]}"
+          node --input-type=module <<'NODE'
+          import { readFile } from 'node:fs/promises'
+          import { basename } from 'node:path'
+          import {
+            migrationAuditFileName,
+            migrationDescriptor,
+            validateMigrationAuditTransition,
+          } from './scripts/miniprogram/legacy-control-migration.mjs'
+
+          const descriptor = migrationDescriptor(process.env.MIGRATION_ID)
+          const audit = JSON.parse(await readFile(process.env.AUDIT_PATH, 'utf8'))
+          validateMigrationAuditTransition(audit, {
+            expectedBeforeSha256: descriptor.legacy_current_sha256,
+            datasetVersion: descriptor.dataset_version,
+            sourceDatasetVersion: descriptor.source_dataset_version,
+            manifestSha256: descriptor.legacy_manifest_sha256,
+            cloudEnvId: descriptor.cloud_env_id,
+            storageBucket: descriptor.storage_bucket,
+            expectedCommitSha: process.env.EXPECTED_COMMIT_SHA,
+            expectedOriginGithubRunId: process.env.ORIGIN_RUN_ID,
+            expectedOriginGithubRunAttempt: process.env.ORIGIN_RUN_ATTEMPT,
+            expectedFinalizerCommitSha: process.env.EXPECTED_COMMIT_SHA,
+            expectedFinalizerGithubRunId: process.env.FINALIZER_RUN_ID,
+            expectedFinalizerGithubRunAttempt: process.env.FINALIZER_RUN_ATTEMPT,
+          })
+          if (basename(process.env.AUDIT_PATH) !== migrationAuditFileName(audit)) {
+            throw new Error('Downloaded migration audit filename is not canonical')
+          }
+          NODE
+          target="data/releases/$(basename "$AUDIT_PATH")"
+          if test -e "$target"; then
+            cmp --silent "$AUDIT_PATH" "$target"
+          else
+            cp -- "$AUDIT_PATH" "$target"
+          fi
+          git add -- "$target"
+      - name: Commit the audit without production cloud credentials
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          GITHUB_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git diff --cached --quiet; then
+            echo "The exact migration audit is already committed."
+            exit 0
+          fi
+          git config user.name "housing-data-automation"
+          git config user.email "housing-data-automation@users.noreply.github.com"
+          git commit -m "data: record legacy control migration"
+          auth_header="$(printf 'x-access-token:%s' "$GITHUB_TOKEN" | base64 | tr -d '\n')"
+          git -c "http.https://github.com/.extraheader=AUTHORIZATION: basic ${auth_header}" push origin "HEAD:${DEFAULT_BRANCH}"

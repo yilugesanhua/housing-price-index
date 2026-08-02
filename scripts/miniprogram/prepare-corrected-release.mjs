@@ -30,8 +30,8 @@ assert(/^2026-06-[a-f0-9]{12}$/.test(candidate.dataset_version || ''), 'candidat
 
 const audit = JSON.parse(await readFile(resolve(root, 'data/audit-report.json'), 'utf8'))
 assert(audit.result === 'passed', 'full-record audit did not pass')
-assert(audit.audit_version === 'full-record-audit-v4', 'full-record audit version is not V4')
-assert(audit.verification_method === 'automated-full-record-audit-v4: sha256+official-url+metadata+four-table-whitelist+size-band+locator+raw-cell+schema', 'full-record audit method is unexpected')
+assert(audit.audit_version === 'full-record-audit-v5', 'full-record audit version is not V5')
+assert(audit.verification_method === 'automated-full-record-audit-v5: sha256+official-url+metadata+four-table-whitelist+property-type+size-band+locator+raw-cell+schema', 'full-record audit method is unexpected')
 assert(audit.batch_count === 126, 'full-record audit must cover 126 batches')
 assert(audit.record_count === 70560, 'full-record audit must cover 70,560 records')
 assert(audit.coverage_start === '2016-01' && audit.coverage_end === '2026-06', 'full-record audit coverage is incomplete')

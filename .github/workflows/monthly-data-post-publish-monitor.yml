@@ -7,6 +7,14 @@ on:
         description: Published dataset version to verify (YYYY-MM-12hex)
         required: true
         type: string
+  workflow_run:
+    workflows:
+      - monthly-data-auto-publish
+      - monthly-data-pending-publish
+      - manual-corrected-data-publish
+      - historical-data-correction
+      - manual-data-rollback
+    types: [completed]
   schedule:
     - cron: "43 * * * *"
 
@@ -23,30 +31,110 @@ jobs:
     timeout-minutes: 5
     outputs:
       active: ${{ steps.window.outputs.active }}
+      control_event_commit_sha: ${{ steps.window.outputs.control_event_commit_sha }}
+      control_event_file_name: ${{ steps.window.outputs.control_event_file_name }}
+      control_event_run_id: ${{ steps.window.outputs.control_event_run_id }}
+      control_event_run_attempt: ${{ steps.window.outputs.control_event_run_attempt }}
+      control_event_sha256: ${{ steps.window.outputs.control_event_sha256 }}
       dataset_version: ${{ steps.window.outputs.dataset_version }}
+      revision_id: ${{ steps.window.outputs.revision_id }}
+      release_audit_sha256: ${{ steps.window.outputs.release_audit_sha256 }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - id: window
-        shell: bash
         env:
-          EVENT_NAME: ${{ github.event_name }}
           MANUAL_DATASET_VERSION: ${{ inputs.dataset_version || '' }}
-        run: |
-          node -e "const fs=require('fs'); const manual=(process.env.MANUAL_DATASET_VERSION||'').trim(); if(manual&&!/^20\d{2}-(0[1-9]|1[0-2])-[a-f0-9]{12}$/.test(manual)) throw new Error('Invalid manual dataset version'); let v={}; try{v=JSON.parse(fs.readFileSync('data/releases/latest-auto-release.json','utf8'))}catch{}; const age=Date.now()-Date.parse(v.published_at||''); const scheduled=v.status==='published'&&Number.isFinite(age)&&age>=0&&age<=24*60*60*1000; const active=process.env.EVENT_NAME==='workflow_dispatch'?Boolean(manual):scheduled; fs.appendFileSync(process.env.GITHUB_OUTPUT,'active='+active+'\ndataset_version='+(manual||v.dataset_version||'')+'\n')"
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          TRIGGER_CONCLUSION: ${{ github.event.workflow_run.conclusion || '' }}
+          TRIGGER_HEAD_BRANCH: ${{ github.event.workflow_run.head_branch || '' }}
+          TRIGGER_RUN_ID: ${{ github.event.workflow_run.id || '' }}
+          TRIGGER_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt || '' }}
+          TRIGGER_WORKFLOW_NAME: ${{ github.event.workflow_run.name || '' }}
+        run: node scripts/miniprogram/select-monitor-target.mjs
 
   monitor:
     needs: inspect
-    if: needs.inspect.outputs.active == 'true'
+    if: needs.inspect.outputs.active == 'true' && github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     runs-on: ubuntu-latest
     timeout-minutes: 20
     environment: housing-data-production
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify exact default-branch identity before protected credentials are used
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git fetch origin "$DEFAULT_BRANCH"
+          test "$(git rev-parse "origin/$DEFAULT_BRANCH")" = "$GITHUB_SHA"
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: Verify the selected immutable control event audit identity
+        env:
+          CONTROL_EVENT_FILE_NAME: ${{ needs.inspect.outputs.control_event_file_name }}
+          EXPECTED_CONTROL_EVENT_COMMIT_SHA: ${{ needs.inspect.outputs.control_event_commit_sha }}
+          EXPECTED_CONTROL_EVENT_RUN_ID: ${{ needs.inspect.outputs.control_event_run_id }}
+          EXPECTED_CONTROL_EVENT_RUN_ATTEMPT: ${{ needs.inspect.outputs.control_event_run_attempt }}
+          EXPECTED_CONTROL_EVENT_SHA256: ${{ needs.inspect.outputs.control_event_sha256 }}
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import { createHash } from 'node:crypto'
+          import { readFile } from 'node:fs/promises'
+
+          if (!/^(?:20\d{2}-(?:0[1-9]|1[0-2])-[a-f0-9]{12}|(?:manual-data-)?rollback-[0-9TZ-]+)\.json$/.test(process.env.CONTROL_EVENT_FILE_NAME || '')) {
+            throw new Error('Selected control event filename is invalid')
+          }
+          const text = await readFile(`data/releases/${process.env.CONTROL_EVENT_FILE_NAME}`, 'utf8')
+          const actual = createHash('sha256').update(text).digest('hex')
+          if (actual !== process.env.EXPECTED_CONTROL_EVENT_SHA256) throw new Error('Selected control event audit identity changed')
+          const audit = JSON.parse(text)
+          if (audit.status === 'rolled_back') {
+            if (!/^[1-9]\d*$/.test(process.env.EXPECTED_CONTROL_EVENT_RUN_ATTEMPT || '')
+              || audit.audit_schema_version !== 'manual-data-rollback-audit-v4'
+              || audit.finalizer_commit_sha !== process.env.EXPECTED_CONTROL_EVENT_COMMIT_SHA
+              || String(audit.finalizer_github_run_id || '') !== process.env.EXPECTED_CONTROL_EVENT_RUN_ID
+              || String(audit.finalizer_github_run_attempt || '') !== process.env.EXPECTED_CONTROL_EVENT_RUN_ATTEMPT) {
+              throw new Error('Selected manual rollback finalizer identity changed')
+            }
+          } else {
+            const auditRunAttempt = audit.github_run_attempt === undefined
+              ? ''
+              : String(audit.github_run_attempt)
+            if (auditRunAttempt && !/^[1-9]\d*$/.test(auditRunAttempt)) throw new Error('Selected control event origin attempt is invalid')
+            if (audit.commit_sha !== process.env.EXPECTED_CONTROL_EVENT_COMMIT_SHA
+              || String(audit.github_run_id || '') !== process.env.EXPECTED_CONTROL_EVENT_RUN_ID
+              || auditRunAttempt !== process.env.EXPECTED_CONTROL_EVENT_RUN_ATTEMPT) {
+              throw new Error('Selected control event origin identity changed')
+            }
+          }
+          NODE
+      - name: Verify the selected immutable release audit identity
+        env:
+          DATASET_VERSION: ${{ needs.inspect.outputs.dataset_version }}
+          EXPECTED_AUDIT_SHA256: ${{ needs.inspect.outputs.release_audit_sha256 }}
+        shell: bash
+        run: |
+          node --input-type=module <<'NODE'
+          import { createHash } from 'node:crypto'
+          import { readFile } from 'node:fs/promises'
+
+          const text = await readFile(`data/releases/${process.env.DATASET_VERSION}.json`, 'utf8')
+          const actual = createHash('sha256').update(text).digest('hex')
+          if (actual !== process.env.EXPECTED_AUDIT_SHA256) throw new Error('Selected release audit identity changed')
+          NODE
       - name: Verify cloud function, pointer, and all 70 remote shards
         env:
           TENCENTCLOUD_MONITOR_SECRET_ID: ${{ secrets.TENCENTCLOUD_MONITOR_SECRET_ID }}
@@ -67,7 +155,7 @@ jobs:
           else
             echo "Post-publish monitor failed before producing a report." >> "$GITHUB_STEP_SUMMARY"
           fi
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         if: always()
         with:
           name: housing-data-24h-monitor-${{ github.run_id }}

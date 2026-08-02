@@ -30,6 +30,7 @@ const validEnv = {
   CI_DATASET_VERSION: datasetVersion,
   CI_GATE_REPORT_SHA256: sha256(gateReportText),
   AUTOMATIC_RELEASE_ENABLED: 'true',
+  PRODUCTION_RELEASE_AUTHORIZED: 'true',
 }
 
 test('accepts only a complete production CI attestation', () => {
@@ -44,7 +45,8 @@ for (const [field, value, message] of [
   ['CI_PRODUCTION_ENVIRONMENT', 'test', /protected environment mismatch/],
   ['CI_DATASET_VERSION', '2026-07-ffffffffffff', /dataset version mismatch/],
   ['CI_GATE_REPORT_SHA256', '0'.repeat(64), /gate report SHA-256 mismatch/],
-  ['AUTOMATIC_RELEASE_ENABLED', 'false', /production enable flag mismatch/],
+  ['AUTOMATIC_RELEASE_ENABLED', 'false', /repository automatic release flag mismatch/],
+  ['PRODUCTION_RELEASE_AUTHORIZED', 'false', /production environment authorization mismatch/],
 ]) {
   test(`rejects CI attestation when ${field} is invalid`, () => {
     assert.throws(() => validateCiReleaseAuthorization({ env: { ...validEnv, [field]: value }, datasetVersion, cloudEnvId, gateReportText, checkedOutSha: validEnv.CI_COMMIT_SHA }), message)
@@ -63,16 +65,28 @@ test('rejects a gate report that did not pass', () => {
 })
 
 test('accepts the fixed scheduled pending-release recovery workflow', () => {
+  const recoveryGate = {
+    ...gate,
+    recovery: true,
+    ordinary_ci: { workflow: 'ci.yml', event: 'push', conclusion: 'success', run_id: '789', commit_sha: validEnv.CI_COMMIT_SHA },
+  }
+  const recoveryText = `${JSON.stringify(recoveryGate)}\n`
   const env = {
     ...validEnv,
     GITHUB_EVENT_NAME: 'schedule',
     GITHUB_WORKFLOW: 'monthly-data-pending-publish',
     GITHUB_WORKFLOW_REF: 'owner/repo/.github/workflows/monthly-data-pending-publish.yml@refs/heads/main',
+    CI_GATE_REPORT_SHA256: sha256(recoveryText),
   }
-  assert.equal(validateCiReleaseAuthorization({ env, datasetVersion, cloudEnvId, gateReportText, checkedOutSha: env.CI_COMMIT_SHA }).status, 'passed')
+  assert.equal(validateCiReleaseAuthorization({ env, datasetVersion, cloudEnvId, gateReportText: recoveryText, checkedOutSha: env.CI_COMMIT_SHA }).status, 'passed')
+  const mismatchedText = `${JSON.stringify({ ...recoveryGate, ordinary_ci: { ...recoveryGate.ordinary_ci, commit_sha: 'b'.repeat(40) } })}\n`
+  assert.throws(() => validateCiReleaseAuthorization({
+    env: { ...env, CI_GATE_REPORT_SHA256: sha256(mismatchedText) }, datasetVersion, cloudEnvId,
+    gateReportText: mismatchedText, checkedOutSha: env.CI_COMMIT_SHA,
+  }), /recovery ordinary CI commit SHA mismatch/)
 })
 
-test('accepts only the fixed manually confirmed corrected release without enabling monthly auto-publish', () => {
+test('accepts only the fixed manually confirmed corrected release with both production switches enabled', () => {
   const correctedDatasetVersion = '2026-06-e9788d0bddf3'
   const correctedGate = {
     status: 'passed',
@@ -95,13 +109,16 @@ test('accepts only the fixed manually confirmed corrected release without enabli
     CI_GATE_REPORT_SHA256: sha256(correctedText),
     CI_EXPECTED_CURRENT_DATASET_VERSION: '2026-06-ec36ff8fb2e5',
     CI_EXPECTED_CURRENT_SOURCE_DATASET_VERSION: '2026-06-679ea146d4e2',
-    AUTOMATIC_RELEASE_ENABLED: 'false',
+    AUTOMATIC_RELEASE_ENABLED: 'true',
+    PRODUCTION_RELEASE_AUTHORIZED: 'true',
   }
   assert.equal(validateCiReleaseAuthorization({ env: correctedEnv, datasetVersion: correctedDatasetVersion, cloudEnvId, gateReportText: correctedText, checkedOutSha: correctedEnv.CI_COMMIT_SHA }).gate_type, 'manual_corrected_release')
 
   for (const [field, value, message] of [
     ['CI_EXPECTED_CURRENT_DATASET_VERSION', '2026-06-ffffffffffff', /attested current dataset version mismatch/],
     ['CI_EXPECTED_CURRENT_SOURCE_DATASET_VERSION', '2026-06-ffffffffffff', /attested current source dataset version mismatch/],
+    ['AUTOMATIC_RELEASE_ENABLED', 'false', /repository automatic release flag mismatch/],
+    ['PRODUCTION_RELEASE_AUTHORIZED', 'false', /production environment authorization mismatch/],
   ]) {
     assert.throws(() => validateCiReleaseAuthorization({
       env: { ...correctedEnv, [field]: value },
@@ -136,8 +153,11 @@ test('accepts only an attested generic historical correction workflow', () => {
     GITHUB_WORKFLOW_REF: 'owner/repo/.github/workflows/historical-data-correction.yml@refs/heads/main',
     CI_GATE_REPORT_SHA256: sha256(text), CI_REVISION_ID: correctionGate.revision_id,
     CI_SUPERSEDES_SOURCE_DATASET_VERSION: correctionGate.supersedes_source_dataset_version,
-    CI_CORRECTION_REQUEST_SHA256: correctionGate.request_sha256, AUTOMATIC_RELEASE_ENABLED: 'false',
+    CI_CORRECTION_REQUEST_SHA256: correctionGate.request_sha256,
+    AUTOMATIC_RELEASE_ENABLED: 'true', PRODUCTION_RELEASE_AUTHORIZED: 'true',
   }
   assert.equal(validateCiReleaseAuthorization({ env, datasetVersion, cloudEnvId, gateReportText: text, checkedOutSha: env.CI_COMMIT_SHA }).gate_type, 'historical_data_correction')
   assert.throws(() => validateCiReleaseAuthorization({ env: { ...env, CI_REVISION_ID: 'wrong' }, datasetVersion, cloudEnvId, gateReportText: text, checkedOutSha: env.CI_COMMIT_SHA }), /revision ID mismatch/)
+  assert.throws(() => validateCiReleaseAuthorization({ env: { ...env, AUTOMATIC_RELEASE_ENABLED: 'false' }, datasetVersion, cloudEnvId, gateReportText: text, checkedOutSha: env.CI_COMMIT_SHA }), /repository automatic release flag mismatch/)
+  assert.throws(() => validateCiReleaseAuthorization({ env: { ...env, PRODUCTION_RELEASE_AUTHORIZED: 'false' }, datasetVersion, cloudEnvId, gateReportText: text, checkedOutSha: env.CI_COMMIT_SHA }), /production environment authorization mismatch/)
 })

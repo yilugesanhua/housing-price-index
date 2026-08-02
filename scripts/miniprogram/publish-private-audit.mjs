@@ -55,7 +55,25 @@ const manifest = {
 const manifestText = `${JSON.stringify(manifest, null, 2)}\n`
 const manifestPath = resolve(outputRoot, 'audit-manifest.json')
 await writeFile(manifestPath, manifestText, 'utf8')
+const referencePath = resolve(root, 'work/auto-release/private-audit-reference.json')
+async function writePublicReference(status) {
+  await mkdir(dirname(referencePath), { recursive: true })
+  const reference = {
+    format: 'housing-data-private-audit-reference-v1',
+    status,
+    dataset_version: datasetVersion,
+    cloud_env_id: cloudEnvId,
+    github_run_id: process.env.GITHUB_RUN_ID || null,
+    commit_sha: process.env.CI_COMMIT_SHA || null,
+    private_manifest_sha256: sha256(manifestText),
+    evidence_file_count: files.length,
+    total_bytes: manifest.total_bytes,
+    recorded_at: publishAudit.published_at,
+  }
+  await writeFile(referencePath, `${JSON.stringify(reference, null, 2)}\n`, 'utf8')
+}
 if (dryRun) {
+  await writePublicReference('staged_private_only')
   console.log(`Staged private audit ${datasetVersion}: ${files.length} evidence files, ${byteLength(manifestText) + manifest.total_bytes} bytes`)
   process.exit(0)
 }
@@ -79,6 +97,7 @@ if (existing) {
     const content = await readFile(destination)
     if (content.byteLength !== file.bytes || sha256(content) !== file.sha256) throw new Error(`Existing private audit file verification failed: ${file.path}`)
   }
+  await writePublicReference('verified_existing_private_copy')
   console.log(`Private audit ${datasetVersion} already exists and all ${existingManifest.files.length} files passed verification`)
   process.exit(0)
 }
@@ -86,4 +105,5 @@ await cloud.uploadDirectory(outputRoot, cloudRoot)
 const roundTrip = resolve(outputRoot, 'audit-manifest.roundtrip.json')
 await cloud.downloadObject(`${cloudRoot}/audit-manifest.json`, roundTrip)
 if (sha256(await readFile(roundTrip)) !== sha256(manifestText)) throw new Error('Private audit manifest round-trip verification failed')
+await writePublicReference('published_private_copy')
 console.log(`Published private audit ${datasetVersion}: ${files.length} evidence files, ${byteLength(manifestText) + manifest.total_bytes} bytes`)

@@ -7,14 +7,27 @@ import COS from 'cos-nodejs-sdk-v5'
 import TencentCloudScf from 'tencentcloud-sdk-nodejs-scf'
 import { validateManifestFunctionOutput } from './post-publish-guard.mjs'
 import { classifyRemoteFreshness, sha256 } from './remote-data-lib.mjs'
+import { validateControlPointer } from './control-plane.mjs'
+import {
+  validateControlAuditTransitions,
+  validatePostWriteValidationReceiptInvocation,
+} from './legacy-control-migration.mjs'
+import {
+  assertMonitorPointerStable,
+  loadExplicitMigrationAudit,
+  mergeMigrationAuditEntries,
+} from './monitor-audit-chain.mjs'
+import { validateManualRollbackAudit } from './ci-rollback-authorization.mjs'
 
 const execFileAsync = promisify(execFile)
 const root = resolve(import.meta.dirname, '../..')
 const require = createRequire(import.meta.url)
-const bundledSnapshot = require(resolve(root, 'apps/miniprogram/data/snapshot.js'))
 const argument = (name) => process.argv.find((value) => value.startsWith(`--${name}=`))?.slice(name.length + 3)
 const datasetVersion = argument('dataset')
 const cloudEnvId = argument('env') || 'cloud1-d3gpdx70w5d05c68c'
+const migrationAuditDir = argument('migration-audit-dir')
+const integrityOnly = process.argv.includes('--integrity-only')
+const bundledSnapshot = integrityOnly ? null : require(resolve(root, 'apps/miniprogram/data/snapshot.js'))
 const storageBucketId = '636c-cloud1-d3gpdx70w5d05c68c-1456861154'
 const storageRegion = 'ap-shanghai'
 const secretId = process.env.TENCENTCLOUD_MONITOR_SECRET_ID
@@ -38,17 +51,70 @@ const audit = JSON.parse(await readFile(resolve(root, 'data/releases', `${datase
 if (audit.status !== 'published' || audit.cloud_env_id !== cloudEnvId) throw new Error('Monitor target lacks a matching publish audit')
 const releaseAuditDir = resolve(root, 'data/releases')
 const repairFiles = (await readdir(releaseAuditDir)).filter((name) => name.startsWith('current-pointer-repair-') && name.endsWith('.json')).sort()
-let expectedCurrentSha256 = audit.current_sha256
-let pointerRepairCount = 0
-for (const repairFile of repairFiles) {
-  const repair = JSON.parse(await readFile(resolve(releaseAuditDir, repairFile), 'utf8'))
-  if (repair.status !== 'current_pointer_repaired' || repair.dataset_version !== datasetVersion) continue
-  if (repair.cloud_env_id !== cloudEnvId || repair.before_sha256 !== expectedCurrentSha256 || !/^([a-f0-9]{64})$/.test(repair.after_sha256 || '')) {
-    throw new Error(`Invalid current pointer repair audit chain: ${repairFile}`)
+const repairs = await Promise.all(repairFiles.map(async (fileName) => ({
+  fileName,
+  audit: JSON.parse(await readFile(resolve(releaseAuditDir, fileName), 'utf8')),
+})))
+const migrationFiles = (await readdir(releaseAuditDir)).filter((name) => name.startsWith('legacy-control-migration-') && name.endsWith('.json')).sort()
+const repositoryMigrations = await Promise.all(migrationFiles.map(async (fileName) => {
+  const text = await readFile(resolve(releaseAuditDir, fileName), 'utf8')
+  return { fileName, text, audit: JSON.parse(text) }
+}))
+const explicitMigrations = migrationAuditDir
+  ? [await loadExplicitMigrationAudit({
+      root,
+      directory: migrationAuditDir,
+      datasetVersion,
+      sourceDatasetVersion: audit.source_dataset_version,
+      manifestSha256: audit.manifest_sha256,
+      cloudEnvId,
+      storageBucket: storageBucketId,
+    })]
+  : []
+const migrations = mergeMigrationAuditEntries(repositoryMigrations, explicitMigrations)
+const rollbackFiles = (await readdir(releaseAuditDir)).filter((name) => name.startsWith('manual-data-rollback-') && name.endsWith('.json')).sort()
+const matchingRollbacks = []
+for (const fileName of rollbackFiles) {
+  const rollbackAudit = JSON.parse(await readFile(resolve(releaseAuditDir, fileName), 'utf8'))
+  if (rollbackAudit?.to_dataset_version !== datasetVersion) continue
+  validateManualRollbackAudit(rollbackAudit, {
+    datasetVersion,
+    cloudEnvId,
+    storageBucket: storageBucketId,
+    expectedOriginCommitSha: rollbackAudit.commit_sha,
+    expectedOriginGithubRunId: rollbackAudit.github_run_id,
+    expectedOriginGithubRunAttempt: rollbackAudit.github_run_attempt,
+    expectedFinalizerCommitSha: rollbackAudit.finalizer_commit_sha,
+    expectedFinalizerGithubRunId: rollbackAudit.finalizer_github_run_id,
+    expectedFinalizerGithubRunAttempt: rollbackAudit.finalizer_github_run_attempt,
+    expectedFinalizerOrdinaryCiRunId: rollbackAudit.finalizer_ordinary_ci_run_id,
+  })
+  if (rollbackAudit.to_source_dataset_version !== audit.source_dataset_version
+    || rollbackAudit.target_manifest_sha256 !== audit.manifest_sha256) {
+    throw new Error(`Manual rollback audit targets different immutable release content: ${fileName}`)
   }
-  expectedCurrentSha256 = repair.after_sha256
-  pointerRepairCount += 1
+  matchingRollbacks.push({ fileName, audit: rollbackAudit, time: Date.parse(rollbackAudit.rolled_back_at) })
 }
+matchingRollbacks.sort((left, right) => right.time - left.time || left.fileName.localeCompare(right.fileName, 'en'))
+if (matchingRollbacks.length > 1
+  && matchingRollbacks[0].time === matchingRollbacks[1].time
+  && matchingRollbacks[0].audit.after_sha256 !== matchingRollbacks[1].audit.after_sha256) {
+  throw new Error('Manual rollback audits have an ambiguous latest pointer identity')
+}
+const latestRollback = matchingRollbacks[0] || null
+const transitionChain = validateControlAuditTransitions({
+  initialSha256: latestRollback?.audit.after_sha256 || audit.current_sha256,
+  datasetVersion,
+  sourceDatasetVersion: audit.source_dataset_version,
+  manifestSha256: audit.manifest_sha256,
+  cloudEnvId,
+  storageBucket: storageBucketId,
+  repairs: latestRollback ? repairs.filter(({ audit: item }) => Date.parse(item.repaired_at || '') >= latestRollback.time) : repairs,
+  migrations: latestRollback ? migrations.filter(({ audit: item }) => Date.parse(item.migrated_at || '') >= latestRollback.time) : migrations,
+})
+const expectedCurrentSha256 = transitionChain.expectedCurrentSha256
+const pointerRepairCount = transitionChain.pointerRepairCount
+const pointerMigrationCount = transitionChain.pointerMigrationCount
 const outputRoot = resolve(root, 'work/post-publish-monitor', datasetVersion)
 await rm(outputRoot, { recursive: true, force: true })
 await mkdir(resolve(outputRoot, 'cities'), { recursive: true })
@@ -60,8 +126,13 @@ const currentText = await readFile(currentPath, 'utf8')
 const current = JSON.parse(currentText)
 if (current.dataset_version !== datasetVersion || current.manifest_sha256 !== audit.manifest_sha256) throw new Error('Active pointer no longer matches the monitored published release')
 if (sha256(currentText) !== expectedCurrentSha256) throw new Error('Active pointer hash no longer matches the publish and repair audit chain')
+validateControlPointer(current, { allowLegacy: false, cloudEnvId, storageBucket: storageBucketId })
 const invocation = await scf.Invoke({ FunctionName: 'getHousingDataManifest', Namespace: cloudEnvId, InvocationType: 'RequestResponse' })
 validateManifestFunctionOutput(JSON.stringify(invocation), current)
+const cloudFunctionValidation = validatePostWriteValidationReceiptInvocation(invocation, current, {
+  observedAt: new Date().toISOString(),
+})
+const cloudFunctionVerified = Boolean(cloudFunctionValidation.receipt_sha256)
 const cloudRoot = `housing-data/releases/${datasetVersion}`
 await downloadObject(`${cloudRoot}/manifest.json`, resolve(outputRoot, 'manifest.json'))
 const manifestText = await readFile(resolve(outputRoot, 'manifest.json'), 'utf8')
@@ -75,6 +146,18 @@ if (manifest.dataset_version !== audit.dataset_version
   || JSON.stringify([...(manifest.source_batch_ids || [])].sort()) !== JSON.stringify([...(audit.source_batch_ids || [])].sort())) {
   throw new Error('Monitored manifest metadata no longer matches the immutable publish audit')
 }
+const registryKey = `housing-data/control/revocations-${current.revocations_sha256}.json`
+const registryText = (await cosCall('getObject', registryKey)).Body.toString('utf8')
+if (sha256(registryText) !== current.revocations_sha256) throw new Error('Monitored revocations registry hash mismatch')
+const registry = JSON.parse(registryText)
+validateControlPointer(current, {
+  allowLegacy: false,
+  requireContext: true,
+  manifest,
+  registry,
+  cloudEnvId,
+  storageBucket: storageBucketId,
+})
 await downloadObject(`${cloudRoot}/bootstrap.json`, resolve(outputRoot, 'bootstrap.json'))
 if (manifest.release_type === 'historical_correction') await downloadObject(`${cloudRoot}/revision-manifest.json`, resolve(outputRoot, 'revision-manifest.json'))
 for (const cityId of Object.keys(manifest.city_files || {})) {
@@ -83,7 +166,36 @@ for (const cityId of Object.keys(manifest.city_files || {})) {
 if (Object.keys(manifest.city_files || {}).length !== 70) throw new Error('Monitored manifest does not contain 70 cities')
 await copyFile(currentPath, resolve(outputRoot, 'current.candidate.json'))
 await execFileAsync(process.execPath, [resolve(root, 'scripts/miniprogram/verify-remote-data.mjs'), `--dir=${outputRoot}`, '--integrity-only'], { cwd: root, encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 })
-const freshness = classifyRemoteFreshness(manifest, bundledSnapshot)
-const result = { status: 'passed', integrity_status: 'passed', ...freshness, dataset_version: datasetVersion, source_dataset_version: manifest.source_dataset_version, bundled_source_dataset_version: bundledSnapshot.datasetVersion, dataset_as_of: current.dataset_as_of, cloud_env_id: cloudEnvId, current_sha256: sha256(currentText), manifest_sha256: current.manifest_sha256, city_count: 70, cloud_function_verified: true, publish_audit_matched: true, pointer_repair_audits_matched: pointerRepairCount, full_release_reconstructed: true, production_pointer_untouched: true, client_success_rate: null, client_success_rate_reason: 'no anonymous aggregate client telemetry configured', checked_at: new Date().toISOString() }
+const freshness = integrityOnly
+  ? { freshness_status: 'not_evaluated_integrity_only', client_action: 'integrity_verification_only' }
+  : classifyRemoteFreshness(manifest, bundledSnapshot)
+const finalCurrentText = (await cosCall('getObject', 'housing-data/current.json')).Body.toString('utf8')
+assertMonitorPointerStable(currentText, finalCurrentText)
+const result = {
+  status: 'passed',
+  integrity_status: 'passed',
+  ...freshness,
+  freshness_evaluated: !integrityOnly,
+  dataset_version: datasetVersion,
+  source_dataset_version: manifest.source_dataset_version,
+  revision_id: manifest.revision_id || latestRollback?.audit.rollback_revision_id || null,
+  bundled_source_dataset_version: bundledSnapshot?.datasetVersion ?? null,
+  dataset_as_of: current.dataset_as_of,
+  cloud_env_id: cloudEnvId,
+  current_sha256: sha256(currentText),
+  manifest_sha256: current.manifest_sha256,
+  city_count: 70,
+  cloud_function_verified: cloudFunctionVerified,
+  cloud_function_validation_receipt_sha256: cloudFunctionValidation.receipt_sha256,
+  publish_audit_matched: true,
+  pointer_repair_audits_matched: pointerRepairCount,
+  pointer_migration_audits_matched: pointerMigrationCount,
+  manual_rollback_audit_matched: Boolean(latestRollback),
+  full_release_reconstructed: true,
+  production_pointer_untouched: true,
+  client_success_rate: null,
+  client_success_rate_reason: 'no anonymous aggregate client telemetry configured',
+  checked_at: new Date().toISOString(),
+}
 await writeFile(resolve(outputRoot, 'monitor-report.json'), `${JSON.stringify(result, null, 2)}\n`, 'utf8')
 console.log(JSON.stringify(result))

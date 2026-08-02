@@ -1,4 +1,3 @@
-import { buildAutomaticRollbackPointer } from './post-publish-guard.mjs'
 import { stableJson } from './remote-data-lib.mjs'
 
 export class GuardedActivationError extends Error {
@@ -19,6 +18,7 @@ export async function activatePointerWithRollback({
   readPointerText,
   guardCandidate,
   guardRollback,
+  prepareRollback,
   recordRollback = async () => {},
   recordFailure = async () => {},
   now = () => new Date().toISOString(),
@@ -35,7 +35,8 @@ export async function activatePointerWithRollback({
     let rollbackPointer = null
     if (rollbackEligible && previous) {
       try {
-        rollbackPointer = buildAutomaticRollbackPointer(previous, candidate.dataset_version, failedAt)
+        if (typeof prepareRollback !== 'function') throw new Error('automatic rollback preparation is unavailable')
+        rollbackPointer = await prepareRollback({ failedAt, previous, candidate, guardError })
         const rollbackText = stableJson(rollbackPointer)
         await writePointer(rollbackText, 'automatic-rollback')
         if (await readPointerText('automatic-rollback') !== rollbackText) throw new Error('automatic rollback pointer round-trip mismatch')

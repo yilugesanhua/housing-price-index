@@ -15,10 +15,19 @@ import {
   type CityId,
 } from "../../packages/core/src/index";
 import { evaluateLatestCheck, evaluateReleaseSchedule } from "../data/check-latest";
+import { auditParsedBatch } from "../data/audit-batches";
 import { FULL_RECORD_AUDIT_METHOD, FULL_RECORD_AUDIT_VERSION, validateAuditReport, type AuditReport } from "../data/audit-report";
 import { PARSER_VERSION, parseOfficialHtml, recordKey, sha256 as sourceSha256 } from "../data/official-parser";
 import { validateRecords } from "../data/validate";
 import type { ParsedBatch, SourceBatch, StandardRecord } from "../data/types";
+import { validateCandidateData } from "./candidate-data-gate.mjs";
+import {
+  buildControlValidUntil,
+  buildRevocationRegistryArtifact,
+  classifyControlPointer,
+  createRevocationRegistry,
+  validateControlPointer,
+} from "./control-plane.mjs";
 import { activatePointerWithRollback } from "./guarded-activation.mjs";
 import { buildRemoteRelease, sha256, stableJson, verifyReleaseAgainstSnapshot } from "./remote-data-lib.mjs";
 import { assertRehearsalKey, createTencentCloudClient } from "./tencent-cloud-sdk.mjs";
@@ -33,7 +42,7 @@ type ReplayIssue = {
   resolution: string;
   verification: string;
 };
-type SourceArchive = { source_batch: SourceBatch; records: StandardRecord[]; html: string };
+type SourceArchive = { path: string; source_batch: SourceBatch; records: StandardRecord[]; html: string };
 
 const root = resolve(import.meta.dirname, "../..");
 const require = createRequire(import.meta.url);
@@ -90,6 +99,38 @@ const issues: ReplayIssue[] = [
     problem: "The V7/V4 annual replay passed 10 rounds but the 45-minute job limit canceled round 11 before the final-only report was written.",
     resolution: "Persist a report checkpoint after every completed round and allow 75 minutes for 12 conservative full-cloud readbacks without weakening validation or increasing object concurrency.",
     verification: "Restart the cloud annual replay from month 1; all 12 months, the uploaded report artifact, and the following production read-only monitor must pass.",
+  },
+  {
+    id: "REPLAY-006",
+    detected_in: "local-v2.4.1-preflight",
+    severity: "fixed",
+    problem: "The local replay labeled 72 release objects as fully read back without traversing every simulated object, and corruption injection covered a missing record but not a shape-valid wrong value.",
+    resolution: "Hash-read every manifest, bootstrap, and city object in the isolated in-memory store, and inject both a missing record and a structurally valid altered index that must fail the audited official-record comparison.",
+    verification: "Restart all sequential local rounds; every round must verify 72 data objects plus the control registry, reject both corruptions before pointer activation, and retain the prior pointer bytes.",
+  },
+  {
+    id: "REPLAY-007",
+    detected_in: "local-v241-20260802-preflight-1",
+    severity: "fixed",
+    problem: "The replay snapshot reused the complete official source coverage start as the 120-month client-window coverageStart after those fields became separate protocol identities.",
+    resolution: "Set coverageStart to the first month in the 120-month client window and record the first available official month separately as sourceCoverageStart.",
+    verification: "Rerun the isolated preflight and annual replay through the current remote-package and miniprogram integrity validators.",
+  },
+  {
+    id: "REPLAY-008",
+    detected_in: "local-v241-20260802-preflight-2",
+    severity: "fixed",
+    problem: "The replay passed the legacy data-package current pointer directly to the client after the production control protocol became mandatory.",
+    resolution: "Build and validate a controlled publish pointer, immutable revocation registry, and validator receipt for each isolated activation; use the guarded activation helper for the local pointer switch.",
+    verification: "The isolated client refresh must accept the controlled pointer, verify its receipt and registry, activate the complete package, and keep city-switch downloads at zero.",
+  },
+  {
+    id: "REPLAY-009",
+    detected_in: "local-v241-20260802-preflight-3",
+    severity: "fixed",
+    problem: "The replay generated a control pointer slightly in the future, so the current-time validation receipt was correctly rejected as predating the pointer.",
+    resolution: "Generate isolated control timestamps one second before the local clock and let the client-side receipt use the current clock, preserving the required receipt ordering.",
+    verification: "The client refresh accepts the pointer and receipt, then completes the full package activation without weakening timestamp validation.",
   },
 ];
 
@@ -165,7 +206,7 @@ async function readSourceArchive(targetMonth: string): Promise<SourceArchive> {
   const archived = JSON.parse(await readFile(matches[0], "utf8")) as { source_batch: SourceBatch; records: StandardRecord[] };
   const gzipPath = resolve(root, "data/raw", targetMonth, `${archived.source_batch.raw_content_sha256}.html.gz`);
   const html = (await gunzipAsync(await readFile(gzipPath))).toString("utf8");
-  return { ...archived, html };
+  return { ...archived, path: matches[0], html };
 }
 
 function validateMonthlyCandidate(baseline: StandardRecord[], candidate: StandardRecord[], sourceBatch: SourceBatch): void {
@@ -188,6 +229,22 @@ function validateMonthlyCandidate(baseline: StandardRecord[], candidate: Standar
   assert.deepEqual(errors, [], `candidate data contract failed: ${errors.join("; ")}`);
   const historicalKeys = new Set(baseline.map(recordKey));
   assert(candidate.every((record) => !historicalKeys.has(recordKey(record))), "candidate overwrites historical records");
+}
+
+function assertExactRecordSet(actual: StandardRecord[], expected: StandardRecord[], label: string): void {
+  assert.equal(actual.length, expected.length, `${label}: record count differs`);
+  const expectedByKey = new Map(expected.map((record) => [recordKey(record), record]));
+  assert.equal(expectedByKey.size, expected.length, `${label}: expected records contain duplicate keys`);
+  const actualKeys = new Set<string>();
+  for (const record of actual) {
+    const key = recordKey(record);
+    assert(!actualKeys.has(key), `${label}: duplicate record ${key}`);
+    actualKeys.add(key);
+    const expectedRecord = expectedByKey.get(key);
+    assert(expectedRecord, `${label}: unexpected record ${key}`);
+    assert.deepEqual(record, expectedRecord, `${label}: record differs ${key}`);
+  }
+  assert.equal(actualKeys.size, expectedByKey.size, `${label}: expected records are missing`);
 }
 
 function buildSnapshot(records: StandardRecord[], datasetAsOf: string, datasetVersion: string) {
@@ -232,7 +289,8 @@ function buildSnapshot(records: StandardRecord[], datasetAsOf: string, datasetVe
       datasetVersion,
       datasetAsOf,
       releaseDate: latestRecord.release_date,
-      coverageStart: firstAvailableMonth,
+      coverageStart: months[0],
+      sourceCoverageStart: firstAvailableMonth,
       latestOfficialUrl: latestRecord.source_url,
       generatedAt: `${latestRecord.release_date}T02:00:00.000Z`,
       dataStatus: "current",
@@ -250,17 +308,63 @@ function buildSnapshot(records: StandardRecord[], datasetAsOf: string, datasetVe
 }
 
 function cloudFiles(release: any): Map<string, string> {
-  return new Map([
+  const files = new Map([
     [release.current.manifest_file_id, release.manifestText],
     [release.manifest.bootstrap_file_id, release.bootstrapText],
     ...Object.values(release.cities).map((item: any) => [release.manifest.city_file_id_template.replace("{city_id}", item.data.cityId), item.text] as [string, string]),
   ]);
+  if (release.registryArtifact) files.set(release.registryArtifact.cloudFileId, release.registryArtifact.text);
+  return files;
+}
+
+function buildControlledRelease(release: any, {
+  baselineVersion,
+  replayNumber,
+  previousPointer,
+  registryArtifact,
+}: {
+  baselineVersion: string;
+  replayNumber: number;
+  previousPointer?: any;
+  registryArtifact: any;
+}) {
+  const publishedAt = new Date(Date.now() - 1000).toISOString();
+  const current = {
+    ...release.current,
+    published_at: publishedAt,
+    previous_dataset_version: baselineVersion,
+    control_schema_version: "1.0.0",
+    control_generation: Number(previousPointer?.control_generation || 0) + 1,
+    ...registryArtifact.currentFields,
+    transition_type: "publish",
+    data_status: "current",
+    status_reason: "monthly_publish",
+    control_generated_at: publishedAt,
+    control_valid_until: buildControlValidUntil(publishedAt),
+  };
+  validateControlPointer(current, {
+    allowLegacy: false,
+    requireContext: true,
+    manifest: release.manifest,
+    registry: registryArtifact.registry,
+    previousPointer,
+    previousRegistry: previousPointer ? registryArtifact.registry : undefined,
+    cloudEnvId,
+    storageBucket,
+  });
+  return {
+    ...release,
+    current,
+    currentText: stableJson(current),
+    registryArtifact,
+  };
 }
 
 function createWxMock(release: any) {
   const files = new Map<string, Buffer>();
   const storage = new Map<string, any>();
   const remote = cloudFiles(release);
+  const { buildValidationReceipt } = require(resolve(root, "apps/miniprogram/cloudfunctions/getHousingDataManifest/validation-receipt.js"));
   let tempIndex = 0;
   const stats = { downloads: 0 };
   const fs = {
@@ -272,6 +376,20 @@ function createWxMock(release: any) {
     readFile({ filePath, encoding, success, fail }: any) { try { success({ data: fs.readFileSync(filePath, encoding) }); } catch (error) { fail(error); } },
     writeFile({ filePath, data, success }: any) { files.set(filePath, Buffer.from(data, "utf8")); success({}); },
     mkdir({ success }: any) { success({}); },
+    rename({ oldPath, newPath, success, fail }: any) {
+      const entries = [...files.entries()].filter(([filePath]) => filePath === oldPath || filePath.startsWith(`${oldPath}/`));
+      if (entries.length === 0) return fail(new Error(`ENOENT: ${oldPath}`));
+      for (const [filePath, value] of entries) {
+        files.set(`${newPath}${filePath.slice(oldPath.length)}`, value);
+        files.delete(filePath);
+      }
+      success({});
+    },
+    rmdirSync(path: string) {
+      for (const filePath of [...files.keys()]) {
+        if (filePath === path || filePath.startsWith(`${path}/`)) files.delete(filePath);
+      }
+    },
   };
   return {
     wxApi: {
@@ -281,7 +399,9 @@ function createWxMock(release: any) {
       setStorageSync: (key: string, value: any) => storage.set(key, structuredClone(value)),
       removeStorageSync: (key: string) => storage.delete(key),
       cloud: {
-        callFunction({ success }: any) { success({ result: { current: structuredClone(release.current) } }); },
+        callFunction({ success }: any) {
+          success({ result: { current: structuredClone(release.current), validation_receipt: buildValidationReceipt(release.current) } });
+        },
         downloadFile({ fileID, success, fail }: any) {
           stats.downloads += 1;
           const value = remote.get(fileID);
@@ -317,6 +437,8 @@ const prefix = useCloud ? `housing-data/rehearsals/${cloudRunId}/full-auto-updat
 const key = (relative: string) => assertRehearsalKey(`${prefix}${relative}`, cloudRunId!);
 let isolatedPointerText = stableJson({ dataset_version: `${shiftMonth(targetMonths[0], -1)}-${"a".repeat(12)}`, marker: "12-month-baseline" });
 if (cloud) await retryCloud("initialize isolated pointer", () => cloud.putObject(key("current.json"), Buffer.from(isolatedPointerText)));
+const replayRegistry = createRevocationRegistry({ generatedAt: new Date().toISOString() });
+const replayRegistryArtifact = buildRevocationRegistryArtifact(replayRegistry, { cloudEnvId, storageBucket });
 const replays: Array<Record<string, unknown>> = [];
 let activeTargetMonth = "";
 
@@ -356,8 +478,7 @@ for (const [index, targetMonth] of targetMonths.entries()) {
     assert.equal(latest.official_release_detected, true);
     const parsed = parseOfficialHtml(source.html, source.source_batch);
     assert.equal(parsed.records.length, 560);
-    const expected = new Map(source.records.map((record) => [recordKey(record), record]));
-    for (const record of parsed.records) assert.deepEqual(record, expected.get(recordKey(record)), `${targetMonth}: reparse differs ${recordKey(record)}`);
+    assertExactRecordSet(parsed.records, source.records, `${targetMonth}: official reparse`);
     return {
       value: { ...source, records: parsed.records },
       evidence: {
@@ -386,9 +507,15 @@ for (const [index, targetMonth] of targetMonths.entries()) {
       result: "passed",
     }, `${targetMonth}: source batch differs from the current audit report`);
     validateMonthlyCandidate(baselineRecords, archive.records, archive.source_batch);
-    const normalizedTarget = new Map(normalized.records.filter((record) => record.stat_month === targetMonth).map((record) => [recordKey(record), record]));
-    for (const record of archive.records) assert.deepEqual(record, normalizedTarget.get(recordKey(record)), `${targetMonth}: normalized target mismatch ${recordKey(record)}`);
+    const normalizedTarget = normalized.records.filter((record) => record.stat_month === targetMonth);
+    assertExactRecordSet(archive.records, normalizedTarget, `${targetMonth}: normalized target`);
     const merged = [...baselineRecords, ...archive.records].sort((a, b) => recordKey(a).localeCompare(recordKey(b)));
+    const gate = validateCandidateData({
+      previousPayload: { records: baselineRecords },
+      candidatePayload: { records: merged },
+      expectedMonth: targetMonth,
+      sourceBatch: archive.source_batch,
+    });
     return {
       value: merged,
       evidence: {
@@ -401,6 +528,7 @@ for (const [index, targetMonth] of targetMonths.entries()) {
         city_count: 70,
         combinations_per_city: 8,
         historical_records_changed: 0,
+        production_candidate_gate: gate.status,
       },
     };
   });
@@ -435,15 +563,58 @@ for (const [index, targetMonth] of targetMonths.entries()) {
 
   await timed(stages, "corrupt_candidate_rejected", async () => {
     const pointerBefore = cloud ? (await retryCloud("read pointer before corrupt candidate", () => cloud.getObject(key("current.json")))).toString("utf8") : isolatedPointerText;
-    const corrupt = archive.records.slice(0, -1);
-    assert.throws(() => validateMonthlyCandidate(baselineRecords, corrupt, archive.source_batch), /560 records|70 cities|incomplete/);
+    const missingRecord = archive.records.slice(0, -1);
+    assert.throws(() => validateCandidateData({
+      previousPayload: { records: baselineRecords },
+      candidatePayload: { records: [...baselineRecords, ...missingRecord] },
+      expectedMonth: targetMonth,
+      sourceBatch: archive.source_batch,
+    }), /increase by 560|new month must contain 560/);
+    const wrongValue = structuredClone(archive.records);
+    const altered = wrongValue[0];
+    altered.mom_index = Number((altered.mom_index + 0.1).toFixed(1));
+    altered.mom_change = Number((altered.mom_change + 0.1).toFixed(1));
+    const alteredCandidate = [...baselineRecords, ...wrongValue];
+    assert.doesNotThrow(() => validateCandidateData({
+      previousPayload: { records: baselineRecords },
+      candidatePayload: { records: alteredCandidate },
+      expectedMonth: targetMonth,
+      sourceBatch: archive.source_batch,
+    }));
+    const alteredAudit = auditParsedBatch(archive.path, { source_batch: archive.source_batch, records: wrongValue }, Buffer.from(archive.html));
+    assert(alteredAudit.errors.some((error) => /mom_index|mom_change/.test(error)), `${targetMonth}: altered official value was not rejected by raw-cell audit`);
     const pointerAfter = cloud ? (await retryCloud("read pointer after corrupt candidate", () => cloud.getObject(key("current.json")))).toString("utf8") : isolatedPointerText;
     assert.equal(pointerAfter, pointerBefore, `${targetMonth}: pointer changed after corrupt candidate rejection`);
-    return { value: null, evidence: { corruption: "one official record removed", validation_failed_before_upload: true, pointer_sha256_before: digest(pointerBefore), pointer_sha256_after: digest(pointerAfter), pointer_unchanged: true } };
+    return {
+      value: null,
+      evidence: {
+        corruptions: [
+          { kind: "one_official_record_removed", structural_gate_rejected: true },
+          { kind: "shape_valid_official_value_altered", structural_gate_passed: true, independent_raw_cell_audit_rejected: true, audit_error_count: alteredAudit.errors.length, record_key: recordKey(altered) },
+        ],
+        validation_failed_before_upload: true,
+        pointer_sha256_before: digest(pointerBefore),
+        pointer_sha256_after: digest(pointerAfter),
+        pointer_unchanged: true,
+      },
+    };
   });
 
   await timed(stages, "isolated_upload_readback_and_pointer_switch", async () => {
-    const release = packaged.release;
+    const previous = JSON.parse(isolatedPointerText);
+    let previousPointer: any = undefined;
+    try {
+      if (classifyControlPointer(previous) === "controlled") previousPointer = previous;
+    } catch (_) {}
+    const release = buildControlledRelease(packaged.release, {
+      baselineVersion: packaged.baselineSnapshot.datasetVersion,
+      replayNumber,
+      previousPointer,
+      registryArtifact: replayRegistryArtifact,
+    });
+    packaged.release = release;
+    let objectTransport = "isolated_cos";
+    let objectsVerified = 0;
     if (cloud) {
       const releasePrefix = `${targetMonth}/release/`;
       await retryCloud(`${targetMonth} upload bootstrap`, () => cloud.putObject(key(`${releasePrefix}bootstrap.json`), Buffer.from(release.bootstrapText)));
@@ -462,7 +633,7 @@ for (const [index, targetMonth] of targetMonths.entries()) {
         const cityId = Object.keys(release.cities)[cityIndex];
         assert.equal(sha256(downloads[cityIndex + 2]), release.cities[cityId].sha256, `${targetMonth}: cloud readback mismatch ${cityId}`);
       }
-      const previous = JSON.parse(isolatedPointerText);
+      objectsVerified = downloads.length;
       await activatePointerWithRollback({
         candidate: release.current,
         candidateText: release.currentText,
@@ -476,13 +647,33 @@ for (const [index, targetMonth] of targetMonths.entries()) {
           assert.equal(actual.manifest_sha256, expected.manifest_sha256);
         },
         guardRollback: async () => undefined,
+        prepareRollback: async () => ({ ...previous, previous_dataset_version: null }),
       });
       isolatedPointerText = (await retryCloud(`${targetMonth} final isolated pointer readback`, () => cloud.getObject(key("current.json")))).toString("utf8");
     } else {
-      isolatedPointerText = release.currentText;
+      objectTransport = "isolated_in_memory_store";
+      const objects = cloudFiles(release);
+      assert.equal(objects.size, 73, `${targetMonth}: isolated release must contain exactly 72 data objects plus one control registry`);
+      assert.equal(sha256(objects.get(release.current.manifest_file_id) ?? ""), release.current.manifest_sha256, `${targetMonth}: isolated manifest readback mismatch`);
+      assert.equal(sha256(objects.get(release.manifest.bootstrap_file_id) ?? ""), release.manifest.bootstrap_sha256, `${targetMonth}: isolated bootstrap readback mismatch`);
+      for (const [cityId, item] of Object.entries(release.cities) as Array<[string, any]>) {
+        const fileId = release.manifest.city_file_id_template.replace("{city_id}", cityId);
+        assert.equal(sha256(objects.get(fileId) ?? ""), item.sha256, `${targetMonth}: isolated city readback mismatch ${cityId}`);
+      }
+      objectsVerified = objects.size;
+      await activatePointerWithRollback({
+        candidate: release.current,
+        candidateText: release.currentText,
+        previous,
+        rollbackEligible: false,
+        writePointer: async (text: string) => { isolatedPointerText = text; },
+        readPointerText: async () => isolatedPointerText,
+        guardCandidate: async (expected: any) => assert.equal(isolatedPointerText, stableJson(expected)),
+        guardRollback: async () => undefined,
+      });
     }
     assert.equal(isolatedPointerText, release.currentText);
-    return { value: null, evidence: { mode: cloud ? "cloud" : "local", uploaded_files: 72, full_readback_verified: true, guarded_isolated_pointer_switched: true } };
+    return { value: null, evidence: { mode: cloud ? "cloud" : "local", object_transport: objectTransport, data_objects_verified: 72, control_objects_verified: 1, objects_verified: objectsVerified, full_readback_verified: true, guarded_isolated_pointer_switched: true } };
   });
 
   await timed(stages, "miniprogram_client_activation", async () => {
@@ -498,7 +689,7 @@ for (const [index, targetMonth] of targetMonths.entries()) {
     assert.equal(runtime.getSnapshot().datasetAsOf, targetMonth);
     assert.equal(runtime.hasCity("taiyuan"), true);
     assert.equal(Object.keys(runtime.getSnapshot().series).length, 70);
-    assert.equal(mock.stats.downloads, 2);
+    assert.equal(mock.stats.downloads, 3);
     const downloadsAfterRefresh = mock.stats.downloads;
     await runtime.ensureCities(["taiyuan", "haikou", "xining"]);
     assert.equal(runtime.hasCity("haikou"), true);

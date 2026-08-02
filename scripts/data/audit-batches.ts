@@ -1,22 +1,23 @@
 import { createHash } from "node:crypto";
 import { globSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import * as cheerio from "cheerio";
 import { detectOfficialMetadata, normalizeCityName, recordKey } from "./official-parser";
 import { FULL_RECORD_AUDIT_METHOD, FULL_RECORD_AUDIT_VERSION } from "./audit-report";
 import { TARGET_CITIES, type ParsedBatch, type StandardRecord } from "./types";
 import { validateRecords } from "./validate";
 import { readRawArchiveSync } from "./raw-archive";
+import { auditSourceTableAssociation, type AuditedTableKind } from "./audit-source-association";
 
 const OFFICIAL_PATHS = ["/sj/zxfb/", "/xxgk/sjfb/zxfb2020/"];
 
-interface AuditedBatch {
+export interface AuditedBatch {
   path: string;
   parsed: ParsedBatch;
   errors: string[];
 }
 
-type AuditedTableKind = { propertyType: "new" | "resale" | null; isCategoryTable: boolean; isAllowedTable: boolean; title: string };
 const auditedTableKindCache = new WeakMap<object, AuditedTableKind>();
 
 function writeJsonAtomicallySync(path: string, value: unknown): void {
@@ -94,11 +95,7 @@ function auditRecord(record: StandardRecord, tableRows: string[][][], tableKinds
   const cells = tableRows[tableIndex]?.[rowIndex];
   const tableKind = tableKinds[tableIndex];
   if (!cells || !tableKind) return [...errors, `${key}: locator does not resolve to one source row`];
-  if (!tableKind.isAllowedTable) errors.push(`${key}: source is not one of the four allowed official table types: ${tableKind.title.slice(0, 100)}`);
-  if (tableKind.propertyType === null) errors.push(`${key}: source table type cannot be independently identified from title ${tableKind.title.slice(0, 100)}`);
-  else if (tableKind.propertyType !== record.property_type && (record.size_band === "all" || !tableKind.isCategoryTable)) errors.push(`${key}: property_type=${record.property_type} does not match source table type ${tableKind.propertyType}`);
-  if (record.size_band === "all" && tableKind.isCategoryTable) errors.push(`${key}: all-size record unexpectedly points to a category/size-band table`);
-  if (record.size_band !== "all" && !tableKind.isCategoryTable) errors.push(`${key}: size-band record unexpectedly points to an all-size table`);
+  errors.push(...auditSourceTableAssociation(record, tableKind, key));
   const offset = allLocator
     ? Number(allLocator[3]) * (cells.length >= 8 ? 4 : 3)
     : 1 + (["le90", "90_144", "gt144"].indexOf(sizeLocator![3])) * (cells.length >= 10 ? 3 : 2);
@@ -113,17 +110,9 @@ function auditRecord(record: StandardRecord, tableRows: string[][][], tableKinds
   return errors;
 }
 
-function auditBatch(path: string): AuditedBatch {
-  const parsed = JSON.parse(readFileSync(path, "utf8")) as ParsedBatch;
+export function auditParsedBatch(path: string, parsed: ParsedBatch, html: Buffer): AuditedBatch {
   const batch = parsed.source_batch;
   const errors = validateRecords(parsed.records).map((error) => `${batch.source_batch_id}: ${error}`);
-  const htmlPath = resolve(dirname(path), `${batch.raw_content_sha256}.html`);
-  let html: Buffer;
-  try {
-    html = readRawArchiveSync(htmlPath);
-  } catch (error) {
-    return { path, parsed, errors: [...errors, `${batch.source_batch_id}: ${String(error)}`] };
-  }
   const digest = createHash("sha256").update(html).digest("hex");
   if (digest !== batch.raw_content_sha256) errors.push(`${batch.source_batch_id}: raw SHA-256 mismatch`);
   const expectedArchive = `data/raw/${batch.stat_month}/${digest}.html`;
@@ -153,6 +142,21 @@ function auditBatch(path: string): AuditedBatch {
   return { path, parsed, errors };
 }
 
+function auditBatch(path: string): AuditedBatch {
+  const parsed = JSON.parse(readFileSync(path, "utf8")) as ParsedBatch;
+  const htmlPath = resolve(dirname(path), `${parsed.source_batch.raw_content_sha256}.html`);
+  try {
+    return auditParsedBatch(path, parsed, readRawArchiveSync(htmlPath));
+  } catch (error) {
+    return {
+      path,
+      parsed,
+      errors: [`${parsed.source_batch.source_batch_id}: ${String(error)}`],
+    };
+  }
+}
+
+if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
 const requestedPath = process.argv[2];
 const allPaths = globSync("data/raw/**/*.batch.json").sort();
 if (requestedPath === "--report-only") {
@@ -231,4 +235,5 @@ if (errorCount > 0) {
   writeJsonAtomicallySync(resolve("data", "audit-report.json"), report);
   console.log(`Verified ${report.record_count} records across ${report.batch_count} batches (${report.coverage_start} to ${report.coverage_end})`);
   }
+}
 }

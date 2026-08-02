@@ -5,6 +5,7 @@ on:
     - cron: "17 * * * *"
 
 permissions:
+  actions: read
   contents: read
 
 concurrency:
@@ -22,99 +23,227 @@ jobs:
       source_raw_sha256: ${{ steps.pending.outputs.source_raw_sha256 }}
       discovery_run_id: ${{ steps.pending.outputs.discovery_run_id }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          persist-credentials: false
       - id: pending
-        shell: bash
-        run: |
-          node -e "const fs=require('fs'); const p='data/releases/pending-auto-release.json'; let v={}; try{v=JSON.parse(fs.readFileSync(p,'utf8'))}catch{}; const ready=v.status==='ready'; fs.appendFileSync(process.env.GITHUB_OUTPUT,'ready='+ready+'\ndataset_version='+(v.dataset_version||'')+'\nofficial_url='+(v.official_url||'')+'\nsource_raw_sha256='+(v.source_raw_sha256||'')+'\ndiscovery_run_id='+(v.discovery_run_id||'')+'\n')"
+        name: Validate committed pending-release state
+        run: node scripts/miniprogram/inspect-pending-release.mjs
 
-  publish:
+  recover:
     needs: inspect
     if: needs.inspect.outputs.ready == 'true' && vars.AUTOMATIC_RELEASE_ENABLED == 'true'
     permissions:
-      contents: write
+      actions: read
+      contents: read
     runs-on: ubuntu-latest
     timeout-minutes: 45
-    environment: housing-data-production
+    outputs:
+      dataset_version: ${{ steps.gate.outputs.dataset_version }}
+      gate_report_sha256: ${{ steps.gate.outputs.gate_report_sha256 }}
+      commit_sha: ${{ steps.gate.outputs.commit_sha }}
+      discovery_run_id: ${{ steps.gate.outputs.discovery_run_id }}
+      repository_release_enabled: ${{ steps.repository_auth.outputs.repository_release_enabled }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
+          ref: ${{ github.sha }}
           fetch-depth: 0
-      - uses: actions/setup-node@v4
+          persist-credentials: false
+      - id: identity
+        name: Lock recovery to the current default-branch head
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          commit_sha="$(git rev-parse HEAD)"
+          test "$commit_sha" = "$GITHUB_SHA"
+          git fetch origin "$DEFAULT_BRANCH"
+          test "$(git rev-parse "origin/$DEFAULT_BRANCH")" = "$commit_sha"
+          echo "commit_sha=$commit_sha" >> "$GITHUB_OUTPUT"
+      - id: repository_auth
+        name: Capture repository authorization outside the production environment
+        env:
+          REPOSITORY_RELEASE_ENABLED: ${{ vars.AUTOMATIC_RELEASE_ENABLED }}
+          OUTSIDE_ENV_PRODUCTION_AUTHORIZATION: ${{ vars.PRODUCTION_RELEASE_AUTHORIZED }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$REPOSITORY_RELEASE_ENABLED" = "true"
+          test -z "$OUTSIDE_ENV_PRODUCTION_AUTHORIZATION"
+          echo "repository_release_enabled=true" >> "$GITHUB_OUTPUT"
+      - id: ordinary_ci
+        name: Require successful ordinary CI for this exact recovery commit
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE_SHA: ${{ steps.identity.outputs.commit_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p work/auto-release
+          gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${BASE_SHA}&event=push&status=success&per_page=20" > work/auto-release/ordinary-ci-runs.json
+          node - <<'NODE'
+          const fs = require('fs')
+          const value = JSON.parse(fs.readFileSync('work/auto-release/ordinary-ci-runs.json', 'utf8'))
+          const matches = (value.workflow_runs || []).filter((run) => run.head_sha === process.env.BASE_SHA && run.event === 'push' && run.conclusion === 'success')
+          if (matches.length === 0) throw new Error(`No successful ordinary CI push run found for ${process.env.BASE_SHA}`)
+          matches.sort((left, right) => String(right.created_at).localeCompare(String(left.created_at)))
+          const run = matches[0]
+          const evidence = { workflow: 'ci.yml', event: run.event, conclusion: run.conclusion, run_id: String(run.id), commit_sha: run.head_sha, verified_at: new Date().toISOString() }
+          fs.writeFileSync('work/auto-release/ordinary-ci-evidence.json', `${JSON.stringify(evidence, null, 2)}\n`)
+          fs.appendFileSync(process.env.GITHUB_OUTPUT, `run_id=${run.id}\n`)
+          NODE
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
           cache: npm
       - run: npm ci
       - run: npx playwright install --with-deps chromium webkit
       - name: Re-fetch and hash-check the committed official source
-        run: >-
-          npm run miniprogram:data:verify-official-source --
-          --url=${{ needs.inspect.outputs.official_url }}
-          --sha256=${{ needs.inspect.outputs.source_raw_sha256 }}
+        env:
+          OFFICIAL_URL: ${{ needs.inspect.outputs.official_url }}
+          SOURCE_RAW_SHA256: ${{ needs.inspect.outputs.source_raw_sha256 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm run miniprogram:data:verify-official-source -- "--url=$OFFICIAL_URL" "--sha256=$SOURCE_RAW_SHA256"
       - run: npm run data:audit -- --report-only
       - run: npm run data:release-calendar
       - run: npm run miniprogram:data
-      - run: >-
-          npm run miniprogram:data:stage --
-          --calendar=work/monthly-data-check/release-calendar.json
-          --env=cloud1-d3gpdx70w5d05c68c
+      - run: npm run miniprogram:data:stage -- --calendar=work/monthly-data-check/release-calendar.json --env=cloud1-d3gpdx70w5d05c68c
       - run: npm run miniprogram:data:verify-remote
       - run: npm run check
       - run: npm run test:e2e
       - id: gate
         name: Recreate commit-bound production gate
+        env:
+          CI_EVIDENCE_RUN_ID: ${{ steps.ordinary_ci.outputs.run_id }}
+          CI_EVIDENCE_COMMIT_SHA: ${{ steps.identity.outputs.commit_sha }}
         shell: bash
         run: |
+          set -euo pipefail
           result="$(npm run --silent miniprogram:data:create-recovery-gate)"
           node -e "const v=JSON.parse(process.argv[1]); const fs=require('fs'); fs.appendFileSync(process.env.GITHUB_OUTPUT,'dataset_version='+v.dataset_version+'\ngate_report_sha256='+v.gate_report_sha256+'\ncommit_sha='+v.commit_sha+'\ndiscovery_run_id='+v.discovery_run_id+'\n')" "$result"
+      - name: Upload the reproducible recovery candidate
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        with:
+          name: housing-data-recovery-candidate-${{ github.run_id }}
+          path: |
+            work/auto-release/
+            work/miniprogram-data/
+            work/monthly-data-check/
+          if-no-files-found: error
+          retention-days: 90
+
+  publish:
+    needs: [inspect, recover]
+    if: needs.recover.result == 'success' && needs.recover.outputs.repository_release_enabled == 'true'
+    permissions:
+      actions: read
+      contents: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: housing-data-production
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+        with:
+          ref: ${{ needs.recover.outputs.commit_sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Verify the recovery commit is still the default-branch head
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          EXPECTED_SHA: ${{ needs.recover.outputs.commit_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$DEFAULT_BRANCH"
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          test "$(git rev-parse "origin/$DEFAULT_BRANCH")" = "$EXPECTED_SHA"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        with:
+          name: housing-data-recovery-candidate-${{ github.run_id }}
+          path: work/recovery-artifact
+      - name: Restore and hash-check the attested recovery candidate
+        env:
+          EXPECTED_GATE_SHA256: ${{ needs.recover.outputs.gate_report_sha256 }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p work/auto-release work/miniprogram-data work/monthly-data-check
+          cp -R work/recovery-artifact/work/auto-release/. work/auto-release/
+          cp -R work/recovery-artifact/work/miniprogram-data/. work/miniprogram-data/
+          cp -R work/recovery-artifact/work/monthly-data-check/. work/monthly-data-check/
+          node -e "const fs=require('fs'),c=require('crypto'); const actual=c.createHash('sha256').update(fs.readFileSync('work/auto-release/gate-report.json')).digest('hex'); if(actual!==process.env.EXPECTED_GATE_SHA256) throw Error('Recovered gate artifact hash mismatch')"
       - name: Retry guarded publication
         env:
           TENCENTCLOUD_SECRET_ID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
           TENCENTCLOUD_SECRET_KEY: ${{ secrets.TENCENTCLOUD_SECRET_KEY }}
-          AUTOMATIC_RELEASE_ENABLED: ${{ vars.AUTOMATIC_RELEASE_ENABLED }}
+          AUTOMATIC_RELEASE_ENABLED: ${{ needs.recover.outputs.repository_release_enabled }}
+          PRODUCTION_RELEASE_AUTHORIZED: ${{ vars.PRODUCTION_RELEASE_AUTHORIZED }}
           CI_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
-          CI_COMMIT_SHA: ${{ steps.gate.outputs.commit_sha }}
+          CI_COMMIT_SHA: ${{ needs.recover.outputs.commit_sha }}
           CI_RUN_ID: ${{ github.run_id }}
-          CI_DISCOVERY_RUN_ID: ${{ steps.gate.outputs.discovery_run_id }}
+          CI_DISCOVERY_RUN_ID: ${{ needs.recover.outputs.discovery_run_id }}
           CI_PRODUCTION_ENVIRONMENT: housing-data-production
           CI_CLOUD_ENV_ID: cloud1-d3gpdx70w5d05c68c
-          CI_DATASET_VERSION: ${{ steps.gate.outputs.dataset_version }}
-          CI_GATE_REPORT_SHA256: ${{ steps.gate.outputs.gate_report_sha256 }}
+          CI_DATASET_VERSION: ${{ needs.recover.outputs.dataset_version }}
+          CI_GATE_REPORT_SHA256: ${{ needs.recover.outputs.gate_report_sha256 }}
           CI_GATE_REPORT_PATH: work/auto-release/gate-report.json
-        run: >-
-          npm run miniprogram:data:publish --
-          --env=cloud1-d3gpdx70w5d05c68c
-          --dataset=${{ steps.gate.outputs.dataset_version }}
+        run: npm run miniprogram:data:publish -- --env=cloud1-d3gpdx70w5d05c68c --dataset=${{ needs.recover.outputs.dataset_version }}
+      - id: rollback_monitor_event
+        name: Validate a successful automatic rollback for monitor registration
+        if: failure()
+        env:
+          EXPECTED_COMMIT_SHA: ${{ needs.recover.outputs.commit_sha }}
+          EXPECTED_GITHUB_RUN_ID: ${{ github.run_id }}
+        run: node scripts/miniprogram/register-monitor-control-event.mjs
+      - name: Persist the automatic rollback monitor event without cloud credentials
+        if: failure() && steps.rollback_monitor_event.outputs.registered == 'true'
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          EVENT_PATH: ${{ steps.rollback_monitor_event.outputs.event_path }}
+          FAILURE_PATH: ${{ steps.rollback_monitor_event.outputs.failure_path }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "housing-data-automation"
+          git config user.email "housing-data-automation@users.noreply.github.com"
+          git add -- "$EVENT_PATH" "$FAILURE_PATH"
+          git commit -m "data: record automatic rollback monitor event"
+          git push origin "HEAD:${DEFAULT_BRANCH}"
       - name: Publish immutable private audit package
         env:
           TENCENTCLOUD_SECRET_ID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
           TENCENTCLOUD_SECRET_KEY: ${{ secrets.TENCENTCLOUD_SECRET_KEY }}
-          CI_COMMIT_SHA: ${{ steps.gate.outputs.commit_sha }}
-        run: >-
-          npm run miniprogram:data:publish-audit --
-          --env=cloud1-d3gpdx70w5d05c68c
-          --dataset=${{ steps.gate.outputs.dataset_version }}
+          CI_COMMIT_SHA: ${{ needs.recover.outputs.commit_sha }}
+        run: npm run miniprogram:data:publish-audit -- --env=cloud1-d3gpdx70w5d05c68c --dataset=${{ needs.recover.outputs.dataset_version }}
       - name: Persist publish audit and clear pending state
         env:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         shell: bash
         run: |
-          npm run miniprogram:data:complete-auto -- --dataset=${{ steps.gate.outputs.dataset_version }}
+          set -euo pipefail
+          npm run miniprogram:data:complete-auto -- --dataset=${{ needs.recover.outputs.dataset_version }}
           git config user.name "housing-data-automation"
           git config user.email "housing-data-automation@users.noreply.github.com"
-          git add -- "data/releases/${{ steps.gate.outputs.dataset_version }}.json" data/releases/pending-auto-release.json data/releases/latest-auto-release.json
-          git commit -m "data: record recovered monthly release [skip ci]"
+          git add -- "data/releases/${{ needs.recover.outputs.dataset_version }}.json" data/releases/pending-auto-release.json data/releases/latest-auto-release.json
+          git commit -m "data: record recovered monthly release"
           git push origin "HEAD:${DEFAULT_BRANCH}"
-      - name: Upload recovery evidence
+      - name: Upload public recovery evidence only
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
-          name: housing-data-recovery-audit-${{ github.run_id }}
+          name: housing-data-recovery-publish-${{ github.run_id }}
           path: |
             data/releases/
             work/auto-release/
-            work/miniprogram-data/
+            work/miniprogram-data/${{ needs.recover.outputs.dataset_version }}/
             work/monthly-data-check/
-            work/private-audit/
           if-no-files-found: warn
           retention-days: 365
