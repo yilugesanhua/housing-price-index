@@ -284,18 +284,26 @@ jobs:
             --apply
       - name: Deploy the strict manifest function only after the pointer switch
         env:
-          TENCENTCLOUD_SECRETID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
-          TENCENTCLOUD_SECRETKEY: ${{ secrets.TENCENTCLOUD_SECRET_KEY }}
           TENCENTCLOUD_SECRET_ID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
           TENCENTCLOUD_SECRET_KEY: ${{ secrets.TENCENTCLOUD_SECRET_KEY }}
+          CI_PRODUCTION_ENVIRONMENT: housing-data-production
+          AUTOMATIC_RELEASE_ENABLED: ${{ vars.AUTOMATIC_RELEASE_ENABLED }}
+          PRODUCTION_RELEASE_AUTHORIZED: ${{ vars.PRODUCTION_RELEASE_AUTHORIZED }}
         shell: bash
         run: |
           set -euo pipefail
-          test -n "$TENCENTCLOUD_SECRETID"
-          test -n "$TENCENTCLOUD_SECRETKEY"
-          trap 'npx --no-install tcb logout >/dev/null 2>&1 || true' EXIT
-          npx --no-install tcb login --apiKeyId "$TENCENTCLOUD_SECRET_ID" --apiKey "$TENCENTCLOUD_SECRET_KEY"
-          npx --no-install tcb fn deploy getHousingDataManifest --force -e cloud1-d3gpdx70w5d05c68c
+          mkdir -p work/strict-validator-package
+          source_dir="apps/miniprogram/cloudfunctions/getHousingDataManifest"
+          source_files=(audited-legacy-migrations.js index.js package.json validate-current.js validation-receipt.js)
+          for file in "${source_files[@]}"; do
+            test -f "$source_dir/$file"
+            cp "$source_dir/$file" "work/strict-validator-package/$file"
+          done
+          printf '%s\n' "${source_files[@]}" | LC_ALL=C sort > work/strict-validator-package/source-files.txt
+          (cd work/strict-validator-package && zip -X -q getHousingDataManifest.zip "${source_files[@]}")
+          node scripts/miniprogram/deploy-strict-validator.mjs \
+            --zip=work/strict-validator-package/getHousingDataManifest.zip \
+            --source-files=work/strict-validator-package/source-files.txt
       - name: Finalize the migrated pointer with the deployed strict validator
         env:
           CONFIRMATION: ${{ inputs.confirmation }}
