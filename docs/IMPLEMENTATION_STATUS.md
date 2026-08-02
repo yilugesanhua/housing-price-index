@@ -361,3 +361,14 @@ I02在当前本地候选已有共享验证器和有限故障测试，登记为 `
 | 2026-08-02 | I03 | `implemented` | `implemented` | `passed_limited` | `passed_limited` | `local_legacy_migration_two_phase_finalize_order` | Intent v3只绑定验证器契约；apply阶段完成撤销登记、指针切换和直接70城回读，工作流随后部署严格云函数并由finalize阶段执行`describe_validator`、动态回执和审计；迁移工作流安全测试31项、迁移协议测试17项通过，生产迁移未运行 | Codex本地复核 |
 | 2026-08-02 | R02 | `partial` | `partial` | `not_tested` | `passed_limited` | `local_v2.4.1_ordinary_monthly_replay_12_runs` | 两次独立6轮连续隔离回放均通过，合计12次执行；覆盖 `2025-12 -> 2026-06`，逐轮验证560条新增、历史零变化、错误候选上传前阻断、73个隔离对象回读和切城零下载；报告绑定提交前工作区执行时基线，当前代码已固定在 `cdea2207ff8f570aa1d8725ea474f22df30f26c8`，普通CI `30736720927` 已通过但不是回放证据；未执行真实云端/历史修订专项 | Codex本地复核 |
 | 2026-08-02 | R02 | `partial` | `partial` | `passed_limited` | `passed_limited` | `cloud_v2.4.1_ordinary_monthly_replay_12_runs` | GitHub Actions `30752209300` 在 `main@53ac616` 连续通过 `2025-06 -> 2026-06` 的12轮真实隔离云端回放；每轮70城完整包、73对象回读、两类错误候选阻断和客户端完整包启用通过，生产指针/正式目录未触及且自动发布为`false`。历史修订、云函数、开发者工具和双真机未关闭 | Codex工件复核 |
+
+## v2.4.2 候选切换登记（2026-08-02）
+
+`apps/miniprogram/config/version.js` 已从 `v2.4.1` 递增为 `v2.4.2`。原因是 `53ac616` 修改了小程序运行时校验文件；按照 `AGENTS.md` 和 `MINIPROGRAM_VERSIONING.md`，客户端构件发生变化后，旧版本候选和外部证据不能继续作为新候选证据。
+
+- 当前源码版本：`v2.4.2`。
+- 开发者工具同步：已完成；`apps/miniprogram/config/version.js` 与 `70城小程序技术验证/config/version.js` SHA-256 一致。
+- 本地验证：小程序 290 项、`npm.cmd run check`、Web E2E 40 项均通过。
+- 新模板：`MINIPROGRAM_V2_4_2_LAUNCH_AUDIT.md`、`MINIPROGRAM_V2_4_2_DEVICE_TEST.md`、`MINIPROGRAM_V2_4_2_RELEASE_HANDOFF.md` 已建立，均为未执行模板。
+- `v2.4.1` 的云端回放 `30752209300` 只保留为旧版本证据，不能证明 `v2.4.2`；新的 `v2.4.2` 云端回放、精确候选身份、开发者工具、双真机和微信平台证据仍待完成。
+- 当前状态：`implementation_status=partial`，`verification_status=passed_limited`（仅限本地检查）；未部署、未上传、未审核、未发布，自动发布开关保持关闭。

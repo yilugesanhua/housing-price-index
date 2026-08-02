@@ -2,7 +2,7 @@
 
 更新日期：2026-08-02
 
-本文件是项目文档的统一入口。当前产品与界面事实以 `apps/web/` 和 `apps/miniprogram/` 为准；小程序唯一机器可读源码版本来自 `apps/miniprogram/config/version.js`，截至本次整理其值为 `v2.4.1`。本文中的版本文字只是该次整理快照，不是第二版本源。`70城小程序技术验证/` 是同步副本，`release/miniprogram/` 是只读稳定归档。源码版本、历史测试或旧交接单均不等于微信平台已审核或发布。
+本文件是项目文档的统一入口。当前产品与界面事实以 `apps/web/` 和 `apps/miniprogram/` 为准；小程序唯一机器可读源码版本来自 `apps/miniprogram/config/version.js`，截至本次整理其值为 `v2.4.2`。本文中的版本文字只是该次整理快照，不是第二版本源。`70城小程序技术验证/` 是同步副本，`release/miniprogram/` 是只读稳定归档。源码版本、历史测试或旧交接单均不等于微信平台已审核或发布。
 
 ## 当前权威规范
 
@@ -37,16 +37,16 @@
 
 ## 当前版本待完成证据
 
-以下文件只为当前 `v2.4.1` 建立独立证据入口。它们现在都是 `not_tested` 模板，不能因文件存在而视为审查、真机、归档、微信审核或发布已经通过：
+以下文件只为当前 `v2.4.2` 建立独立证据入口。它们现在都是 `not_tested` 模板，不能因文件存在而视为审查、真机、归档、微信审核或发布已经通过：
 
-- [`MINIPROGRAM_V2_4_1_LAUNCH_AUDIT.md`](MINIPROGRAM_V2_4_1_LAUNCH_AUDIT.md)：当前版本自动化、数据、回放和外部证据审查单。
-- [`MINIPROGRAM_V2_4_1_DEVICE_TEST.md`](MINIPROGRAM_V2_4_1_DEVICE_TEST.md)：当前版本Android/iPhone双真机验收单。
-- [`MINIPROGRAM_V2_4_1_RELEASE_HANDOFF.md`](MINIPROGRAM_V2_4_1_RELEASE_HANDOFF.md)：当前版本平台上传、审核、发布和正式版复核交接单。
-- [`MINIPROGRAM_V2_4_1_12_MONTH_REPLAY.md`](MINIPROGRAM_V2_4_1_12_MONTH_REPLAY.md)：提交前工作区执行的两组各6轮普通月度本地隔离回放（报告保留执行时基线）；合计12次执行，但不是12个不同月份，不能替代当前 `cdea2207ff8f570aa1d8725ea474f22df30f26c8` 的同提交回放、真实云端、双真机或发布证据。
+- [`MINIPROGRAM_V2_4_2_LAUNCH_AUDIT.md`](MINIPROGRAM_V2_4_2_LAUNCH_AUDIT.md)：当前版本自动化、数据、回放和外部证据审查单。
+- [`MINIPROGRAM_V2_4_2_DEVICE_TEST.md`](MINIPROGRAM_V2_4_2_DEVICE_TEST.md)：当前版本Android/iPhone双真机验收单。
+- [`MINIPROGRAM_V2_4_2_RELEASE_HANDOFF.md`](MINIPROGRAM_V2_4_2_RELEASE_HANDOFF.md)：当前版本平台上传、审核、发布和正式版复核交接单。
+- [`MINIPROGRAM_V2_4_2_FULL_CLOUD_REPLAY_20260802.md`](MINIPROGRAM_V2_4_2_FULL_CLOUD_REPLAY_20260802.md)：`v2.4.2`候选的完整云端回放入口，当前尚未执行。
 
 ## 历史证据与记录
 
-以下文件只证明其标注日期、提交、运行或候选版本。它们不得用于证明当前 `v2.4.1` 已通过验收，也不得反向要求当前页面恢复旧设计：
+以下文件只证明其标注日期、提交、运行或候选版本。它们不得用于证明当前 `v2.4.2` 已通过验收，也不得反向要求当前页面恢复旧设计：
 
 - [`ACCEPTANCE_EVIDENCE.md`](ACCEPTANCE_EVIDENCE.md)：始建于2026-07-19、部分数据证据更新至2026-07-28的Web验收矩阵。
 - [`DELIVERY.md`](DELIVERY.md)：按日期追加的历史交付日志；只追加，不重写既有记录。
