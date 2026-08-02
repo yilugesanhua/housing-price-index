@@ -54,6 +54,29 @@ test('legacy monthly package without release_type remains compatible', () => {
   assert.deepEqual(verifyReleaseIntegrity(candidate), [])
 })
 
+test('integrity verifier interprets coverageStart as source coverage only for the approved legacy migration', () => {
+  const candidate = release()
+  candidate.bootstrap.coverageStart = snapshot.sourceCoverageStart
+  delete candidate.bootstrap.sourceCoverageStart
+  candidate.bootstrapText = stableJson(candidate.bootstrap)
+  candidate.manifest.bootstrap_sha256 = sha256(candidate.bootstrapText)
+  candidate.manifest.bootstrap_bytes = Buffer.byteLength(candidate.bootstrapText)
+  candidate.manifestText = stableJson(candidate.manifest)
+  candidate.current.manifest_sha256 = sha256(candidate.manifestText)
+  candidate.current.transition_type = 'migration'
+  candidate.current.migration_id = 'legacy-control-2026-06-e9788d0bddf3'
+  candidate.current.migrated_from_manifest_sha256 = candidate.current.manifest_sha256
+  candidate.currentText = stableJson(candidate.current)
+
+  assert.deepEqual(verifyReleaseIntegrity(candidate), [])
+
+  delete candidate.current.transition_type
+  delete candidate.current.migration_id
+  delete candidate.current.migrated_from_manifest_sha256
+  candidate.currentText = stableJson(candidate.current)
+  assert.match(verifyReleaseIntegrity(candidate).join('\n'), /coverageStart must match/)
+})
+
 test('historical correction binds an audited revision manifest into the release', () => {
   const corrected = { ...snapshot, datasetVersion: '2026-06-222222222222' }
   const candidate = buildRemoteRelease(corrected, {

@@ -7,6 +7,7 @@ export const RELEASE_TYPES = Object.freeze({ monthly: 'monthly_update', correcti
 export const CORRECTION_FORMAT = 'housing-historical-correction'
 export const CORRECTION_SCHEMA_VERSION = '1.0.0'
 const COMPLETE_BOOTSTRAP_MINIMUM_APP_VERSION = [2, 3, 0]
+const LEGACY_CONTROL_MIGRATION_ID = 'legacy-control-2026-06-e9788d0bddf3'
 export const SIZE_LIMITS = Object.freeze({
   current: 8 * 1024,
   manifest: 16 * 1024,
@@ -441,7 +442,20 @@ export function verifyReleaseIntegrity(release) {
     reconstructedSeries[cityId] = item.data?.series
   }
 
-  const reconstructedSnapshot = { ...bootstrap, series: reconstructedSeries }
+  // The one approved legacy migration preserves the historical bootstrap bytes.
+  // Its old coverageStart means source coverage; normalize that meaning only in
+  // the verifier's in-memory reconstruction, never in the stored release.
+  const usesApprovedLegacyCoverage = current?.transition_type === 'migration'
+    && current?.migration_id === LEGACY_CONTROL_MIGRATION_ID
+    && current?.migrated_from_manifest_sha256 === current?.manifest_sha256
+    && bootstrap?.sourceCoverageStart === undefined
+    && typeof bootstrap?.coverageStart === 'string'
+    && Array.isArray(bootstrap?.months)
+    && bootstrap.coverageStart < bootstrap.months[0]
+  const integrityBootstrap = usesApprovedLegacyCoverage
+    ? { ...bootstrap, coverageStart: bootstrap.months[0], sourceCoverageStart: bootstrap.coverageStart }
+    : bootstrap
+  const reconstructedSnapshot = { ...integrityBootstrap, series: reconstructedSeries }
   try {
     validateBundledSnapshot(reconstructedSnapshot)
     const expectedBootstrap = buildBootstrap(reconstructedSnapshot)
