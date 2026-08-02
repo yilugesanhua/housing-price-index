@@ -1,64 +1,64 @@
-# v2.4.1 12-Month Full Cloud Replay - 2026-08-02
+# v2.4.1 12 次完整云端回放记录 - 2026-08-02
 
-Status: `passed_limited`
+状态：`passed_limited`（普通月度隔离云端回放已通过；不代表生产、真机或微信平台验收已经完成）。
 
-This record is evidence for the current full-cloud monthly-update rehearsal only. It does not prove WeChat Developer Tools compilation, Android or iPhone device acceptance, WeChat review, formal publication, or that production automatic release is enabled.
+本记录只证明本次完整云端月度自动更新演练的范围，不证明微信开发者工具编译、Android 或 iPhone 真机验收、微信审核、正式发布，也不证明生产自动发布已经开启。
 
-## Scope and Safety Boundary
+## 范围与安全边界
 
-- Candidate code: `main@53ac616` (`fix: validate pre-source replay padding`).
-- Replay workflow: `.github/workflows/full-auto-update-replay.yml`.
-- Cloud storage boundary: `housing-data/rehearsals/<github-run-id>/full-auto-update-year/` only.
-- Production `housing-data/current.json` and production release prefixes: untouched.
-- `AUTOMATIC_RELEASE_ENABLED`: remains `false`.
-- The replay must stop at the first failed month. A repair requires a new 12-month sequence beginning at run 1.
+- 候选代码：`main@53ac616`（`fix: validate pre-source replay padding`）。
+- 回放工作流：`.github/workflows/full-auto-update-replay.yml`。
+- 云端存储边界：只允许写入 `housing-data/rehearsals/<github-run-id>/full-auto-update-year/`。
+- 生产 `housing-data/current.json` 和生产发布目录：不得触及。
+- `AUTOMATIC_RELEASE_ENABLED`：保持 `false`。
+- 任一月份失败时，回放必须在首个失败月份停止；修复后必须从第 1 轮重新执行完整 12 轮。
 
-## Attempt 1 - Failed Before Month 1
+## 第 1 次尝试：第 1 轮前失败
 
-- GitHub Actions run: `30751211902`, `main@7f9135c3574f20aca0eb1a23519f155ad9afdaee`.
-- Result: failed during construction of the first simulated target (`2025-07`); `completed_replay_count=0`.
-- Failure: `snapshot source coverage cannot start after the client window`.
-- Production safety evidence from the uploaded report: `production_pointer_untouched=true`, `production_release_prefix_untouched=true`.
+- GitHub Actions 运行：`30751211902`，`main@7f9135c3574f20aca0eb1a23519f155ad9afdaee`。
+- 结果：构造第一个模拟目标月份 `2025-07` 时失败，`completed_replay_count=0`。
+- 错误：`snapshot source coverage cannot start after the client window`。
+- 上传报告证明：`production_pointer_untouched=true`、`production_release_prefix_untouched=true`。
 
-### Root Cause and Repair
+### 原因与修复
 
-The first historical 120-month client window begins at `2015-08`, while the first official source month is `2016-01`. The replay correctly uses null-only pre-coverage padding, but the remote-package and client validators incorrectly required `sourceCoverageStart <= coverageStart`.
+第一个历史 120 个月客户端窗口从 `2015-08` 开始，首个官方来源月份却是 `2016-01`。回放正确使用了仅含 `null` 的覆盖前填充，但远程包和客户端校验器错误地要求 `sourceCoverageStart <= coverageStart`。
 
-The repair changes the rule to the following fail-closed contract:
+修复后的失败关闭规则如下：
 
-1. `coverageStart` must equal the first client-window month.
-2. `sourceCoverageStart` may precede the client window, or fall inside it, but may not be later than the final client-window month.
-3. When `sourceCoverageStart` falls after `coverageStart`, every preceding four-value series tuple must be `[null, null, null, null]` and its corresponding `releaseDates` value must be empty.
-4. Any value, non-empty release date, missing month, or source start after the window fails before activation.
+1. `coverageStart` 必须等于 120 个月客户端窗口的首月。
+2. `sourceCoverageStart` 可以早于窗口或落在窗口内，但不能晚于窗口的最后一个月。
+3. 当 `sourceCoverageStart` 晚于 `coverageStart` 时，之前每月的四个序列值必须都是 `[null, null, null, null]`，对应的 `releaseDates` 必须为空。
+4. 填充区出现任何数值、非空发布日期、缺月，或来源起点晚于窗口，均必须在激活前失败。
 
-The same rule is enforced in the remote-package builder, the complete snapshot validator, and the mini-program remote bootstrap validator. Positive and negative regression tests were added for the padding boundary.
+这条规则已同时写入远程包构建器、完整快照校验器和小程序远程启动校验器，并补充了正反向回归测试。
 
-## Repair Verification Before Cloud Retry
+## 云端重跑前的本地验证
 
-- Targeted remote-data and data-runtime tests: 85 passed, 0 failed.
-- `npm.cmd run check`: passed; 290 mini-program tests, 44 data tests, 17 Web tests, 3 release-readiness tests, 70,560-record validation, and production build all passed.
-- `npm.cmd run test:e2e`: 40 passed.
-- Source-directory files `apps/miniprogram/utils/data-integrity.js` and `apps/miniprogram/utils/data-runtime.js` were synchronized to `70城小程序技术验证/` and their SHA-256 values matched exactly.
-- Local isolated restart: 12/12 sequential monthly replays passed from `2025-06 -> 2025-07` through `2026-05 -> 2026-06`; total internal pipeline duration was `89,772 ms`.
-- The local report confirms `production_pointer_untouched=true`, `production_release_prefix_untouched=true`, and `automatic_release_enabled=false`.
+- 远程数据和数据运行时定向测试：85 通过，0 失败。
+- `npm.cmd run check`：通过；290 项小程序测试、44 项数据测试、17 项 Web 测试、3 项发布就绪测试、70,560 条记录校验和生产构建均通过。
+- `npm.cmd run test:e2e`：40 通过。
+- `apps/miniprogram/utils/data-integrity.js` 与 `apps/miniprogram/utils/data-runtime.js` 已同步到 `70城小程序技术验证/`，对应 SHA-256 完全一致。
+- 本地隔离重跑：从 `2025-06 -> 2025-07` 至 `2026-05 -> 2026-06` 的连续 12 轮全部通过；内部管线总耗时 `89,772 ms`。
+- 本地报告确认：`production_pointer_untouched=true`、`production_release_prefix_untouched=true`、`automatic_release_enabled=false`。
 
-The local result is preflight evidence only. The following current-commit GitHub cloud replay is the separate cloud evidence.
+本地结果只是预检证据。下列当前提交上的 GitHub 云端回放是独立的云端证据。
 
-## Attempt 2 - Current-Commit Cloud Replay Passed
+## 第 2 次尝试：当前提交云端回放通过
 
-- GitHub Actions run: [`30752209300`](https://github.com/yilugesanhua/housing-price-index/actions/runs/30752209300), `main@53ac616`.
-- Workflow result: `success`; replay report result: `passed`; completed at `2026-08-02T15:14:35Z`.
-- Scope: twelve sequential ordinary-month replays from baseline `2025-06` through target `2026-06`. Every round passed; the workflow wrote only `housing-data/rehearsals/30752209300/full-auto-update-year/`.
-- Safety result: `production_pointer_untouched=true`, `production_release_prefix_untouched=true`, and `automatic_release_enabled=false`.
-- Data result for every round: the official-page source was detected, 560 target-month records were parsed, `official-html-v7-product-housing-only` and `full-record-audit-v5` matched the full 126-batch / 70,560-record audit, and no historical record changed.
-- Candidate result for every round: the package contained 70 city shards; both a missing official record and a shape-valid altered official value were rejected before upload or pointer activation.
-- Remote/client result for every round: 72 data objects plus one control object were hash-read back from isolated COS before guarded pointer switching; the simulated mini-program activated the complete 70-city package, used remote data, retained 70 local city histories, and made zero additional downloads when switching cities.
+- GitHub Actions 运行：[`30752209300`](https://github.com/yilugesanhua/housing-price-index/actions/runs/30752209300)，`main@53ac616`。
+- 工作流结果：`success`；回放报告结果：`passed`；完成时间：`2026-08-02T15:14:35Z`。
+- 范围：以 `2025-06` 为基线、以 `2026-06` 为最终目标的连续 12 轮普通月度回放，全部通过。工作流只写入 `housing-data/rehearsals/30752209300/full-auto-update-year/`。
+- 生产安全：`production_pointer_untouched=true`、`production_release_prefix_untouched=true`、`automatic_release_enabled=false`。
+- 数据正确性：每轮均发现官方页面、解析 560 条目标月份记录；`official-html-v7-product-housing-only` 和 `full-record-audit-v5` 与完整 126 批 / 70,560 条记录审计一致，历史记录无变化。
+- 候选阻断：每轮生成 70 个城市分片；“删除一条官方记录”和“结构正确但篡改一项官方值”两类错误候选，均在上传或指针激活前被拒绝。
+- 远程与客户端：每轮均在受保护指针切换前，对隔离 COS 中 72 个数据对象和 1 个控制对象完成哈希回读；小程序模拟客户端启用了完整 70 城数据包，数据来源变为远程，保存 70 城本地历史，切换城市时新增下载次数为 0。
 
-### Per-Round Timing
+### 每轮耗时
 
-All durations below are measured inside the isolated cloud rehearsal. They are not a promise for a future live statistical release; the release-day scheduling model continues to use a five-minute polling interval, a normal expectation of 10 to 25 minutes after the official page, a 30-minute internal target, a 45-minute warning target, and failure behavior of retaining the previous month.
+下表是隔离云端演练内部测得的耗时，不是对未来真实统计局发布日的承诺。发布日调度模型仍为：每 5 分钟检查一次；官方页面出现后正常预期 10 至 25 分钟；内部目标 30 分钟；45 分钟预警；任一校验失败则保留旧月份。
 
-| Round | Target month | Source + parse | Fail-closed gates | Package | Corruption rejection | Isolated upload/readback/switch | Client activation | Total |
+| 轮次 | 目标月份 | 来源发现和解析 | 失败关闭门禁 | 数据包生成 | 错误候选阻断 | 隔离上传、回读和切换 | 小程序激活 | 总耗时 |
 | --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
 | 1 | 2025-07 | 525 ms | 620 ms | 1,155 ms | 1,957 ms | 340,585 ms | 1,138 ms | 345,990 ms |
 | 2 | 2025-08 | 343 ms | 565 ms | 1,089 ms | 2,450 ms | 232,364 ms | 802 ms | 237,622 ms |
@@ -73,11 +73,11 @@ All durations below are measured inside the isolated cloud rehearsal. They are n
 | 11 | 2026-05 | 373 ms | 631 ms | 1,147 ms | 1,944 ms | 209,215 ms | 841 ms | 214,160 ms |
 | 12 | 2026-06 | 353 ms | 625 ms | 1,108 ms | 1,920 ms | 202,898 ms | 856 ms | 207,768 ms |
 
-Total isolated cloud duration was `2,687,483 ms` (44 minutes 47.483 seconds). The mean per-round duration was 223.957 seconds; the slowest round was 345.990 seconds. The isolated upload/readback/switch stage dominated the run at 2,625,554 ms in total.
+隔离云端总耗时为 `2,687,483 ms`（44 分 47.483 秒），每轮平均 223.957 秒，最慢一轮为 345.990 秒。隔离上传、回读和切换阶段总共 `2,625,554 ms`，是全流程主要耗时来源。
 
-### Issues and Limits
+### 问题与限制
 
-- No new failed or blocking issue was found in this attempt.
-- `REPLAY-PADDING-2025-07` through `REPLAY-PADDING-2025-11` are five informational records, not failures: the first five sliding 120-month client windows precede the official `2016-01` source coverage by five down to one month. Each is required to be null-only padding with empty release dates; every in-coverage value and target-month 560 records matched the verified archive exactly.
-- `REPLAY-001` through `REPLAY-009` in the artifact issue list are fixed findings from earlier attempts. They are retained for traceability and were not reopened by this run.
-- This is a real isolated cloud rehearsal, not a production write, cloud-function deployment, WeChat Developer Tools compilation, Android/iPhone device acceptance, WeChat review, or formal publication. It therefore strengthens R02 only for the ordinary-month cloud replay scope; historical-revision fault replay and the external-platform evidence remain open.
+- 本次没有发现新的失败或阻断问题。
+- `REPLAY-PADDING-2025-07` 至 `REPLAY-PADDING-2025-11` 是 5 条信息记录，不是失败：前五个滑动 120 个月客户端窗口早于官方 `2016-01` 来源覆盖，分别需要 5 至 1 个月的历史空白填充。所有填充均为仅 `null` 且发布日期为空；覆盖范围内的全部数据和每轮目标月 560 条记录都与已核验来源档案完全一致。
+- 工件问题清单中的 `REPLAY-001` 至 `REPLAY-009` 是此前尝试中已修复的问题，为便于追溯而保留，未在本次重新出现。
+- 这是一次真实的隔离云端演练，不是生产写入、云函数部署、微信开发者工具编译、Android/iPhone 真机验收、微信审核或正式发布。因此它只增强 R02 的“普通月度云端回放”证据；历史修订故障回放和外部平台证据仍未完成。
