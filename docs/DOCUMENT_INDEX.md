@@ -42,7 +42,7 @@
 - [`MINIPROGRAM_V2_4_1_LAUNCH_AUDIT.md`](MINIPROGRAM_V2_4_1_LAUNCH_AUDIT.md)：当前版本自动化、数据、回放和外部证据审查单。
 - [`MINIPROGRAM_V2_4_1_DEVICE_TEST.md`](MINIPROGRAM_V2_4_1_DEVICE_TEST.md)：当前版本Android/iPhone双真机验收单。
 - [`MINIPROGRAM_V2_4_1_RELEASE_HANDOFF.md`](MINIPROGRAM_V2_4_1_RELEASE_HANDOFF.md)：当前版本平台上传、审核、发布和正式版复核交接单。
-- [`MINIPROGRAM_V2_4_1_12_MONTH_REPLAY.md`](MINIPROGRAM_V2_4_1_12_MONTH_REPLAY.md)：当前未提交 `v2.4.1` 候选的两组各6轮普通月度本地隔离回放；合计12次执行，但不是12个不同月份，也不能替代真实云端、双真机或发布证据。
+- [`MINIPROGRAM_V2_4_1_12_MONTH_REPLAY.md`](MINIPROGRAM_V2_4_1_12_MONTH_REPLAY.md)：提交前工作区执行的两组各6轮普通月度本地隔离回放（报告保留执行时基线）；合计12次执行，但不是12个不同月份，不能替代当前 `cdea2207ff8f570aa1d8725ea474f22df30f26c8` 的同提交回放、真实云端、双真机或发布证据。
 
 ## 历史证据与记录
 

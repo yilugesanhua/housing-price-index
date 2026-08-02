@@ -65,7 +65,7 @@ D01-D20与I01-I14的当前状态和关闭证据见 [实施状态登记](IMPLEMEN
 
 - GitHub Actions中的 `ci`、只读发现、候选准备、生产发布恢复和24小时监测工作流语法有效。
 - I09关闭证据必须证明：只读发现只生成不可变观察报告；独立受保护状态部署作业只能在基线一致时保持数据/撤销身份、递增控制代次并写后回读，冲突或失败时原指针字节不变。该作业当前尚未完成，不能把观察结果当作已部署的用户可见状态。
-- I12关闭证据必须证明：生产信任链中读取Secrets或生成、传递其Artifact的全部外部GitHub Action固定到40位commit SHA，容器Action固定digest，并有机器扫描和可移动标签失败用例。当前本地扫描与失败fixture已通过，只能记为 `passed_limited`；真实普通CI、受保护Environment执行和依赖更新流程未复核前不得关闭I12或开放生产授权。
+- I12关闭证据必须证明：生产信任链中读取Secrets或生成、传递其Artifact的全部外部GitHub Action固定到40位commit SHA，容器Action固定digest，并有机器扫描和可移动标签失败用例。当前本地扫描与失败fixture已通过，精确提交 `cdea2207ff8f570aa1d8725ea474f22df30f26c8` 的普通GitHub CI运行 `30736720927` 也已通过；受保护Environment执行和依赖更新流程仍未复核，因此只能记为 `passed_limited`，不得关闭I12或开放生产授权。
 - 测试云完整发布后，云函数、`current.json`、清单、bootstrap和70个城市分片全部回读一致。
 - 故障演练证明所有正确性失败均发生在指针切换前，旧指针原始字节和SHA-256保持不变；没有已完整验证的安全回退目标时不会切换，切换后的恢复只使用预验证目标。
 - `IMPLEMENTATION_STATUS.md` 中R02、D01-D16及I01-I03、I09、I12均有精确提交、自动测试及所需云端/真机证据，`implementation_status=implemented` 且 `verification_status=passed`；R02必须包含当前精确候选的普通月度12轮和历史修订专项12轮，两条证据不得互相替代。

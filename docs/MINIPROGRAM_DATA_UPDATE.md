@@ -53,7 +53,7 @@
 
 2026-07-30至2026-07-31本地候选的历史有限证据（后续2026-08-01继续扩展并重新验证）：
 
-- 独立审计器升级为 `full-record-audit-v5`，在原有逐条定位与原始单元格核对之外，对总体和面积分类记录均核对新房/二手房来源类型，并核对面积分类记录的面积段关联；本地全量审计通过126个批次、70,560条记录。该结果未绑定当前候选的普通CI、云端发布或生产指针，不替代外部验收。
+- 独立审计器升级为 `full-record-audit-v5`，在原有逐条定位与原始单元格核对之外，对总体和面积分类记录均核对新房/二手房来源类型，并核对面积分类记录的面积段关联；本地全量审计通过126个批次、70,560条记录。该历史审计记录本身未作为GitHub CI artifact回读；当前精确提交的普通CI仅证明标准检查通过，仍不替代云端发布或生产指针验收。
 - 小程序快照和远程完整包分开记录 `sourceCoverageStart`（完整官方来源起点）与 `coverageStart`（120个月客户端窗口首月），并校验来源起点格式及其不得晚于客户端窗口；当前 `v2.4.1` 本地候选校验版本月份、发布日期、国家统计局URL、精确权威70城集合及城市名称/搜索/省份/线级资料、有限数/`null`、完整series/latest/breadth和派生变化，逐值验证趋势原始序列并逐月重算涨平跌缺失计数、排名与累计计算，同时执行逐文件写后回读、失败清理、单一schema v2状态、启动孤儿清理、一个安全回退、最长24小时控制状态、早于内置月份的受控回滚和独立 `unavailable` 页面短路。真实默认启动曾暴露“无可信控制状态即错误禁用完整内置快照”的回退；失败证据继续保留，最小修复后首次安装、清储、离线、控制过期、远程损坏、已知撤销、远程安全回退、持久化故障、重启、删除失败及内置来源覆盖起点异常场景已纳入本地回归；该历史阶段小程序203项与 `npm.cmd run check` 通过。后续生产授权、legacy回执和回滚边界定向测试已扩展当前本地证据，仍不替代真实CI、云端、开发者工具、双真机或发布验收。
 - 发布、人工/自动回滚、发布后守卫、只读监测和云函数已复用同一控制指针验证器；历史修订重跑使用`old_active/candidate_active/conflict`三态并要求数据包与源版本双重撤销、精确replacement和同一`revision_id`，证据不足的legacy记录失败关闭。人工回滚已有本地写前`manual-data-rollback-intent-v2`持久化、`old_active/target_active/conflict`三态、原始及收尾`run_id + run_attempt`绑定、按attempt隔离的Artifact、切换后只读`manual-data-rollback-audit-v4`恢复和最终收尾运行监测身份；历史修订全部中断点、真实GitHub跨运行Artifact恢复、真实云端迁移/回滚、对象级CAS和生产监测仍未验证。
 - 当前工作流的外部Action已固定40位完整commit SHA，并由机器测试递归扫描全部 `.github/workflows/*.yml` 与 `*.yaml`；待发布恢复在无Secrets作业中检查状态和官方URL，再要求同一提交的普通CI成功证明，只有受保护生产写入作业可取得生产Secrets。月度发布、待发布恢复、历史修订、固定修正和人工回滚均通过统一授权器要求两个生产开关精确为 `true`；本地生产发布和回滚旁路已关闭。上述结论只来自本地机器扫描和测试，尚无真实GitHub恢复运行、生产Environment策略或变量值现场证据。
@@ -61,7 +61,7 @@
 | 能力 | 当前状态 |
 | --- | --- |
 | 双源发布日程与正式页面发现 | 已实现并通过真实官方页面验证 |
-| 小程序远程下载、哈希校验、完整70城原子缓存和内置回退 | `v2.4.1` 本地候选已完成D08-D10、D12-D14及I02-I03的本地实现；I03仅表示本地`implemented/passed_limited`，生产迁移仍为`not_run/not_verified`，D11、S10和I01继续保持`partial`。默认启动回退已最小修复并恢复本地 `passed_limited`，仍无当前真实CI、真实云端、开发者工具、双真机或正式发布证据 |
+| 小程序远程下载、哈希校验、完整70城原子缓存和内置回退 | `v2.4.1` 本地候选已完成D08-D10、D12-D14及I02-I03的本地实现；I03仅表示本地`implemented/passed_limited`，生产迁移仍为`not_run/not_verified`，D11、S10和I01继续保持`partial`。默认启动回退已最小修复并恢复本地 `passed_limited`；当前精确提交 `cdea2207ff8f570aa1d8725ea474f22df30f26c8` 的普通CI `30736720927` 已通过，仍无真实云端、开发者工具、双真机或正式发布证据 |
 | 云存储版本目录、清单云函数、受保护人工修订/回滚和发布工具 | 基础工具已存在；生产写入仅能从受保护工作流执行，D01、D02、D11及I02-I03关闭前不得视为完整安全闭环 |
 | CI自动抓取、全量门禁、受限自动发布和私有审计 | 公开仓库、分支规则、最小权限凭据和隔离云演练已有历史记录；I09独立状态部署仍未关闭，I12仅有本地SHA固定与机器测试，V14-V18仍缺真实GitHub/Environment/历史Artifact复核，生产授权关闭 |
 | 发布后全量守卫、自动回滚和成功/失败通知 | 已有基础代码和有限演练；D01、D15、D19及I01-I03、I09仍为已批准未关闭项 |
@@ -132,7 +132,7 @@ GitHub Actions 是当前主方案。若后续因平台政策、可用性、公�
 - 生产云凭据只配置在受保护的 GitHub Environment 中，仅受保护生产写入作业（正常发布、待发布恢复、历史修订、固定修正和人工回滚）可读取；Fork、Pull Request、任意分支和手动拼接 URL 均不得获得凭据。仓库级 `AUTOMATIC_RELEASE_ENABLED` 只表达自动化总开关，Environment级 `PRODUCTION_RELEASE_AUTHORIZED` 只表达生产写授权，任一未设置或不为精确字符串 `true` 时都必须失败关闭。
 - 所有可取得生产Secrets的手动入口必须在脚本内同时闭合 `GITHUB_REF`、`GITHUB_WORKFLOW_REF`、检出提交SHA与远端默认分支HEAD；任一不是默认分支精确提交都必须拒绝。Environment只允许 `main` 是纵深防御，不能替代仓库代码中的校验。
 - 自动发布没有通用的 `--skip-validation` 或跳过门禁参数。CI 自动确认必须绑定 GitHub 运行 ID、固定提交 SHA、目标环境、完整 `dataset_version` 和门禁报告哈希，并写入审计记录。
-- 任何直接读取生产Secrets，或生成、下载、上传生产信任链Artifact的非本地GitHub Action，`uses:` 必须固定40位完整commit SHA；禁止 `@v4`、`@v7`、`@main` 等可移动标签。容器Action固定digest，升级必须经过普通Pull Request、CI和人工复核。当前本地机器扫描与失败fixture已通过，因此I12可记为 `implemented/passed_limited`；真实普通CI、受保护Environment执行和依赖更新流程尚未复核前不得记为 `passed`，也不得据此开启生产授权。
+- 任何直接读取生产Secrets，或生成、下载、上传生产信任链Artifact的非本地GitHub Action，`uses:` 必须固定40位完整commit SHA；禁止 `@v4`、`@v7`、`@main` 等可移动标签。容器Action固定digest，升级必须经过普通Pull Request、CI和人工复核。当前本地机器扫描、失败fixture和精确提交 `cdea2207ff8f570aa1d8725ea474f22df30f26c8` 的普通CI `30736720927` 已通过，因此I12可记为 `implemented/passed_limited`；受保护Environment执行和依赖更新流程尚未复核前不得记为 `passed`，也不得据此开启生产授权。
 
 禁止事项：
 
@@ -732,7 +732,7 @@ validation_status: passed
 2. 生产自动发布完整硬门槛只在 [自动更新启用清单](AUTOMATION_ACTIVATION_CHECKLIST.md) 维护；各编号状态、阻断范围和关闭证据以 [实施状态登记](IMPLEMENTATION_STATUS.md) 为准。清单任一适用项未通过时，仓库级 `AUTOMATIC_RELEASE_ENABLED` 必须保持 `false`，生产 Environment 级 `PRODUCTION_RELEASE_AUTHORIZED` 必须保持 `false` 或未设置。唯一legacy迁移可按本文件专节使用独立一次性授权，但不改变这两个普通开关、不能被其他生产写入复用，也不构成自动发布启用证据。
 3. D17-D19分别限制跨年SLA、历史页面修订发现和通知闭环声明；D20限制共享计算逻辑重构。文档落地不改变这些项目的未验证状态。
 4. 微信开发者工具、双真机、`unavailable`状态、历史修订专门回放和当前版本上线证据仍须按对应编号补齐。普通月度更新的12轮回放只证明其指定提交、运行和有限场景。
-5. 本次信任模型修正已按用户确认范围完成最小运行时代码、测试和规范更新，未重设计正常页面；D10、D13已恢复为本地 `implemented/passed_limited`，S10和I01恢复为本地 `partial/passed_limited`。仍须以微信开发者工具真实默认启动、真实云函数、Android/iPhone和本节外部验收矩阵留证，不能把本地结果写成CI、部署、上传、审核或发布通过。
+5. 本次信任模型修正已按用户确认范围完成最小运行时代码、测试和规范更新，未重设计正常页面；D10、D13已恢复为本地 `implemented/passed_limited`，S10和I01恢复为本地 `partial/passed_limited`。精确提交 `cdea2207ff8f570aa1d8725ea474f22df30f26c8` 的普通CI `30736720927` 已通过，但仍须以微信开发者工具真实默认启动、真实云函数、Android/iPhone和本节外部验收矩阵留证，不能把本地或普通CI结果写成部署、上传、审核或发布通过。
 
 ## 回滚规范
 
@@ -846,7 +846,7 @@ validation_status: passed
 - 只读发现没有写凭据；独立状态部署作业在基线一致时只改变允许的状态字段并递增控制代次，在基线冲突、撤销变化、回读失败时保持原指针。观察报告与已部署状态分别留证。
 - 生产信任链所有外部 `uses:` 通过机器扫描固定40位完整commit SHA或容器digest；可移动标签、reusable workflow遗漏和间接Artifact链均有失败fixture。
 
-现有平台证据只证明 `v2.3.0` 开发版曾上传，不证明体验版、双真机、审核或正式发布；实际线上版本及普通月度能力必须在微信平台现场核验。[自动更新启用清单](AUTOMATION_ACTIVATION_CHECKLIST.md) 未全部通过时，`AUTOMATIC_RELEASE_ENABLED` 不得开启；当前 `v2.4.1` 完成真实CI、云端、开发者工具、双真机和微信审核发布前，不得描述为线上客户端已经支持受审计历史修订协议。
+现有平台证据只证明 `v2.3.0` 开发版曾上传，不证明体验版、双真机、审核或正式发布；实际线上版本及普通月度能力必须在微信平台现场核验。[自动更新启用清单](AUTOMATION_ACTIVATION_CHECKLIST.md) 未全部通过时，`AUTOMATIC_RELEASE_ENABLED` 不得开启；当前 `v2.4.1` 虽已有普通CI运行 `30736720927`，在完成云端、开发者工具、双真机和微信审核发布前，不得描述为线上客户端已经支持受审计历史修订协议。
 
 ## 2026-07-27 云端联调记录
 
@@ -869,7 +869,7 @@ validation_status: passed
 
 两条报告都必须绑定 `app_version`、精确 `source_commit_sha`、`source_dataset_version`、`parser_version`、`audit_version`、工作流文件SHA-256、GitHub运行ID、测试云环境、起止时间和逐阶段耗时。任一身份不同、证据缺失或只提供汇总截图时，不得合并结论。
 
-现有 `MINIPROGRAM_12_MONTH_REPLAY_*.md` 记录的是指定旧提交和 `v2.3.0` 普通月度能力，不能证明当前 `v2.4.1` 的历史修订协议安全。当前已新增 [`MINIPROGRAM_V2_4_1_12_MONTH_REPLAY.md`](MINIPROGRAM_V2_4_1_12_MONTH_REPLAY.md)，证明未提交工作区候选的普通月度12次本地隔离执行；尚无同时满足普通月度与历史修订两条证据链的精确候选/真实云端报告，因此R02为 `partial/passed_limited`，不得据此开启生产自动发布。
+现有 `MINIPROGRAM_12_MONTH_REPLAY_*.md` 记录的是指定旧提交和 `v2.3.0` 普通月度能力，不能证明当前 `v2.4.1` 的历史修订协议安全。当前已新增 [`MINIPROGRAM_V2_4_1_12_MONTH_REPLAY.md`](MINIPROGRAM_V2_4_1_12_MONTH_REPLAY.md)，证明提交前工作区候选的普通月度12次本地隔离执行，报告保留执行时基线；它不能替代当前 `cdea2207ff8f570aa1d8725ea474f22df30f26c8` 的同提交回放或真实云端报告，普通CI `30736720927` 也不是回放证据。尚无同时满足普通月度与历史修订两条证据链的精确候选/真实云端报告，因此R02为 `partial/passed_limited`，不得据此开启生产自动发布。
 
 使用 `npm run miniprogram:data:replay -- --months=6`，按时间顺序对当前可用的最近6个已核验月份做确定性回放；需要满足“至少12次执行”时，必须从第1轮重新启动第二组独立的6轮，不能伪造覆盖起点之前的官方数据。当前 `v2.4.1` 两组报告均从 `2025-12 -> 2026-01` 开始，连续到 `2026-05 -> 2026-06`，合计12次执行。原因是正式数据覆盖从 `2016-01` 开始且客户端固定120个月窗口，当前可生成的生产等价连续转移只有这6步；任何覆盖外月份只能作为显式测试填充，不能进入生产数据。
 

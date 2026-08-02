@@ -1,15 +1,17 @@
 # v2.4.1 普通月度自动更新 12 次隔离回放
 
-> 状态：`passed_limited`（当前未提交工作区的本地隔离证据）
+> 状态：`passed_limited`（报告执行时工作区的本地隔离证据；不是当前提交或云端证据）
 >
-> 本报告不代表精确候选提交、真实云端部署、微信开发者工具编译、Android/iPhone 双真机、微信审核或正式发布已经完成。生产自动发布仍关闭：`AUTOMATIC_RELEASE_ENABLED=false`。
+> 报告执行时使用提交前工作区；当前实现已固定在精确提交 `cdea2207ff8f570aa1d8725ea474f22df30f26c8`。本报告不代表该提交的真实云端部署、微信开发者工具编译、Android/iPhone 双真机、微信审核或正式发布已经完成。生产自动发布仍关闭：`AUTOMATIC_RELEASE_ENABLED=false`。
 
 ## 1. 测试身份与范围
 
 | 项目 | 值 |
 | --- | --- |
 | 小程序源码版本 | `v2.4.1` |
-| Git HEAD | `c1b52a06be9c53dc16af7ec97cf2c574c7735496`（工作区有未提交修改，不是不可变候选） |
+| Git HEAD（执行时） | `c1b52a06be9c53dc16af7ec97cf2c574c7735496`（执行时工作区有未提交修改，不是当前版本源） |
+| 当前收口提交 | `cdea2207ff8f570aa1d8725ea474f22df30f26c8` |
+| 普通GitHub CI | `30736720927`（`npm run check`与`npm run test:e2e`通过；未重跑本报告） |
 | 解析器 | `official-html-v7-product-housing-only` |
 | 独立审计器 | `full-record-audit-v5` |
 | 正式数据覆盖 | `2016-01` 至 `2026-06` |
@@ -89,4 +91,4 @@
 
 回放内部计时不能直接等同于统计局正式发布后的生产耗时。当前统一运行目标仍为：官方正式页面可访问后正常预期 `10-25` 分钟，内部服务目标 `30` 分钟，预警/保守目标 `45` 分钟，正式SLA目标 `60` 分钟；轮询间隔为 `5` 分钟。两组本地内部流水线测得平均约 `13/8` 秒，最慢约 `15/9` 秒，仅用于发现处理性能回归。
 
-两份报告均确认：`production_pointer_untouched=true`、`production_release_prefix_untouched=true`、`automatic_release_enabled=false`。因此本报告不能证明真实云端运行、GitHub真实CI、微信开发者工具、Android/iPhone双真机、云函数部署、微信审核或正式发布已经完成；R02仍为 `partial/passed_limited`，历史修订专项12轮及外部发布证据仍未关闭。
+两份报告均确认：`production_pointer_untouched=true`、`production_release_prefix_untouched=true`、`automatic_release_enabled=false`。因此本报告不能证明真实云端运行，也不能证明当前收口提交 `cdea2207ff8f570aa1d8725ea474f22df30f26c8` 上的同提交回放；普通CI `30736720927` 仅覆盖标准检查，不能替代回放或云端证据。微信开发者工具、Android/iPhone双真机、云函数部署、微信审核或正式发布仍未完成；R02仍为 `partial/passed_limited`，历史修订专项12轮及外部发布证据仍未关闭。

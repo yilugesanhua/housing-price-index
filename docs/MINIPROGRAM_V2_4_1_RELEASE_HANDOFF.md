@@ -3,7 +3,7 @@
 > **状态：未执行的当前版本模板**
 > 本文件用于把同一 `v2.4.1` 候选的代码、数据、回放、编译和真机证据交给发布责任人。待填项目不构成通过、部署、审核或发布证明。
 
-未提交工作区的本地实现与 `passed_limited` 证据只在 [`IMPLEMENTATION_STATUS.md`](IMPLEMENTATION_STATUS.md) 登记，不得据此填写本交接单的CI、迁移、云端、真机或平台字段。
+提交前工作区执行的本地实现与 `passed_limited` 证据只在 [`IMPLEMENTATION_STATUS.md`](IMPLEMENTATION_STATUS.md) 登记；当前实现已固定在精确提交 `cdea2207ff8f570aa1d8725ea474f22df30f26c8`，普通CI `30736720927` 仅是标准检查证据，不得据此填写本交接单的迁移、云端、真机或平台字段。
 
 ## 发布身份
 
