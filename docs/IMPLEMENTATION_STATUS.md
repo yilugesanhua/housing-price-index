@@ -1,6 +1,6 @@
 # 实施状态登记
 
-更新日期：2026-08-02
+更新日期：2026-08-03
 
 本文件记录权威规范与当前实现之间的差距，不另行定义产品、数据或发布规则。R01-R07、D01-D20、I01-I14与V01-V19涉及的目标要求以 `AGENTS.md`、`PRODUCT.md`、`DATA_CONTRACT.md`、`ACCEPTANCE.md`、`MINIPROGRAM_VERSIONING.md`、`RELEASE_READINESS.md` 和 `MINIPROGRAM_DATA_UPDATE.md` 的对应条款为准；项目全部权威规范及职责边界以 [文档索引](DOCUMENT_INDEX.md) 为准。
 
@@ -55,13 +55,13 @@
 
 ## R01-R07 版本与发布证据登记
 
-本组治理“当前版本能否被旧证据代替、发布包能否复现、Web声明是否属于当前构建、运维时间是否唯一”问题。2026-07-29的原始事实基线是提交 `c1b52a06be9c53dc16af7ec97cf2c574c7735496` 和源码版本 `v2.4.0`；2026-07-31经用户批准的本地候选已升为 `v2.4.1`。当前 `v2.4.1` 实现已固定在精确提交 `cdea2207ff8f570aa1d8725ea474f22df30f26c8`，普通GitHub CI运行 `30736720927` 已通过；开发者工具、真机、云端和微信平台证据仍未完成，尚未形成稳定归档、上传、审核或正式发布证据。文档模板或批准目标不能替代代码、云端、开发者工具、真机和平台证据。
+本组治理“当前版本能否被旧证据代替、发布包能否复现、Web声明是否属于当前构建、运维时间是否唯一”问题。2026-07-29的原始事实基线是提交 `c1b52a06be9c53dc16af7ec97cf2c574c7735496` 和源码版本 `v2.4.0`；后续候选已升为 `v2.4.2`。当前 `v2.4.2` 实现已固定在精确提交 `94db4dd749f0ff4c0b2fa860e193e202b95f28a1`，普通GitHub CI运行 `30755560402` 和12轮云端回放 `30755834116` 已通过；开发者工具、真机、云端生产和微信平台证据仍未完成，尚未形成稳定归档、上传、审核或正式发布证据。文档模板或批准目标不能替代代码、云端、开发者工具、真机和平台证据。
 
 | ID | 用户决策 | 当前问题 | 已批准目标或保留决定 | 实现状态 | 验证状态 | 当前阻断 |
 | --- | --- | --- | --- | --- | --- | --- |
-| R01 | `approved` | 当前源码为 `v2.4.1`，三份对应模板已经建立但尚未填写、未绑定精确候选且没有通过结果；`v2.4.0`模板和现有已填写的`v2.3.0`记录都只属于旧候选 | 填写现有 `v2.4.1` 上线审查、交接、Android和iPhone验收模板并绑定同一精确SHA和候选身份；旧版证据只读保留 | `partial` | `not_tested` | 阻断 `v2.4.1` 稳定归档、审核和发布结论 |
-| R02 | `approved` | 普通月度路径已有当前精确提交的12轮隔离云端证据，但不能证明历史修订协议安全或外部微信平台验收 | 在 `v2.4.1` 精确提交分别保留普通月度12次执行和历史修订专项12轮故障回放，两条证据不得互相替代 | `partial` | `passed_limited` | 普通月度12轮云端回放已在 `main@53ac616` 通过；仍缺独立历史修订12轮、云函数部署、开发者工具和双真机证据 |
-| R03 | `approved` | 当前稳定归档由人工制作ZIP，文件顺序、时间戳、权限和宿主元数据未固定 | 用单一脚本从精确提交生成确定性ZIP，回读完整清单并以重复构建证明相同输入字节一致 | `not_started` | `not_tested` | 阻断按新规则新增稳定归档 |
+| R01 | `approved` | 当前源码为 `v2.4.2`，三份对应模板已经建立但尚未填写、未绑定精确候选且没有通过结果；旧版本模板和记录只属于历史候选 | 填写现有 `v2.4.2` 上线审查、交接、Android和iPhone验收模板并绑定同一精确SHA和候选身份；旧版证据只读保留 | `partial` | `not_tested` | 阻断 `v2.4.2` 稳定归档、审核和发布结论 |
+| R02 | `approved` | 普通月度路径已有 `v2.4.2` 精确提交的12轮隔离云端证据，但不能证明历史修订协议安全或外部微信平台验收 | 在当前精确提交分别保留普通月度12次执行和历史修订专项12轮故障回放，两条证据不得互相替代 | `partial` | `passed_limited` | 普通月度12轮云端回放已在 `main@94db4dd` 通过；仍缺独立历史修订12轮、云函数部署、开发者工具和双真机证据 |
+| R03 | `approved` | 此前没有确定性候选构件工具，稳定归档仍不能按新规则生成 | `scripts/miniprogram/deterministic-candidate.mjs` 已能从精确提交生成确定性候选ZIP、回读清单和候选哈希；重复构建、乱序、排除项、非ASCII路径和损坏ZIP测试已覆盖。稳定归档晋级仍未实现 | `implemented` | `passed_limited` | 仍阻断按新规则新增稳定归档；候选生成须在干净提交且开发者工具目录逐文件一致时执行 |
 | R04 | `approved` | 归档只有人工版本说明和ZIP SHA，未绑定代码、数据、解析器、审计器及CI运行 | 自动生成并校验 `release-manifest.json`，机器绑定Git SHA、数据身份、归档身份、解析器、审计器、CI和编译证据 | `not_started` | `not_tested` | 阻断可追溯稳定归档和精确恢复声明 |
 | R05 | `not_approved` | 曾提出用受保护Git Tag或GitHub Release增强防篡改 | 不实施该备选方案；继续使用只读归档目录与同目录ZIP SHA-256规则 | - | - | 不是待办，不得新增为发布前置条件 |
 | R06 | `approved` | Web声明与校验器仍为schema 1，只验证必填结构、`passed`和时间格式，不绑定具体构建，旧声明可被用于新构建 | schema 2绑定精确提交、规范化构建哈希、数据版本和清单哈希、正式域名、证据索引及有效期 | `partial` | `not_tested` | 阻断把当前 `release:check` 结果描述为构建级发布证明 |
@@ -73,7 +73,7 @@
 | --- | --- | --- |
 | R01 | `apps/miniprogram/config/version.js`；三份 `MINIPROGRAM_V2_4_1_*` 当前未执行模板；`v2.4.0`未执行模板和`v2.3.0`记录均为历史证据 | 精确提交 `cdea2207ff8f570aa1d8725ea474f22df30f26c8` 的自动审查、开发者工具编译/上传、Android和iPhone结果、平台状态及完整交接均通过 |
 | R02 | `.github/workflows/full-auto-update-replay.yml` 和 `docs/MINIPROGRAM_V2_4_1_FULL_CLOUD_REPLAY_20260802.md`：`main@53ac616` 的云端运行 `30752209300` 已从第1轮连续通过12轮普通月度隔离回放；每轮验证560条新增、历史零变化、两类错误候选上传前阻断、72个数据对象加1个控制对象回读、完整70城客户端启用和切城零下载。生产指针和正式目录未触及，自动发布仍关闭 | 独立历史修订12轮故障报告，绑定当前解析器、审计器、工作流SHA和真实云端运行；另需适用的云函数、开发者工具和双真机证据 |
-| R03 | `MINIPROGRAM_VERSIONING.md` 已定义目标；当前 `package.json` 和 `scripts/miniprogram/` 没有确定性归档命令 | 归档脚本、重复构建/时区/顺序/非ASCII/损坏包测试，以及两个独立环境相同SHA-256证据 |
+| R03 | `scripts/miniprogram/deterministic-candidate.mjs`、`deterministic-candidate.test.mjs`、`package.json` 的 `miniprogram:candidate` 命令；本地定向测试5项、全量小程序测试295项通过 | 从干净精确提交实际生成并冻结候选ZIP，完成跨环境相同SHA-256回读证据；随后再实现原字节晋级和稳定归档记录 |
 | R04 | 现有 `release/miniprogram/v2.0.*` 只有ZIP、版本说明和 `SHA256.txt` | 清单生成器、schema校验器、身份冲突故障测试和首个完整新格式归档 |
 | R05 | 用户明确不同意 | 无；保持现状，除非未来取得新的明确决定并使用新决策记录 |
 | R06 | `release/attestations.json` 与 `scripts/release-readiness.mjs` 当前固定schema 1 | schema 2实现及提交/构建/数据/域名/证据/有效期的正反向自动测试和一次真实发布候选验证 |
@@ -156,13 +156,13 @@ S10相关路径为 `apps/miniprogram/utils/data-runtime.js`、`data-integrity.js
 | I07 | 产品规范混写当前能力、有限实现和候选路线图 | 以状态表区分 `current`、`partial`、`approved_not_implemented`、`candidate`、`out_of_scope`，并写明平台和验收入口；已有基础但未闭环的远程数据能力不得整体写成当前已完成能力 | 独立范围治理 | `implemented`（文档分类） | `passed_limited`（只证明分类已修正） | 否 |
 | I08 | “无人值守”、有人监督、SLA层级、生产开关和带日期云端记录表达不统一 | 当前统一为 `automation_disabled`；仓库总开关使用 `AUTOMATIC_RELEASE_ENABLED`，生产Environment授权使用 `PRODUCTION_RELEASE_AUTHORIZED`，启用条件只引用统一硬门槛；满足正确性硬门槛但D19未关闭时才可称 `supervised_automation`，D19关闭后才可称 `unattended_automation`。10-25分钟为正常预期、30分钟为内部SLO、45分钟为预警、60分钟为正式SLA目标；带日期云端记录只证明当时状态。现有10:30后仅12:00/16:00补查不能覆盖任意可访问时点的60分钟目标，必须如实登记 | 补充C02保留决定、D17、D19、V02、V04、V10、V16 | `implemented`（术语与门槛文档） | `passed_limited`（SLA调度覆盖未通过；2026-07-31现场开关为仓库`false`、Environment未设置） | 否 |
 | I09 | 每次检查后的状态部署与只读发现边界缺少责任流程 | 只读发现只能产出报告；用户可见 `data_status` 变更必须经独立受保护状态部署作业，递增控制代次、保持数据身份和撤销身份并回读验证；未实现时由维护人按监督流程处理 | 补充D01、D19 | `partial` | `not_tested` | 未来只影响数据状态提示 |
-| I10 | 候选身份要求稳定归档清单，而稳定归档又要求全部候选证据，形成循环依赖 | 先生成不可变候选构件并固定ZIP/清单哈希，外部验收全部绑定该构件；通过后把原字节晋级到稳定归档，不重新打包。该两阶段规范已定义，但确定性候选工具、原字节晋级、清单生成器和自动测试均未实现 | 补充R03-R04及V05；不采用R05方案 | `not_started` | `not_tested` | 否 |
+| I10 | 候选身份要求稳定归档清单，而稳定归档又要求全部候选证据，形成循环依赖 | 先生成不可变候选构件并固定ZIP/清单哈希，外部验收全部绑定该构件；通过后把原字节晋级到稳定归档，不重新打包。确定性候选生成器和基础自动测试已实现；原字节晋级、最终`release-manifest.json`和跨环境证据仍未实现 | 补充R03-R04及V05；不采用R05方案 | `partial` | `passed_limited`（本地工具和295项小程序测试） | 否 |
 | I11 | 小程序来源页和授权说明没有完整披露模糊位置处理、本地匹配城市缓存及保留边界 | 来源页和`app.json`披露模糊位置、项目云函数、腾讯位置服务、不持久化经纬度和本机`cityId/locatedAt`最长24小时；两条读取路径删除过期/无效缓存，来源页清除全部相关本地记录；平台隐私指引和双真机仍须核对 | 补充C03及V01 | `partial` | `passed_limited`（本地源码与定向测试） | 最小披露文案和错误态已变化，不改变正常定位功能或页面布局 |
 | I12 | 生产信任链曾使用可移动Action标签；当前本地工作流已固定完整SHA，普通GitHub CI `30736720927` 已通过，但受保护Environment执行尚未复核 | 所有可接触生产Secrets或承接其Artifact的外部Action固定40位commit SHA；更新走审查和依赖更新流程，标签仅可写在注释中 | 补充D19、V17及权限安全 | `implemented` | `passed_limited`（本地机器扫描、失败fixture和普通CI） | 否 |
 | I13 | 平台显示文案矩阵遗漏Web页面/OG标题、系统分享标题、两端栏目、导航和区块名称 | 按当前源码分别登记Web页面/OG标题、系统Share API标题及两端其他显示文案，允许平台和使用位置存在当前差异，不要求统一文案 | 补充品牌与术语治理及V08 | `implemented`（文档矩阵） | `passed_limited`（只读核对） | 否 |
 | I14 | 小程序版本号在多个入口文档硬编码，缺少漂移门禁 | `apps/miniprogram/config/version.js` 是唯一机器版本源；当前快照文档可保留版本号，但未来CI必须校验入口、候选证据文件名和身份字段一致，历史文档不自动替换 | 补充R01 | `not_started` | `not_tested` | 否 |
 
-I02在当前本地候选已有共享验证器和有限故障测试，登记为 `implemented/passed_limited`；I03已有历史修订三态、双重撤销、一般legacy拒绝、唯一正向迁移、写前验证器身份预检、写后严格动态回执和客户端历史回放的本地实现与定向测试，因此登记为 `implemented/passed_limited`；其 `implemented` 只表示本地实现范围，不表示生产已迁移。I01的内置基线信任回退已经最小修复，当前为 `partial/passed_limited`。三项均已固定在精确提交 `cdea2207ff8f570aa1d8725ea474f22df30f26c8`，普通GitHub CI运行 `30736720927` 已通过；仍缺云函数部署、受保护生产迁移/真实云端回滚、开发者工具或双真机证据，不能据此宣称已部署、已迁移或关闭生产阻断。I09仍只有只读发现和状态字段基础，独立受保护状态部署作业不存在，保持 `partial/not_tested`。I10的规范循环虽然已解除，但执行工具、测试和首个新格式归档均未开始，因此保持 `not_started/not_tested`。
+I02在当前本地候选已有共享验证器和有限故障测试，登记为 `implemented/passed_limited`；I03已有历史修订三态、双重撤销、一般legacy拒绝、唯一正向迁移、写前验证器身份预检、写后严格动态回执和客户端历史回放的本地实现与定向测试，因此登记为 `implemented/passed_limited`；其 `implemented` 只表示本地实现范围，不表示生产已迁移。I01的内置基线信任回退已经最小修复，当前为 `partial/passed_limited`。三项仍缺云函数部署、受保护生产迁移/真实云端回滚、开发者工具或双真机证据，不能据此宣称已部署、已迁移或关闭生产阻断。I09仍只有只读发现和状态字段基础，独立受保护状态部署作业不存在，保持 `partial/not_tested`。I10的候选生成基础工具和自动测试已实现并通过本地验证，但原字节晋级、最终发布清单和跨环境证据仍未完成，因此保持 `partial/passed_limited`。
 
 ### I01-I14 关闭证据
 
@@ -193,7 +193,7 @@ I02在当前本地候选已有共享验证器和有限故障测试，登记为 `
 | V02 | 自动发布最终门槛 | 把正式发布、线上版本回读、正式版完整70城远程读取、交接证据和维护人最终授权列为开关前置 | `implemented`（文档门槛） | `passed_limited`（只读文档核对） | 不开启开关，不执行发布 |
 | V03 | 产品状态分类 | 增加`partial`并拆分当前能力、有限实现、已批准未实现、候选和不做范围 | `implemented`（文档分类） | `passed_limited`（只读文档核对） | 不改变当前产品或页面 |
 | V04 | 生产开关名称和门槛来源 | 仓库总开关统一为`AUTOMATIC_RELEASE_ENABLED`，生产Environment授权统一为`PRODUCTION_RELEASE_AUTHORIZED`；`AUTOMATION_ACTIVATION_CHECKLIST.md`仍是完整启用硬门槛唯一来源，其他文档只引用或登记状态；保留C02既定SLA起点 | `implemented`（文档与代码名称一致） | `passed_limited`（2026-07-31现场回读仓库`false`、Environment未设置，均失败关闭） | 未开启生产授权或执行生产操作 |
-| V05 | I10状态真实性 | 将执行能力改为未开始/未验证，继续由R03-R04关闭且不恢复R05 | `implemented`（状态修正） | `passed_limited`（只读文档核对） | 未实现归档工具或生成归档 |
+| V05 | I10状态真实性 | 保持两阶段候选/归档边界；候选生成基础工具已实现，但原字节晋级、最终发布清单和跨环境证据仍由R03-R04关闭且不恢复R05 | `implemented`（状态修正与工具状态登记） | `passed_limited`（文档和本地测试核对） | 未生成可验收候选或稳定归档 |
 | V06 | v2.4.0真机模板 | 删除不存在的精确数据入口要求，仅验收当前数值、统计和图表同步 | `implemented`（模板修正） | `passed_limited`（只读文档核对） | 未显示或新增精确数据入口；当前真机结果仍未填写 |
 | V07 | 图表错误状态文案 | `apps/miniprogram/pages/index/index.wxml`已删除指向隐藏“查看精确数据”入口的错误提示，改为稍后重试及恢复后在图表滑动查看 | `implemented` | `passed_limited`（本地模板断言） | 只影响图表错误状态文案，正常页面不变 |
 | V08 | 平台显示文案矩阵 | 分开登记Web页面/OG标题与系统Share API标题，并保留当前平台差异 | `implemented`（文档矩阵） | `passed_limited`（只读源码核对） | 不统一或修改现有文案 |
@@ -361,6 +361,8 @@ I02在当前本地候选已有共享验证器和有限故障测试，登记为 `
 | 2026-08-02 | I03 | `implemented` | `implemented` | `passed_limited` | `passed_limited` | `local_legacy_migration_two_phase_finalize_order` | Intent v3只绑定验证器契约；apply阶段完成撤销登记、指针切换和直接70城回读，工作流随后部署严格云函数并由finalize阶段执行`describe_validator`、动态回执和审计；迁移工作流安全测试31项、迁移协议测试17项通过，生产迁移未运行 | Codex本地复核 |
 | 2026-08-02 | R02 | `partial` | `partial` | `not_tested` | `passed_limited` | `local_v2.4.1_ordinary_monthly_replay_12_runs` | 两次独立6轮连续隔离回放均通过，合计12次执行；覆盖 `2025-12 -> 2026-06`，逐轮验证560条新增、历史零变化、错误候选上传前阻断、73个隔离对象回读和切城零下载；报告绑定提交前工作区执行时基线，当前代码已固定在 `cdea2207ff8f570aa1d8725ea474f22df30f26c8`，普通CI `30736720927` 已通过但不是回放证据；未执行真实云端/历史修订专项 | Codex本地复核 |
 | 2026-08-02 | R02 | `partial` | `partial` | `passed_limited` | `passed_limited` | `cloud_v2.4.1_ordinary_monthly_replay_12_runs` | GitHub Actions `30752209300` 在 `main@53ac616` 连续通过 `2025-06 -> 2026-06` 的12轮真实隔离云端回放；每轮70城完整包、73对象回读、两类错误候选阻断和客户端完整包启用通过，生产指针/正式目录未触及且自动发布为`false`。历史修订、云函数、开发者工具和双真机未关闭 | Codex工件复核 |
+| 2026-08-03 | R03 | `not_started` | `implemented` | `not_tested` | `passed_limited` | `local_deterministic_candidate_generator_v1` | 新增 `scripts/miniprogram/deterministic-candidate.mjs`、`deterministic-candidate.test.mjs` 和 `miniprogram:candidate` 命令；本地定向5项及全量小程序295项通过。尚未在干净精确提交上生成候选构件，未形成跨环境回读证据 | Codex本地复核 |
+| 2026-08-03 | I10 | `not_started` | `partial` | `not_tested` | `passed_limited` | `local_candidate_stage_boundary_v1` | 候选生成基础能力已实现并通过本地测试；原字节晋级、最终 `release-manifest.json`、跨环境相同SHA-256和稳定归档仍未实现 | Codex本地复核 |
 
 ## v2.4.2 候选切换登记（2026-08-02）
 
@@ -368,9 +370,9 @@ I02在当前本地候选已有共享验证器和有限故障测试，登记为 `
 
 - 当前源码版本：`v2.4.2`。
 - 开发者工具同步：已完成；`apps/miniprogram/config/version.js` 与 `70城小程序技术验证/config/version.js` SHA-256 一致。
-- 本地验证：小程序 290 项、`npm.cmd run check`、Web E2E 40 项均通过。
+- 本地验证：小程序 295 项、`npm.cmd run check`、Web E2E 40 项均通过。
 - 新模板：`MINIPROGRAM_V2_4_2_LAUNCH_AUDIT.md`、`MINIPROGRAM_V2_4_2_DEVICE_TEST.md`、`MINIPROGRAM_V2_4_2_RELEASE_HANDOFF.md` 已建立，均为未执行模板。
-- `v2.4.1` 的云端回放 `30752209300` 只保留为旧版本证据，不能证明 `v2.4.2`；新的 `v2.4.2` 云端回放、精确候选身份、开发者工具、双真机和微信平台证据仍待完成。
+- `v2.4.1` 的云端回放 `30752209300` 只保留为旧版本证据，不能证明 `v2.4.2`；`v2.4.2` 云端回放已通过，但精确候选身份、开发者工具、双真机和微信平台证据仍待完成。确定性候选生成工具已加入并通过本地测试，尚未从干净提交生成正式候选构件。
 - 当前状态：`implementation_status=partial`，`verification_status=passed_limited`（仅限本地检查）；未部署、未上传、未审核、未发布，自动发布开关保持关闭。
 
 ### v2.4.2 云端回放结果更新（2026-08-02）

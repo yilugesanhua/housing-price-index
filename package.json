@@ -53,6 +53,7 @@
     "miniprogram:data:publish": "node scripts/miniprogram/publish-remote-data.mjs",
     "miniprogram:data:rehearse-write": "node scripts/miniprogram/rehearse-cloud-write.mjs",
     "miniprogram:data:replay": "tsx scripts/miniprogram/replay-full-auto-update.ts",
+    "miniprogram:candidate": "node scripts/miniprogram/deterministic-candidate.mjs",
     "miniprogram:data:rollback": "node scripts/miniprogram/rollback-remote-data.mjs",
     "miniprogram:data:repair-current": "node scripts/miniprogram/repair-current-pointer.mjs",
     "miniprogram:data:migrate-legacy-control": "node scripts/miniprogram/migrate-legacy-control.mjs --migration=legacy-control-2026-06-e9788d0bddf3",

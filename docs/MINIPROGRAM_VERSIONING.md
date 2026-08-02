@@ -94,6 +94,8 @@ release/miniprogram/
 
 确定性归档必须有自动测试覆盖重复生成、不同文件枚举顺序、时区差异、时间戳归一化、排除项、非ASCII文件名和损坏ZIP。只有测试证明相同输入产生相同字节，才能把该能力标记为已实现。
 
+当前候选生成器入口为 `npm.cmd run miniprogram:candidate -- --commit=<40位提交SHA>`。它只读取精确提交，要求工作区干净并逐文件核对微信开发者工具同步目录；输出写入 `work/miniprogram-release-candidates/`，不得写入 `release/miniprogram/`。生成后会重新读取ZIP、校验每个条目的大小和SHA-256，并生成候选清单与 `SHA256.txt`；已有同身份输出目录会直接失败，避免覆盖不可变候选。`candidate_manifest_sha256` 按清单中该字段为空的规范化JSON字节计算，以避免自引用；该约定必须由校验器和后续交接工具共同使用。
+
 ## 候选清单与 `release-manifest.json`
 
 `candidate-manifest.json` 在外部验收前生成，至少绑定 `schema_version`、`candidate_id`、`app_version`、40位 `source_commit_sha`、固定提交时间、源码ZIP文件名与SHA-256、规范化文件清单SHA-256、内置数据身份、解析器和审计器。它不得包含尚未发生的真机、审核或稳定归档结论。
