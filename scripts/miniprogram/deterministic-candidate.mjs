@@ -237,8 +237,8 @@ export async function generateCandidate({ root = process.cwd(), sourceCommitSha,
   if (batchPaths.length === 0) fail(`no source batch found for ${snapshot.datasetAsOf}`)
   let batch
   try { batch = JSON.parse((await execFileAsync('git', ['show', `${sourceCommitSha}:${batchPaths[0]}`], { cwd: root, encoding: 'utf8' })).stdout) } catch (error) { fail(`source batch is invalid JSON: ${error.message}`) }
-  if (typeof batch.parser_version !== 'string' || !batch.parser_version) fail('source batch has no parser_version')
-  const parserVersion = batch.parser_version
+  const parserVersion = batch.source_batch?.parser_version || batch.parser_version
+  if (typeof parserVersion !== 'string' || !parserVersion) fail('source batch has no parser_version')
   const auditVersion = audit.audit_version
   const archiveFile = `小程序源码-${version}.zip`
   const zip = createDeterministicZip(entries, { timestamp: sourceCommitTime })
