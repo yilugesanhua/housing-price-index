@@ -200,7 +200,14 @@ async function compareDevtools(root, entries, devtoolsRoot) {
     let actual
     try { actual = await readFile(target) } catch { fail(`developer tools file is missing: ${entry.path}`) }
     const isText = !entry.data.includes(0) && !actual.includes(0)
-    const canonical = (value) => isText ? Buffer.from(value.toString('utf8').replaceAll('\r\n', '\n').replaceAll('\r', '\n'), 'utf8') : value
+    const canonical = (value) => {
+      if (!isText) return value
+      const text = value.toString('utf8').replaceAll('\r\n', '\n').replaceAll('\r', '\n')
+      if (entry.path === 'project.config.json') {
+        try { return Buffer.from(`${JSON.stringify(JSON.parse(text))}\n`, 'utf8') } catch { fail(`developer tools JSON is invalid: ${entry.path}`) }
+      }
+      return Buffer.from(text, 'utf8')
+    }
     if (!canonical(actual).equals(canonical(entry.data))) fail(`developer tools file differs: ${entry.path}`)
   }
 }
