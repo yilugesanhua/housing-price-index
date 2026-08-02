@@ -310,8 +310,8 @@ jobs:
           ORIGIN_RUN_ID: ${{ needs.prepare.outputs.origin_run_id }}
           ORIGIN_RUN_ATTEMPT: ${{ needs.prepare.outputs.origin_run_attempt }}
           ORIGIN_COMMIT_SHA: ${{ needs.prepare.outputs.origin_commit_sha }}
-          TENCENTCLOUD_SECRET_ID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
-          TENCENTCLOUD_SECRET_KEY: ${{ secrets.TENCENTCLOUD_SECRET_KEY }}
+          TENCENTCLOUD_SECRET_ID: ${{ secrets.TENCENTCLOUD_MONITOR_SECRET_ID }}
+          TENCENTCLOUD_SECRET_KEY: ${{ secrets.TENCENTCLOUD_MONITOR_SECRET_KEY }}
           CI_PRODUCTION_ENVIRONMENT: housing-data-production
           CI_COMMIT_SHA: ${{ needs.prepare.outputs.commit_sha }}
           AUTOMATIC_RELEASE_ENABLED: ${{ vars.AUTOMATIC_RELEASE_ENABLED }}

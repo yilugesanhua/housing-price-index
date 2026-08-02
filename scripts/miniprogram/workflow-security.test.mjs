@@ -393,6 +393,13 @@ test('legacy control migration is one-time, protected, exact, and never enables 
   assert.match(migrate, /node scripts\/miniprogram\/deploy-strict-validator\.mjs/)
   assert.doesNotMatch(migrate, /tcb (?:login|fn deploy|logout)/)
   assert.match(migrate, /--finalize-intent="\$\{\{ steps\.intent\.outputs\.intent_path \}\}"/)
+  const finalizationStep = migrate.slice(
+    migrate.indexOf('Finalize the migrated pointer with the deployed strict validator'),
+    migrate.indexOf('Recheck the migrated pointer, cloud function, registry, and all 70 cities read-only'),
+  )
+  assert.match(finalizationStep, /TENCENTCLOUD_SECRET_ID: \$\{\{ secrets\.TENCENTCLOUD_MONITOR_SECRET_ID \}\}/)
+  assert.match(finalizationStep, /TENCENTCLOUD_SECRET_KEY: \$\{\{ secrets\.TENCENTCLOUD_MONITOR_SECRET_KEY \}\}/)
+  assert.doesNotMatch(finalizationStep, /secrets\.TENCENTCLOUD_SECRET_(?:ID|KEY)/)
   assert.match(migrate, /monitor-remote-release\.mjs[\s\S]*--integrity-only/)
   assert.match(migrate, /AUTOMATIC_RELEASE_ENABLED: \$\{\{ vars\.AUTOMATIC_RELEASE_ENABLED \}\}/)
   assert.match(migrate, /PRODUCTION_RELEASE_AUTHORIZED: \$\{\{ vars\.PRODUCTION_RELEASE_AUTHORIZED \}\}/)
