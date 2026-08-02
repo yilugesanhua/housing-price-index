@@ -175,11 +175,11 @@ const VALIDATION_RECEIPT_FIELDS = [
 const FIXED_EVIDENCE = {
   'legacy-control-2026-06-e9788d0bddf3': {
     schema_version: 'legacy-control-migration-evidence-v1',
-    fixture_raw_sha256: 'cb589c78fbdf7e0896935b84fe96c0507828b8fed5eed66fa4cf479eb5f314bc',
+    fixture_raw_sha256: '2e6ce6cc3fc266236134ee3241f3edc6312836c6dee63e636dc44a60dc3a8d61',
     evidence_files: {
       publish_audit: {
         path: 'data/releases/2026-06-e9788d0bddf3.json',
-        raw_sha256: '47b4f5701a94315b9fa53175eb9864a8ce638237c2070643802f0bb5376c6040',
+        raw_sha256: '4feebce388f750e0aa4c00907f47bca13f94521e3daf5efb73c568cd1990f569',
       },
       invalid_pointer_correction: {
         path: 'data/releases/2026-06-679ea146d4e2.correction.json',

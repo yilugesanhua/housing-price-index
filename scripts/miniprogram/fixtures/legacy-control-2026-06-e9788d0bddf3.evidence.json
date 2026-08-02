@@ -7,7 +7,7 @@
     {
       "role": "publish_audit",
       "path": "data/releases/2026-06-e9788d0bddf3.json",
-      "raw_sha256": "47b4f5701a94315b9fa53175eb9864a8ce638237c2070643802f0bb5376c6040"
+      "raw_sha256": "4feebce388f750e0aa4c00907f47bca13f94521e3daf5efb73c568cd1990f569"
     },
     {
       "role": "invalid_pointer_correction",

@@ -8,6 +8,7 @@ import {
   LEGACY_MIGRATION_RECEIPT_SCHEMA_VERSION,
   LEGACY_MIGRATION_VALIDATOR_ID,
   assertMigrationEvidence,
+  buildDryRunMigrationArtifacts,
   buildInitialMigrationRegistry,
   buildLegacyMigrationPointer,
   buildMigrationAudit,
@@ -191,6 +192,15 @@ test('the fixed migration evidence fixture is bound by its exact raw bytes', asy
   assert.throws(
     () => parseMigrationEvidenceFixtureText(`${fixtureText} `, descriptor),
     /fixture raw SHA-256 changed/,
+  )
+  const fixture = JSON.parse(fixtureText)
+  const evidenceTexts = Object.fromEntries(await Promise.all(fixture.evidence_files.map(async ({ role, path }) => [
+    role,
+    await readFile(resolve(root, path), 'utf8'),
+  ])))
+  assert.equal(
+    buildDryRunMigrationArtifacts({ fixtureText, evidenceTexts, migrationId }).current.dataset_version,
+    descriptor.dataset_version,
   )
 })
 

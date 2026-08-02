@@ -1,0 +1,5 @@
+# Hash-bound migration evidence must retain repository LF bytes on every platform.
+/scripts/miniprogram/fixtures/legacy-control-2026-06-e9788d0bddf3.evidence.json text eol=lf
+/data/releases/2026-06-e9788d0bddf3.json text eol=lf
+/data/releases/2026-06-679ea146d4e2.correction.json text eol=lf
+/data/releases/2026-06-ec36ff8fb2e5.correction.json text eol=lf
