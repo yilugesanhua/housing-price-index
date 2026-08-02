@@ -387,6 +387,7 @@ jobs:
         env:
           MIGRATION_ID: legacy-control-2026-06-e9788d0bddf3
           EXPECTED_COMMIT_SHA: ${{ needs.prepare.outputs.commit_sha }}
+          ORIGIN_COMMIT_SHA: ${{ needs.prepare.outputs.origin_commit_sha }}
           ORIGIN_RUN_ID: ${{ needs.prepare.outputs.origin_run_id }}
           ORIGIN_RUN_ATTEMPT: ${{ needs.prepare.outputs.origin_run_attempt }}
           FINALIZER_RUN_ID: ${{ github.run_id }}
@@ -415,7 +416,7 @@ jobs:
             manifestSha256: descriptor.legacy_manifest_sha256,
             cloudEnvId: descriptor.cloud_env_id,
             storageBucket: descriptor.storage_bucket,
-            expectedCommitSha: process.env.EXPECTED_COMMIT_SHA,
+            expectedCommitSha: process.env.ORIGIN_COMMIT_SHA,
             expectedOriginGithubRunId: process.env.ORIGIN_RUN_ID,
             expectedOriginGithubRunAttempt: process.env.ORIGIN_RUN_ATTEMPT,
             expectedFinalizerCommitSha: process.env.EXPECTED_COMMIT_SHA,

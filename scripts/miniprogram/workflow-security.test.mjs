@@ -411,6 +411,8 @@ test('legacy control migration is one-time, protected, exact, and never enables 
   assert.match(audit, /GITHUB_TOKEN: \$\{\{ github\.token \}\}/)
   assert.match(audit, /ref: \$\{\{ needs\.prepare\.outputs\.commit_sha \}\}/)
   assert.match(audit, /origin\/\$DEFAULT_BRANCH/)
+  assert.match(audit, /ORIGIN_COMMIT_SHA: \$\{\{ needs\.prepare\.outputs\.origin_commit_sha \}\}/)
+  assert.match(audit, /expectedCommitSha: process\.env\.ORIGIN_COMMIT_SHA/)
   assert.match(audit, /expectedOriginGithubRunId: process\.env\.ORIGIN_RUN_ID/)
   assert.match(audit, /expectedOriginGithubRunAttempt: process\.env\.ORIGIN_RUN_ATTEMPT/)
   assert.match(audit, /expectedFinalizerGithubRunId: process\.env\.FINALIZER_RUN_ID/)
