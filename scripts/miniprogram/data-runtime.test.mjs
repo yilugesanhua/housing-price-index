@@ -350,6 +350,16 @@ function snapshotForMonth(datasetAsOf, sourceHash) {
   }
 }
 
+function snapshotWithNullPreSourcePadding() {
+  const snapshot = structuredClone(bundled)
+  snapshot.sourceCoverageStart = snapshot.months[1]
+  snapshot.releaseDates[0] = ''
+  for (const citySeries of Object.values(snapshot.series)) {
+    for (const values of Object.values(citySeries)) values.splice(0, 4, null, null, null, null)
+  }
+  return snapshot
+}
+
 function rebuildBootstrapArtifacts(release) {
   release.bootstrapText = `${JSON.stringify(release.bootstrap)}\n`
   release.manifest.bootstrap_sha256 = sha256(utf8Bytes(release.bootstrapText))
@@ -523,7 +533,8 @@ test('a structurally invalid bundled snapshot fails closed before page calculati
     ['untrusted official URL', (snapshot) => { snapshot.latestOfficialUrl = 'https://example.com/not-official' }],
     ['missing source coverage start', (snapshot) => { delete snapshot.sourceCoverageStart }],
     ['invalid source coverage start', (snapshot) => { snapshot.sourceCoverageStart = '2016-13' }],
-    ['source coverage starts after the client window', (snapshot) => { snapshot.sourceCoverageStart = '2016-08' }],
+    ['source coverage starts after the client window', (snapshot) => { snapshot.sourceCoverageStart = '2026-07' }],
+    ['pre-source padding contains a data value', (snapshot) => { snapshot.sourceCoverageStart = '2016-08' }],
   ]
   for (const [label, mutate] of mutations) {
     await t.test(label, () => {
@@ -537,6 +548,14 @@ test('a structurally invalid bundled snapshot fails closed before page calculati
       assert.deepEqual(runtime.getSnapshot().series, {})
     })
   }
+})
+
+test('a bundled snapshot accepts only null padding before a later in-window source coverage start', () => {
+  const padded = snapshotWithNullPreSourcePadding()
+  const runtime = createDataRuntime({ wxApi: null, bundled: padded })
+  assert.equal(runtime.getSource(), 'bundled')
+  assert.equal(runtime.getSnapshot().sourceCoverageStart, padded.months[1])
+  assert.deepEqual(runtime.getSnapshot().series.beijing.n_a.slice(0, 4), [null, null, null, null])
 })
 
 test('same-month remote conflicts cannot replace the audited bundled snapshot or hydrate from cache', async () => {

@@ -143,7 +143,7 @@ next_check_due_at   下次最晚检查时间
 coverage_gaps       显式缺月列表
 ```
 
-标准Web清单的 `coverage_start` 表示完整官方来源覆盖起点。小程序从该清单生成固定120个月客户端包时不得复用同一字段表达两个概念：小程序快照和远程 `bootstrap.json` 的 `sourceCoverageStart` 保存完整官方来源覆盖起点，`coverageStart` 固定等于 `months[0]`，表示客户端窗口起点。`months` 必须恰好120个月、严格连续、末月等于 `datasetAsOf`，并满足 `sourceCoverageStart <= coverageStart`；任一字段缺失、矛盾或伪称更早覆盖都必须拒绝候选并保留上一有效版本。兼容旧包时可以缺少 `sourceCoverageStart`，但不得放宽 `coverageStart === months[0]`。
+标准Web清单的 `coverage_start` 表示完整官方来源覆盖起点。小程序从该清单生成固定120个月客户端包时不得复用同一字段表达两个概念：小程序快照和远程 `bootstrap.json` 的 `sourceCoverageStart` 保存完整官方来源覆盖起点，`coverageStart` 固定等于 `months[0]`，表示客户端窗口起点。`months` 必须恰好120个月、严格连续、末月等于 `datasetAsOf`，且`sourceCoverageStart`不得晚于窗口末月；若来源起点晚于窗口首月，之前只能保留四字段均为`null`的预覆盖补齐和空`releaseDates`，不得伪称来源值或发布日期。来源起点早于窗口首月时，窗口内不得出现这类补齐。任一字段缺失、矛盾或伪称更早覆盖都必须拒绝候选并保留上一有效版本。兼容旧包时可以缺少 `sourceCoverageStart`，但不得放宽 `coverageStart === months[0]`。
 
 发布目录固定包含：
 
@@ -232,6 +232,12 @@ detected_at
 - `tests/fixtures/` 至少覆盖每个已识别的历史页面结构版本、桌面/移动重复表格、合并单元格、脚注、全角空格和缺失值。
 - 每个解析器版本至少有一组黄金输出和已知城市、月份、指标断言。
 - 解析器升级时先运行旧fixture回归；黄金输出变化必须有修订说明，不得静默更新。
+
+## 字段语义与历史兼容
+
+- sourceCoverageStart 只能表示官方来源数据的最早覆盖月份；coverageStart 只能表示客户端窗口首月。任何新生成的快照、清单或审计报告不得用一个字段同时表达两种含义。
+- 发现旧档案把来源起点写入 coverageStart 时，必须保留原始字节，且只允许在明确批准的迁移 ID 下由只读适配器映射为 sourceCoverageStart，同时把客户端 coverageStart 规范化为 months[0]。未绑定批准迁移 ID、字段含义不明或同时存在冲突字段时，必须拒绝进入候选和生产。
+- 兼容适配器必须有正向、反向和未知迁移 ID 测试；不得通过删除校验、接受任意旧字段或把所有来源起点视为客户端窗口起点来修复历史数据。
 
 ## 来源批次
 

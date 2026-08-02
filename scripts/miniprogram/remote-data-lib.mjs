@@ -86,7 +86,13 @@ export function validateBundledSnapshot(snapshot) {
   assert(snapshot.coverageStart === snapshot.months[0], 'snapshot coverageStart must match the first client-window month')
   if (snapshot.sourceCoverageStart !== undefined) {
     assert(/^20\d{2}-(0[1-9]|1[0-2])$/.test(snapshot.sourceCoverageStart), 'snapshot sourceCoverageStart is invalid')
-    assert(snapshot.sourceCoverageStart <= snapshot.coverageStart, 'snapshot source coverage cannot start after the client window')
+    assert(snapshot.sourceCoverageStart <= snapshot.months.at(-1), 'snapshot source coverage cannot start after the client window')
+    const sourceCoverageIndex = Math.max(0, snapshot.months.indexOf(snapshot.sourceCoverageStart))
+    for (const cityId of snapshot.cityIds) {
+      for (const [code, values] of Object.entries(snapshot.series?.[cityId] || {})) {
+        assert(values.slice(0, sourceCoverageIndex * 4).every((value) => value === null), `snapshot pre-source padding must be null: ${cityId}/${code}`)
+      }
+    }
   }
   assert(Array.isArray(snapshot.releaseDates) && snapshot.releaseDates.length === snapshot.months.length, 'release dates must align with months')
   for (const cityId of snapshot.cityIds) {

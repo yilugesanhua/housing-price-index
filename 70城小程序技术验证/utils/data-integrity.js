@@ -99,14 +99,18 @@ function validateBundledSnapshot(snapshot, { cityIds, featuredCityIds } = {}) {
   assert(snapshot.months.at(-1) === snapshot.datasetAsOf, 'bundled snapshot month does not match its dataset month')
   assert(snapshot.coverageStart === snapshot.months[0], 'bundled snapshot coverage start is inconsistent')
   assert(MONTH_PATTERN.test(snapshot.sourceCoverageStart || ''), 'bundled snapshot source coverage start is invalid')
-  assert(snapshot.sourceCoverageStart <= snapshot.coverageStart, 'bundled snapshot source coverage starts after the client window')
+  assert(snapshot.sourceCoverageStart <= snapshot.months.at(-1), 'bundled snapshot source coverage cannot start after the client window')
+  const sourceCoverageIndex = Math.max(0, snapshot.months.indexOf(snapshot.sourceCoverageStart))
   for (let index = 1; index < monthCount; index += 1) {
     const previous = new Date(`${snapshot.months[index - 1]}-01T00:00:00Z`)
     previous.setUTCMonth(previous.getUTCMonth() + 1)
     assert(snapshot.months[index] === previous.toISOString().slice(0, 7), 'bundled snapshot months are not continuous')
   }
   assert(Array.isArray(snapshot.releaseDates) && snapshot.releaseDates.length === monthCount, 'bundled snapshot release dates are invalid')
-  snapshot.releaseDates.forEach((value, index) => assertIsoDate(value, `bundled snapshot release date: ${index}`))
+  snapshot.releaseDates.forEach((value, index) => {
+    if (index < sourceCoverageIndex) assert(value === '', `bundled snapshot pre-source release date must be empty: ${index}`)
+    else assertIsoDate(value, `bundled snapshot release date: ${index}`)
+  })
   assert(snapshot.releaseDate === snapshot.releaseDates.at(-1), 'bundled snapshot release date does not match the latest month')
 
   for (const cityId of expectedCityIds) {
@@ -114,6 +118,7 @@ function validateBundledSnapshot(snapshot, { cityIds, featuredCityIds } = {}) {
     assert(series && sameValues(sorted(Object.keys(series)), sorted(SERIES_CODES)), `bundled snapshot series codes are invalid: ${cityId}`)
     for (const code of SERIES_CODES) {
       validateSeries(series[code], monthCount, `${cityId}/${code}`)
+      assert(series[code].slice(0, sourceCoverageIndex * 4).every((value) => value === null), `bundled snapshot pre-source padding must be null: ${cityId}/${code}`)
       cumulative(series[code], monthCount)
     }
   }
@@ -182,8 +187,15 @@ function validateCompleteSnapshot(snapshot, { cityIds, featuredCityIds } = {}) {
   if (featuredCityIds) assert(sameValues(snapshot.featuredCityIds, featuredCityIds), 'snapshot featured cities differ from the bundled product baseline')
   const monthCount = snapshot.months.length
   assert(monthCount === 120, 'complete snapshot must contain 120 months')
+  assert(snapshot.coverageStart === snapshot.months[0], 'complete snapshot coverage start is inconsistent')
+  assert(MONTH_PATTERN.test(snapshot.sourceCoverageStart || ''), 'complete snapshot source coverage start is invalid')
+  assert(snapshot.sourceCoverageStart <= snapshot.months.at(-1), 'complete snapshot source coverage cannot start after the client window')
+  const sourceCoverageIndex = Math.max(0, snapshot.months.indexOf(snapshot.sourceCoverageStart))
   assert(Array.isArray(snapshot.releaseDates) && snapshot.releaseDates.length === monthCount, 'snapshot release dates are invalid')
-  snapshot.releaseDates.forEach((value, index) => assertIsoDate(value, `snapshot release date: ${index}`))
+  snapshot.releaseDates.forEach((value, index) => {
+    if (index < sourceCoverageIndex) assert(value === '', `snapshot pre-source release date must be empty: ${index}`)
+    else assertIsoDate(value, `snapshot release date: ${index}`)
+  })
   assert(snapshot.releaseDate === snapshot.releaseDates.at(-1), 'snapshot release date does not match the latest month')
 
   const expectedBreadth = {}
@@ -198,6 +210,7 @@ function validateCompleteSnapshot(snapshot, { cityIds, featuredCityIds } = {}) {
     assert(latest && sameValues(sorted(Object.keys(latest)), sorted(SERIES_CODES)), `snapshot latest-series codes are invalid: ${cityId}`)
     for (const code of SERIES_CODES) {
       validateSeries(series[code], monthCount, `${cityId}/${code}`)
+      assert(series[code].slice(0, sourceCoverageIndex * 4).every((value) => value === null), `snapshot pre-source padding must be null: ${cityId}/${code}`)
       assert(sameValues(latest[code], series[code].slice(-4)), `snapshot latest values differ from full history: ${cityId}/${code}`)
       cumulative(series[code], monthCount)
     }

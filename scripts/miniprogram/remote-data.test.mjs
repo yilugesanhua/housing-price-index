@@ -19,6 +19,16 @@ function release() {
   })
 }
 
+function snapshotWithNullPreSourcePadding() {
+  const candidate = structuredClone(snapshot)
+  candidate.sourceCoverageStart = candidate.months[1]
+  candidate.releaseDates[0] = ''
+  for (const citySeries of Object.values(candidate.series)) {
+    for (const values of Object.values(citySeries)) values.splice(0, 4, null, null, null, null)
+  }
+  return candidate
+}
+
 test('remote mini program release is compact and exactly reconstructs bundled data', () => {
   const candidate = release()
   assert.equal(candidate.manifest.format, REMOTE_FORMAT)
@@ -43,6 +53,20 @@ test('remote release rejects false or discontinuous client-window coverage metad
     cloudEnvId: 'cloud1-d3gpdx70w5d05c68c', storageBucket: '636c-cloud1-d3gpdx70w5d05c68c-1456861154',
     minimumAppVersion: versionConfig.version, nextCheckAt: '2026-08-17T01:40:00.000Z', sourceBatchIds: ['official-html-test'],
   }), /months must be continuous/)
+})
+
+test('remote release accepts null-only pre-source padding and rejects values before source coverage', () => {
+  const padded = snapshotWithNullPreSourcePadding()
+  assert.doesNotThrow(() => buildRemoteRelease(padded, {
+    cloudEnvId: 'cloud1-d3gpdx70w5d05c68c', storageBucket: '636c-cloud1-d3gpdx70w5d05c68c-1456861154',
+    minimumAppVersion: versionConfig.version, nextCheckAt: '2026-08-17T01:40:00.000Z', sourceBatchIds: ['official-html-test'],
+  }))
+
+  padded.series.beijing.n_a[0] = 100
+  assert.throws(() => buildRemoteRelease(padded, {
+    cloudEnvId: 'cloud1-d3gpdx70w5d05c68c', storageBucket: '636c-cloud1-d3gpdx70w5d05c68c-1456861154',
+    minimumAppVersion: versionConfig.version, nextCheckAt: '2026-08-17T01:40:00.000Z', sourceBatchIds: ['official-html-test'],
+  }), /pre-source padding must be null/)
 })
 
 test('legacy monthly package without release_type remains compatible', () => {

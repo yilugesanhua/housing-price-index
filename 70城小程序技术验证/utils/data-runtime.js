@@ -305,16 +305,27 @@ function validateBootstrap(rawBootstrap, manifest, config, expectedCityIds = bun
     assert(bootstrap.months[index] === previous.toISOString().slice(0, 7), 'remote bootstrap months are not continuous')
   }
   assert(/^20\d{2}-(0[1-9]|1[0-2])$/.test(bootstrap.sourceCoverageStart), 'remote bootstrap source coverage start is invalid')
-  assert(bootstrap.sourceCoverageStart <= bootstrap.coverageStart, 'remote bootstrap source coverage starts after the client window')
+  assert(bootstrap.sourceCoverageStart <= bootstrap.months.at(-1), 'remote bootstrap source coverage cannot start after the client window')
+  const sourceCoverageIndex = Math.max(0, bootstrap.months.indexOf(bootstrap.sourceCoverageStart))
   assert(Array.isArray(bootstrap.releaseDates) && bootstrap.releaseDates.length === 120, 'remote release dates are invalid')
+  bootstrap.releaseDates.forEach((value, index) => {
+    if (index < sourceCoverageIndex) assert(value === '', `remote bootstrap pre-source release date must be empty: ${index}`)
+    else assert(/^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(Date.parse(value)), `remote bootstrap release date is invalid: ${index}`)
+  })
   for (const cityId of bootstrap.cityIds) {
     assert(bootstrap.cityMap?.[cityId], `remote city profile is missing: ${cityId}`)
     assert(bootstrap.latestSeries?.[cityId], `remote latest values are missing: ${cityId}`)
     for (const code of SERIES_CODES) assert(Array.isArray(bootstrap.latestSeries[cityId][code]) && bootstrap.latestSeries[cityId][code].length === 4, `remote latest series is invalid: ${cityId}/${code}`)
   }
-  for (const cityId of bootstrap.featuredCityIds) validateSeries(bootstrap.series?.[cityId], 120, cityId)
+  for (const cityId of bootstrap.featuredCityIds) {
+    validateSeries(bootstrap.series?.[cityId], 120, cityId)
+    for (const values of Object.values(bootstrap.series[cityId] || {})) assert(values.slice(0, sourceCoverageIndex * 4).every((value) => value === null), `remote bootstrap pre-source padding must be null: ${cityId}`)
+  }
   for (const cityId of bootstrap.cityIds) {
-    if (bootstrap.series?.[cityId]) validateSeries(bootstrap.series[cityId], 120, cityId)
+    if (bootstrap.series?.[cityId]) {
+      validateSeries(bootstrap.series[cityId], 120, cityId)
+      for (const values of Object.values(bootstrap.series[cityId])) assert(values.slice(0, sourceCoverageIndex * 4).every((value) => value === null), `remote bootstrap pre-source padding must be null: ${cityId}`)
+    }
   }
   for (const code of SERIES_CODES) {
     for (const metric of ['mom', 'yoy']) assert(Array.isArray(bootstrap.breadthSeries?.[`${code}_${metric}`]) && bootstrap.breadthSeries[`${code}_${metric}`].length === 480, `remote breadth series is invalid: ${code}/${metric}`)
