@@ -60,7 +60,7 @@
 | ID | 用户决策 | 当前问题 | 已批准目标或保留决定 | 实现状态 | 验证状态 | 当前阻断 |
 | --- | --- | --- | --- | --- | --- | --- |
 | R01 | `approved` | 当前源码为 `v2.4.1`，三份对应模板已经建立但尚未填写、未绑定精确候选且没有通过结果；`v2.4.0`模板和现有已填写的`v2.3.0`记录都只属于旧候选 | 填写现有 `v2.4.1` 上线审查、交接、Android和iPhone验收模板并绑定同一精确SHA和候选身份；旧版证据只读保留 | `partial` | `not_tested` | 阻断 `v2.4.1` 稳定归档、审核和发布结论 |
-| R02 | `approved` | 旧版12轮回放绑定 `v2.3.0` 普通月度路径，不能证明 `v2.4.1` 普通月度无回归或历史修订协议安全 | 在 `v2.4.1` 精确提交分别重跑普通月度12次执行和历史修订专项12轮故障回放，两条证据不得互相替代 | `partial` | `passed_limited` | 已具备精确提交和普通CI；仍缺同提交绑定的云端运行、独立历史修订12轮，且现有普通月度报告在提交前执行，不能当作该SHA的CI/云端证据 |
+| R02 | `approved` | 普通月度路径已有当前精确提交的12轮隔离云端证据，但不能证明历史修订协议安全或外部微信平台验收 | 在 `v2.4.1` 精确提交分别保留普通月度12次执行和历史修订专项12轮故障回放，两条证据不得互相替代 | `partial` | `passed_limited` | 普通月度12轮云端回放已在 `main@53ac616` 通过；仍缺独立历史修订12轮、云函数部署、开发者工具和双真机证据 |
 | R03 | `approved` | 当前稳定归档由人工制作ZIP，文件顺序、时间戳、权限和宿主元数据未固定 | 用单一脚本从精确提交生成确定性ZIP，回读完整清单并以重复构建证明相同输入字节一致 | `not_started` | `not_tested` | 阻断按新规则新增稳定归档 |
 | R04 | `approved` | 归档只有人工版本说明和ZIP SHA，未绑定代码、数据、解析器、审计器及CI运行 | 自动生成并校验 `release-manifest.json`，机器绑定Git SHA、数据身份、归档身份、解析器、审计器、CI和编译证据 | `not_started` | `not_tested` | 阻断可追溯稳定归档和精确恢复声明 |
 | R05 | `not_approved` | 曾提出用受保护Git Tag或GitHub Release增强防篡改 | 不实施该备选方案；继续使用只读归档目录与同目录ZIP SHA-256规则 | - | - | 不是待办，不得新增为发布前置条件 |
@@ -72,7 +72,7 @@
 | ID | 当前实现依据 | 仍需关闭证据 |
 | --- | --- | --- |
 | R01 | `apps/miniprogram/config/version.js`；三份 `MINIPROGRAM_V2_4_1_*` 当前未执行模板；`v2.4.0`未执行模板和`v2.3.0`记录均为历史证据 | 精确提交 `cdea2207ff8f570aa1d8725ea474f22df30f26c8` 的自动审查、开发者工具编译/上传、Android和iPhone结果、平台状态及完整交接均通过 |
-| R02 | `.github/workflows/full-auto-update-replay.yml`、`docs/MINIPROGRAM_V2_4_1_12_MONTH_REPLAY.md` 与 `work/full-auto-update-replay/local-v241-20260802-attempt-{1,2}/report.json` 记录提交前工作区基线的两组各6轮普通月度隔离回放；两组均为本地隔离对象存储，未写生产。代码现已固定在 `cdea2207ff8f570aa1d8725ea474f22df30f26c8`，普通CI `30736720927` 已通过，但该CI不是回放或云端证据 | 精确候选提交上的普通月度12次执行和独立历史修订12轮故障报告，均绑定当前解析器、审计器、工作流SHA和真实云端运行 |
+| R02 | `.github/workflows/full-auto-update-replay.yml` 和 `docs/MINIPROGRAM_V2_4_1_FULL_CLOUD_REPLAY_20260802.md`：`main@53ac616` 的云端运行 `30752209300` 已从第1轮连续通过12轮普通月度隔离回放；每轮验证560条新增、历史零变化、两类错误候选上传前阻断、72个数据对象加1个控制对象回读、完整70城客户端启用和切城零下载。生产指针和正式目录未触及，自动发布仍关闭 | 独立历史修订12轮故障报告，绑定当前解析器、审计器、工作流SHA和真实云端运行；另需适用的云函数、开发者工具和双真机证据 |
 | R03 | `MINIPROGRAM_VERSIONING.md` 已定义目标；当前 `package.json` 和 `scripts/miniprogram/` 没有确定性归档命令 | 归档脚本、重复构建/时区/顺序/非ASCII/损坏包测试，以及两个独立环境相同SHA-256证据 |
 | R04 | 现有 `release/miniprogram/v2.0.*` 只有ZIP、版本说明和 `SHA256.txt` | 清单生成器、schema校验器、身份冲突故障测试和首个完整新格式归档 |
 | R05 | 用户明确不同意 | 无；保持现状，除非未来取得新的明确决定并使用新决策记录 |
@@ -360,3 +360,4 @@ I02在当前本地候选已有共享验证器和有限故障测试，登记为 `
 | 2026-08-02 | I03 | `partial` | `implemented` | `passed_limited` | `passed_limited` | `local_npm_legacy_migration_entry_and_dry_run` | 标准 npm 入口固定传入批准的 `legacy-control-2026-06-e9788d0bddf3`，未带生产写入参数；入口回归测试通过，迁移 dry-run 的126个审计批次通过且未写入生产对象 | Codex本地复核 |
 | 2026-08-02 | I03 | `implemented` | `implemented` | `passed_limited` | `passed_limited` | `local_legacy_migration_two_phase_finalize_order` | Intent v3只绑定验证器契约；apply阶段完成撤销登记、指针切换和直接70城回读，工作流随后部署严格云函数并由finalize阶段执行`describe_validator`、动态回执和审计；迁移工作流安全测试31项、迁移协议测试17项通过，生产迁移未运行 | Codex本地复核 |
 | 2026-08-02 | R02 | `partial` | `partial` | `not_tested` | `passed_limited` | `local_v2.4.1_ordinary_monthly_replay_12_runs` | 两次独立6轮连续隔离回放均通过，合计12次执行；覆盖 `2025-12 -> 2026-06`，逐轮验证560条新增、历史零变化、错误候选上传前阻断、73个隔离对象回读和切城零下载；报告绑定提交前工作区执行时基线，当前代码已固定在 `cdea2207ff8f570aa1d8725ea474f22df30f26c8`，普通CI `30736720927` 已通过但不是回放证据；未执行真实云端/历史修订专项 | Codex本地复核 |
+| 2026-08-02 | R02 | `partial` | `partial` | `passed_limited` | `passed_limited` | `cloud_v2.4.1_ordinary_monthly_replay_12_runs` | GitHub Actions `30752209300` 在 `main@53ac616` 连续通过 `2025-06 -> 2026-06` 的12轮真实隔离云端回放；每轮70城完整包、73对象回读、两类错误候选阻断和客户端完整包启用通过，生产指针/正式目录未触及且自动发布为`false`。历史修订、云函数、开发者工具和双真机未关闭 | Codex工件复核 |
