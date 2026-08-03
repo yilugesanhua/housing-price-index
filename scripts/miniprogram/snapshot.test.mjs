@@ -238,7 +238,19 @@ test('home uses native page scrolling and stable chart hosts', async () => {
   assert.match(script, /onPageScroll\(event\)/)
   assert.equal(script.match(/chart\.legend\(false\)/g)?.length, 3)
   assert.doesNotMatch(wxml, /有效城市数\s*\/\s*70/)
-  assert.match(script, /padding: \[28, 12, 34, 32\]/)
+  assert.match(script, /MOBILE_STANDARD_CHART_PADDING = \[28, 24, 42, 48\]/)
+  assert.match(script, /MOBILE_BREADTH_CHART_PADDING = \[28, 12, 34, 32\]/)
+  assert.match(script, /DESKTOP_STANDARD_CHART_PADDING = \[28, 48, 60, 48\]/)
+  assert.match(script, /DESKTOP_BREADTH_CHART_PADDING = \[28, 32, 46, 32\]/)
+  assert.match(script, /function chartMonthAxis\(\)/)
+  assert.match(script, /function chartAxisLabels\(months, count = 5\)/)
+  assert.match(wxml, /class="desktop-chart-axis desktop-breadth-chart-axis" wx:if="\{\{desktopChartMode\}\}"/)
+  assert.match(wxml, /class="desktop-chart-axis" wx:if="\{\{desktopChartMode\}\}"/)
+  assert.match(wxml, /<block wx:if="\{\{!breadthChartError\}\}"><f2 class="f2-chart" onInit="\{\{onInitBreadthChart\}\}" \/><view class="desktop-chart-axis desktop-breadth-chart-axis"/)
+  assert.match(wxml, /<block wx:if="\{\{!trendChartError\}\}"><f2 class="f2-chart" onInit="\{\{onInitChart\}\}" \/><view class="desktop-chart-axis"/)
+  assert.match(wxml, /<block wx:if="\{\{!cumulativeChartError\}\}"><f2 class="f2-chart" onInit="\{\{onInitCumulativeChart\}\}" \/><view class="desktop-chart-axis"/)
+  assert.match(wxss, /\.desktop-chart-axis\s*\{[^}]*position:\s*absolute[^}]*right:\s*48px[^}]*left:\s*48px[^}]*font-size:\s*9px/s)
+  assert.match(wxss, /\.desktop-breadth-chart-axis\s*\{[^}]*right:\s*32px[^}]*left:\s*32px/s)
   assert.match(script, /count:\s*\{\s*min:\s*0,\s*max:\s*70,\s*ticks:\s*\[0, 20, 40, 60, 70\],\s*nice:\s*false\s*\}/)
   assert.match(wxss, /\.history-chart\s*\{[^}]*height:\s*376rpx[^}]*margin-top:\s*2rpx/)
   assert.match(wxml, /全国城市观察/)
@@ -372,6 +384,7 @@ test('resize and unload update and destroy all chart instances', async () => {
   page.cumulativeChart = chart()
   page.breadthChart = chart()
   globalThis.wx = {
+    getSystemInfoSync: () => ({ platform: 'ios' }),
     createSelectorQuery: () => ({
       select() { return this },
       boundingClientRect() { return this },
@@ -383,6 +396,24 @@ test('resize and unload update and destroy all chart instances', async () => {
   assert.deepEqual(sizes, [[320, 240], [320, 200], [320, 180]])
   page.onUnload()
   assert.equal(destroyed, 3)
+  delete globalThis.wx
+})
+
+test('desktop chart resize never reinitializes the wx-f2 canvas', () => {
+  const page = pageHarness(loadPageConfig('apps/miniprogram/pages/index/index.js'))
+  const sizes = []
+  const chart = { changeSize: (width, height) => sizes.push([width, height]) }
+  page.chart = chart
+  page.cumulativeChart = chart
+  page.breadthChart = chart
+  globalThis.wx = {
+    getSystemInfoSync: () => ({ platform: 'windows' }),
+    createSelectorQuery() { throw new Error('desktop charts must not query or resize canvas') },
+  }
+
+  page.resizeCharts()
+  page.onResize()
+  assert.deepEqual(sizes, [])
   delete globalThis.wx
 })
 
@@ -642,7 +673,7 @@ test('trend and cumulative charts send solid-dash-dash shapes to F2', async () =
     source() {}
     tooltip() {}
     legend() {}
-    axis() {}
+    axis(field, config) { this.axisConfigs ||= {}; this.axisConfigs[field] = config }
     guide() { return { line() {} } }
     line() { return this.geometry }
     animate() {}
@@ -666,6 +697,81 @@ test('trend and cumulative charts send solid-dash-dash shapes to F2', async () =
   const wxss = await readFile(resolve(root, 'apps/miniprogram/pages/index/index.wxss'), 'utf8')
   assert.match(wxss, /\.legend-line\.pattern-1, \.legend-line\.pattern-2\s*\{\s*border-top-style:\s*dashed/)
   delete globalThis.getCurrentPages
+})
+
+test('desktop chart layout is isolated from the fixed mobile layout', () => {
+  const pageConfig = loadPageConfig('apps/miniprogram/pages/index/index.js')
+  class FakeGeometry {
+    position() { return this }
+    color() { return this }
+    shape() { return this }
+    size() { return this }
+    adjust() { return this }
+  }
+  class FakeChart {
+    constructor(config) { this.config = config; this.geometry = new FakeGeometry() }
+    source() {}
+    tooltip(config) { this.tooltipConfig = config }
+    legend() {}
+    axis(field, config) { this.axisConfigs ||= {}; this.axisConfigs[field] = config }
+    guide() { return { line() {} } }
+    line() { return this.geometry }
+    interval() { return this.geometry }
+    animate() {}
+    render() {}
+  }
+  const createCharts = (platform) => {
+    const charts = []
+    const Chart = class extends FakeChart {
+      constructor(config) { super(config); charts.push(this) }
+    }
+    globalThis.wx = { getSystemInfoSync: () => ({ platform }) }
+    const page = {
+      data: { state: { cities: ['fuzhou'] }, breadthChartData: [] },
+      getTrendData() { return [] },
+      getCumulativeData() { return [] },
+    }
+    globalThis.getCurrentPages = () => [page]
+    pageConfig.data.onInitChart({ Chart }, {})
+    pageConfig.data.onInitCumulativeChart({ Chart }, {})
+    pageConfig.data.onInitBreadthChart({ Chart }, {})
+    return charts
+  }
+
+  const mobileCharts = createCharts('ios')
+  assert.deepEqual(mobileCharts.map((chart) => chart.config.padding), [
+    [28, 24, 42, 48],
+    [28, 24, 42, 48],
+    [28, 12, 34, 32],
+  ])
+  assert.equal(mobileCharts.every((chart) => chart.tooltipConfig.fixed === undefined), true)
+
+  for (const platform of ['windows', 'devtools']) {
+    const desktopCharts = createCharts(platform)
+    assert.deepEqual(desktopCharts.map((chart) => chart.config.padding), [
+      [28, 48, 60, 48],
+      [28, 48, 60, 48],
+      [28, 32, 46, 32],
+    ])
+    assert.equal(desktopCharts.every((chart) => chart.tooltipConfig.fixed === true), true)
+    assert.equal(desktopCharts.every((chart) => chart.axisConfigs.month.label === false), true)
+  }
+  delete globalThis.wx
+  delete globalThis.getCurrentPages
+})
+
+test('desktop chart dates are supplied by the page while phones retain F2 labels', () => {
+  globalThis.wx = { getSystemInfoSync: () => ({ platform: 'windows' }) }
+  const desktopPage = loadPageConfig('apps/miniprogram/pages/index/index.js')
+  assert.equal(desktopPage.data.desktopChartMode, true)
+  assert.equal(desktopPage.data.trendChartAxisLabels.length, 5)
+  assert.equal(desktopPage.data.cumulativeChartAxisLabels.length, 5)
+  assert.equal(desktopPage.data.breadthChartAxisLabels.length, 5)
+  assert.match(desktopPage.data.trendChartAxisLabels[0], /^\d{2}-\d{2}$/)
+  delete globalThis.wx
+
+  const mobilePage = loadPageConfig('apps/miniprogram/pages/index/index.js')
+  assert.equal(mobilePage.data.desktopChartMode, false)
 })
 
 test('trend defaults to one city and location replaces the trend city', () => {

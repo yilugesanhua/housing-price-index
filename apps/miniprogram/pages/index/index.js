@@ -18,6 +18,10 @@ const OPTIONS = {
 }
 let LOCATION_CITY_IDS = [...snapshot.cityIds].sort((left, right) => left.localeCompare(right, 'en'))
 const SERIES_COLORS = ['#176c79', '#2f6fbb', '#9b5b2f']
+const MOBILE_STANDARD_CHART_PADDING = [28, 24, 42, 48]
+const MOBILE_BREADTH_CHART_PADDING = [28, 12, 34, 32]
+const DESKTOP_STANDARD_CHART_PADDING = [28, 48, 60, 48]
+const DESKTOP_BREADTH_CHART_PADDING = [28, 32, 46, 32]
 const STORAGE_KEY = 'housing-view-state-v1'
 const LOCATION_CACHE_KEY = 'housing-location-cache-v1'
 const FOCUS_SOURCE_KEY = 'housing-focus-source-v1'
@@ -138,6 +142,43 @@ function formatChartMonth(value) {
 
 function toChartDate(month) {
   return `${month}-01`
+}
+
+function isDesktopChartEnvironment() {
+  if (typeof wx !== 'object' || typeof wx.getSystemInfoSync !== 'function') return false
+  try {
+    const platform = wx.getSystemInfoSync().platform
+    return platform === 'windows' || platform === 'devtools'
+  } catch (_) {
+    return false
+  }
+}
+
+function chartConfig(config, mobilePadding, desktopPadding) {
+  return { ...config, padding: isDesktopChartEnvironment() ? desktopPadding : mobilePadding }
+}
+
+function chartTooltip(chart, options) {
+  chart.tooltip(isDesktopChartEnvironment() ? { ...options, fixed: true } : options)
+}
+
+function chartMonthAxis() {
+  return {
+    // wx-f2 clips canvas-drawn date labels in the Windows simulator. The page
+    // supplies equivalent labels there; phones retain the original F2 labels.
+    label: isDesktopChartEnvironment() ? false : (text) => ({ fill: '#5f6368', fontSize: 9, text }),
+    line: { stroke: '#d8d8de' },
+  }
+}
+
+function chartAxisLabels(months, count = 5) {
+  if (!months.length) return []
+  const labelCount = Math.min(count, months.length)
+  if (labelCount === 1) return [String(months[0]).slice(2)]
+  return Array.from({ length: labelCount }, (_, index) => {
+    const monthIndex = Math.round(index * (months.length - 1) / (labelCount - 1))
+    return String(months[monthIndex]).slice(2)
+  })
 }
 
 function seriesCode(state) {
@@ -376,6 +417,9 @@ function makeView(state, searchText = '', hiddenCityIds = []) {
     },
     breadthHistory,
     breadthChartData,
+    breadthChartAxisLabels: chartAxisLabels(breadthHistory.map((item) => item.month)),
+    trendChartAxisLabels: chartAxisLabels(exactMonths),
+    cumulativeChartAxisLabels: chartAxisLabels(exactMonths),
     cumulativeData: cumulative.data,
     cumulativeLatest: cumulative.latest.map((item, index) => ({ ...item, color: SERIES_COLORS[index], seriesIndex: index, hidden: hiddenCityIds.includes(item.id) })),
     cumulativeStartMonth: cumulative.startMonth,
@@ -413,6 +457,7 @@ Page({
     rankingScrollCity: hasUsableSnapshot() ? DEFAULT_STATE.focusCity : '',
     activeSection: 'overview',
     analysisNavFixed: false,
+    desktopChartMode: isDesktopChartEnvironment(),
     trendChartError: false,
     cumulativeChartError: false,
     breadthChartError: false,
@@ -422,14 +467,14 @@ Page({
     onInitChart(F2, config) {
       try {
       console.info('[chart:init] trend', { width: config.width, height: config.height })
-      const chart = new F2.Chart({ ...config, padding: [28, 24, 42, 48] })
+      const chart = new F2.Chart(chartConfig(config, MOBILE_STANDARD_CHART_PADDING, DESKTOP_STANDARD_CHART_PADDING))
       const pages = getCurrentPages()
       const page = pages[pages.length - 1]
       chart.source(page.getTrendData(), {
         month: { type: 'timeCat', mask: 'YY-MM', tickCount: 5, range: [0, 1] },
         change: { tickCount: 5 },
       })
-      chart.tooltip({
+      chartTooltip(chart, {
         showTitle: false,
         showCrosshairs: true,
         showItemMarker: false,
@@ -443,7 +488,7 @@ Page({
         },
       })
       chart.legend(false)
-      chart.axis('month', { label: (text) => ({ fill: '#5f6368', fontSize: 9, text }), line: { stroke: '#d8d8de' } })
+      chart.axis('month', chartMonthAxis())
       chart.axis('change', { label: (text) => ({ fill: '#5f6368', fontSize: 9, text: `${text}%` }), grid: { stroke: '#e6e6eb', lineWidth: 1 } })
       chart.guide().line({ start: ['min', 0], end: ['max', 0], style: { stroke: '#8e8e93', lineDash: [4, 4], lineWidth: 1 } })
       chart.line().position('month*change').color('city', (city) => {
@@ -464,14 +509,14 @@ Page({
     onInitCumulativeChart(F2, config) {
       try {
       console.info('[chart:init] cumulative', { width: config.width, height: config.height })
-      const chart = new F2.Chart({ ...config, padding: [28, 24, 42, 48] })
+      const chart = new F2.Chart(chartConfig(config, MOBILE_STANDARD_CHART_PADDING, DESKTOP_STANDARD_CHART_PADDING))
       const pages = getCurrentPages()
       const page = pages[pages.length - 1]
       chart.source(page.getCumulativeData(), {
         month: { type: 'timeCat', mask: 'YY-MM', tickCount: 5, range: [0, 1] },
         value: { tickCount: 5, formatter: formatIndex },
       })
-      chart.tooltip({
+      chartTooltip(chart, {
         showTitle: false,
         showCrosshairs: true,
         showItemMarker: false,
@@ -481,7 +526,7 @@ Page({
         },
       })
       chart.legend(false)
-      chart.axis('month', { label: (text) => ({ fill: '#5f6368', fontSize: 9, text }), line: { stroke: '#d8d8de' } })
+      chart.axis('month', chartMonthAxis())
       chart.axis('value', { label: (text) => ({ fill: '#5f6368', fontSize: 9, text }), grid: { stroke: '#e6e6eb', lineWidth: 1 } })
       chart.guide().line({ start: ['min', 100], end: ['max', 100], style: { stroke: '#8e8e93', lineDash: [4, 4], lineWidth: 1 } })
       chart.line().position('month*value').color('city', (city) => {
@@ -502,14 +547,14 @@ Page({
     onInitBreadthChart(F2, config) {
       try {
       console.info('[chart:init] breadth', { width: config.width, height: config.height })
-      const chart = new F2.Chart({ ...config, padding: [28, 12, 34, 32] })
+      const chart = new F2.Chart(chartConfig(config, MOBILE_BREADTH_CHART_PADDING, DESKTOP_BREADTH_CHART_PADDING))
       const pages = getCurrentPages()
       const page = pages[pages.length - 1]
       chart.source(page.data.breadthChartData, {
         month: { type: 'timeCat', mask: 'YY-MM', tickCount: 5, range: [0, 1] },
         count: { min: 0, max: 70, ticks: [0, 20, 40, 60, 70], nice: false },
       })
-      chart.tooltip({
+      chartTooltip(chart, {
         showTitle: false,
         showCrosshairs: false,
         showItemMarker: true,
@@ -520,7 +565,7 @@ Page({
         },
       })
       chart.legend(false)
-      chart.axis('month', { label: (text) => ({ fill: '#5f6368', fontSize: 9, text }), line: { stroke: '#d8d8de' } })
+      chart.axis('month', chartMonthAxis())
       chart.axis('count', { label: (text) => ({ fill: '#5f6368', fontSize: 9, text }), grid: { stroke: '#e6e6eb', lineWidth: 1 } })
       chart.interval().position('month*count').color('direction', ['#c94f45', '#8e8e93', '#167d67']).adjust('stack')
       chart.animate(false)
@@ -534,6 +579,7 @@ Page({
   },
 
   onLoad(query) {
+    if (isDesktopChartEnvironment() && !this.data.desktopChartMode) this.setData({ desktopChartMode: true })
     const routeState = parseQuery(query)
     let stored = null
     let focusSource = ''
@@ -851,10 +897,15 @@ Page({
     }, 80)
   },
   onResize() {
+    if (isDesktopChartEnvironment()) return
     clearTimeout(this._resizeTick)
     this._resizeTick = setTimeout(() => this.resizeCharts(), 120)
   },
   resizeCharts() {
+    // Desktop wx-f2 obtains the correct initial canvas size. Its later resize
+    // pass in DevTools corrupts the drawing transform, while phone rotation
+    // still needs the normal resize path.
+    if (isDesktopChartEnvironment()) return
     const query = wx.createSelectorQuery()
     query.select('.chart-shell').boundingClientRect()
     query.select('.cumulative-chart').boundingClientRect()

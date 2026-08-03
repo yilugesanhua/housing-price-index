@@ -42,10 +42,7 @@
 
     <view class="analysis-nav {{analysisNavFixed ? 'is-fixed' : ''}}">
       <view class="scope-grid">
-        <picker mode="selector" range="{{propertyOptions}}" value="{{propertyIndex}}" bindchange="onPropertyChange" aria-label="选择住宅类型"><view class="scope-control">{{propertyLabel}}<text>⌄</text></view></picker>
-        <picker mode="selector" range="{{metricOptions}}" value="{{metricIndex}}" bindchange="onMetricChange" aria-label="选择统计指标"><view class="scope-control">{{metricLabel}}<text>⌄</text></view></picker>
-        <picker mode="selector" range="{{sizeOptions}}" value="{{sizeIndex}}" bindchange="onSizeChange" aria-label="选择面积范围"><view class="scope-control">{{sizeLabel}}<text>⌄</text></view></picker>
-        <picker mode="selector" range="{{rangeOptions}}" value="{{rangeIndex}}" bindchange="onRangeChange" aria-label="选择时间范围"><view class="scope-control">{{rangeLabel}}<text>⌄</text></view></picker>
+        <picker mode="selector" range="{{propertyOptions}}" value="{{propertyIndex}}" bindchange="onPropertyChange" aria-label="选择住宅类型"><view class="scope-control">{{propertyLabel}}<text>⌄</text></view></picker><picker mode="selector" range="{{metricOptions}}" value="{{metricIndex}}" bindchange="onMetricChange" aria-label="选择统计指标"><view class="scope-control">{{metricLabel}}<text>⌄</text></view></picker><picker mode="selector" range="{{sizeOptions}}" value="{{sizeIndex}}" bindchange="onSizeChange" aria-label="选择面积范围"><view class="scope-control">{{sizeLabel}}<text>⌄</text></view></picker><picker mode="selector" range="{{rangeOptions}}" value="{{rangeIndex}}" bindchange="onRangeChange" aria-label="选择时间范围"><view class="scope-control">{{rangeLabel}}<text>⌄</text></view></picker>
       </view>
       <view class="nav-row">
         <button class="nav-button {{activeSection === 'overview' ? 'active' : ''}}" data-target="overview" bindtap="jumpTo">城市概览</button>
@@ -85,7 +82,7 @@
       <view class="breadth-history">
         <view class="history-heading"><view><text class="panel-heading">70城温度走势</text><text class="panel-meta">按月统计上涨、持平和下跌城市数量</text></view></view>
         <view class="breadth-legend" aria-label="图例：上涨、持平、下跌"><view><view class="breadth-legend-dot legend-up"></view><text>上涨</text></view><view><view class="breadth-legend-dot legend-flat"></view><text>持平</text></view><view><view class="breadth-legend-dot legend-down"></view><text>下跌</text></view></view>
-        <view class="chart-frame history-chart"><f2 class="f2-chart" wx:if="{{!breadthChartError}}" onInit="{{onInitBreadthChart}}" /><view class="chart-error" wx:else><text>温度走势图暂时无法显示</text><text>恢复后可在图表中滑动查看准确数量。</text></view></view>
+        <view class="chart-frame history-chart"><block wx:if="{{!breadthChartError}}"><f2 class="f2-chart" onInit="{{onInitBreadthChart}}" /><view class="desktop-chart-axis desktop-breadth-chart-axis" wx:if="{{desktopChartMode}}"><text wx:for="{{breadthChartAxisLabels}}" wx:key="*this">{{item}}</text></view></block><view class="chart-error" wx:else><text>温度走势图暂时无法显示</text><text>恢复后可在图表中滑动查看准确数量。</text></view></view>
       </view>
       <view class="market-grid comparison-grid">
         <view class="market-panel comparison-panel national-panel">
@@ -118,13 +115,13 @@
       <view class="trend-controls" wx:if="{{selectedCities.length}}">
         <view class="trend-city-row"><view class="legend"><button class="legend-item {{item.hidden ? 'legend-hidden' : ''}}" wx:for="{{selectedCities}}" wx:key="id" data-id="{{item.id}}" bindtap="toggleLegend" aria-label="{{item.hidden ? '显示' : '隐藏'}}{{item.name}}趋势线"><view class="legend-line pattern-{{item.seriesIndex}}" style="border-color: {{item.hidden ? '#8e8e93' : item.color}}"></view><text>{{item.name}}</text></button></view><button class="trend-city-add" bindtap="openPicker">＋ 添加城市</button></view>
       </view>
-      <view class="chart-frame chart-shell" wx:if="{{selectedCities.length}}"><f2 class="f2-chart" wx:if="{{!trendChartError}}" onInit="{{onInitChart}}" /><view class="chart-error" wx:else><text>历史走势图暂时无法显示</text><text>请稍后重试；恢复后可在图表中滑动查看对应月份数值。</text></view></view>
+      <view class="chart-frame chart-shell" wx:if="{{selectedCities.length}}"><block wx:if="{{!trendChartError}}"><f2 class="f2-chart" onInit="{{onInitChart}}" /><view class="desktop-chart-axis" wx:if="{{desktopChartMode}}"><text wx:for="{{trendChartAxisLabels}}" wx:key="*this">{{item}}</text></view></block><view class="chart-error" wx:else><text>历史走势图暂时无法显示</text><text>请稍后重试；恢复后可在图表中滑动查看对应月份数值。</text></view></view>
       <view class="empty" wx:else><text class="empty-title">尚未选择趋势城市</text><text>添加城市后可比较长期变化，最多同时显示3座。</text><view><button class="secondary-button" bindtap="resetCities">恢复默认城市</button><button class="add-button" bindtap="openPicker">添加城市</button></view></view>
       <text class="chart-note" wx:if="{{selectedCities.length}}">注：虚线为0%基准线；曲线位于基准线上方表示上涨，位于下方表示下跌。</text>
       <view class="cumulative-section" wx:if="{{selectedCities.length}}">
         <view class="cumulative-heading"><view><text class="panel-heading">累计变化</text><text class="panel-meta">{{cumulativeStartMonth}}为基期（指数=100），按月度环比复合计算；高于100表示较基期上涨，低于100表示较基期下跌，不代表实际元/㎡房价。</text></view><text class="baseline-label">起点 100</text></view>
         <view class="cumulative-latest"><block wx:for="{{cumulativeLatest}}" wx:key="id"><view class="cumulative-latest-item" wx:if="{{!item.hidden}}"><view class="legend-line pattern-{{item.seriesIndex}}" style="border-color: {{item.color}}"></view><text>{{item.name}} <text class="emphasis">{{item.display}}</text> <text class="value-note">{{item.change}}</text></text></view></block></view>
-        <view class="chart-frame cumulative-chart"><f2 class="f2-chart" wx:if="{{!cumulativeChartError}}" onInit="{{onInitCumulativeChart}}" /><view class="chart-error" wx:else><text>累计变化图暂时无法显示</text><text>最新累计数值仍可在图表上方查看。</text></view></view>
+        <view class="chart-frame cumulative-chart"><block wx:if="{{!cumulativeChartError}}"><f2 class="f2-chart" onInit="{{onInitCumulativeChart}}" /><view class="desktop-chart-axis" wx:if="{{desktopChartMode}}"><text wx:for="{{cumulativeChartAxisLabels}}" wx:key="*this">{{item}}</text></view></block><view class="chart-error" wx:else><text>累计变化图暂时无法显示</text><text>最新累计数值仍可在图表上方查看。</text></view></view>
       </view>
       <view class="exact-section" wx:if="{{showExactData}}">
         <button class="exact-toggle" bindtap="toggleExact">{{exactOpen ? '收起精确数据' : '查看精确数据'}}<text>{{exactOpen ? '⌃' : '⌄'}}</text></button>
