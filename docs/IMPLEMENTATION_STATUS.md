@@ -365,6 +365,8 @@ I02在当前本地候选已有共享验证器和有限故障测试，登记为 `
 | 2026-08-03 | I10 | `not_started` | `partial` | `not_tested` | `passed_limited` | `local_candidate_stage_boundary_v1` | 候选生成基础能力已实现并通过本地测试；原字节晋级、最终 `release-manifest.json`、跨环境相同SHA-256和稳定归档仍未实现 | Codex本地复核 |
 | 2026-08-03 | R03 | `implemented` | `implemented` | `passed_limited` | `passed_limited` | `local_exact_candidate_generation_v2` | 在干净临时检出中从`3b84e9a293e18fbd960328be243e0e84f18612a1`生成`v2.4.2`候选；36个文件的ZIP SHA-256为`9537150768abb6d452ad2fec57bb8c01121f5867426bfc6cb8fb9911e3b1603d`，清单SHA-256为`e08b69d4d97f26ccfa92927bf09403c30bd2002cdf2a42a5a67c0ab04945e547`，两次独立生成完全一致。未推送、未形成跨环境复现、未晋级稳定归档 | Codex本地复核 |
 | 2026-08-03 | R01 | `partial` | `partial` | `not_tested` | `passed_limited` | `v2.4.9_local_candidate_and_basic_device_confirmation` | 精确提交`83efac8401b633916c6577600141a0f542a2ce0c`；`npm.cmd run test:miniprogram` 299/299通过；开发者工具源码已同步；用户确认Android与iPhone基础可用。未生成不可变候选，未完成18项全量双真机、CI、上传、审核、发布或稳定归档 | Codex本地复核与用户现场确认 |
+| 2026-08-03 | R01 | `partial` | `partial` | `passed_limited` | `passed_limited` | `v2.4.9_deterministic_candidate_v1` | 精确提交`83efac8401b633916c6577600141a0f542a2ce0c`生成36文件候选；ZIP SHA-256为`75b05d8ccbbec65ac6a0dc2aa64da709f57195e9a7c255192460ef4806c12b62`，候选清单SHA-256为`a407e5ec2a2d6055db8258079a876df68695cc204673f51f8ee6cdd3756c6313`，文件清单SHA-256为`c513c0f4dc4f29495be4da8a1ee74b4233ea98b674315f42ce1dce314c0becbd`；CI、18项双真机、平台上传审核发布和稳定归档仍未完成 | Codex本地复核 |
+| 2026-08-03 | R01 | `partial` | `partial` | `passed_limited` | `passed_limited` | `v2.4.9_deterministic_candidate_repeat_v1` | 两个独立干净检出从同一精确提交重复生成；ZIP、`candidate-manifest.json` 与 `SHA256.txt` 三份文件的 SHA-256 完全一致。跨机器复现、CI、18项双真机、平台上传审核发布和稳定归档仍未完成 | Codex本地复核 |
 
 ## v2.4.2 候选切换登记（2026-08-02）
 
@@ -404,3 +406,5 @@ I02在当前本地候选已有共享验证器和有限故障测试，登记为 `
 - 已知本地证据：`npm.cmd run test:miniprogram` 于本候选完成 299/299 通过；开发者工具源码已同步；用户确认 Android 与 iPhone 均可基础使用。详细边界见 `MINIPROGRAM_V2_4_9_DEVICE_TEST.md`。
 - 已建立 `MINIPROGRAM_V2_4_9_RELEASE_HANDOFF.md`；该候选未推送、未上传开发版、未设体验版、未提交审核、未发布，亦未生成不可变候选 ZIP、`candidate-manifest.json` 或稳定归档。
 - 当前状态：R01 为 `partial/passed_limited`，只限上述本地自动化、同步和基础真机确认；18 项全量双真机、当前候选 CI、云端/数据回放、微信平台现场复核和所有发布门禁继续保持未完成。
+- 候选构件已生成并绑定同一精确源码提交；候选构件本身不构成 CI、开发者工具编译、双真机、微信平台或正式发布证据。
+- 两个独立干净检出重复生成的候选 ZIP、候选清单与 `SHA256.txt` 均逐文件一致；这只证明本机重复构建确定性，不能替代跨机器复现或外部平台证据。

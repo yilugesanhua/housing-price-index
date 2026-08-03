@@ -12,8 +12,12 @@
 | 候选提交 | `83efac8 fix(miniprogram): stabilize desktop charts v2.4.9` |
 | 开发者工具同步 | 已完成；`apps/miniprogram/` 与 `70城小程序技术验证/` 的本次候选源码已同步 |
 | 本地自动化 | `npm.cmd run test:miniprogram`：299/299 通过；这不是双真机 18 项验收的替代证据 |
-| 不可变候选 ZIP / `candidate-manifest.json` | 未生成；不得把本地同步目录当作不可变候选构件 |
+| 不可变候选 ZIP / SHA-256 | `小程序源码-v2.4.9.zip` / `75b05d8ccbbec65ac6a0dc2aa64da709f57195e9a7c255192460ef4806c12b62` |
+| `candidate-manifest.json` SHA-256 | `a407e5ec2a2d6055db8258079a876df68695cc204673f51f8ee6cdd3756c6313` |
+| 候选文件清单 SHA-256 | `c513c0f4dc4f29495be4da8a1ee74b4233ea98b674315f42ce1dce314c0becbd` |
 | 微信开发版 / 体验版 | 未上传 / 未设置；本记录不表示平台存在该版本 |
+| 内置数据版本 / 截止月份 | `2026-06-4fd1d1a8ff12` / `2026-06` |
+| 解析器 / 独立审计器 | `official-html-v7-product-housing-only` / `full-record-audit-v5` |
 | 远程数据、生产控制面与自动发布 | 未现场核验 / 未触及；`AUTOMATIC_RELEASE_ENABLED=false` 的现状未改变 |
 
 ## 基础真机确认（2026-08-03）

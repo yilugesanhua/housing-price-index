@@ -12,10 +12,12 @@
 | 候选提交 | `83efac8 fix(miniprogram): stabilize desktop charts v2.4.9` |
 | 本地自动化 | `npm.cmd run test:miniprogram`：299/299 通过 |
 | 开发者工具同步 | 已完成本次候选源码同步；未记录可复查的编译产物身份 |
-| 不可变候选 ZIP / SHA-256 | 未生成 |
-| `candidate-manifest.json` / SHA-256 | 未生成 |
+| 不可变候选 ZIP / SHA-256 | `小程序源码-v2.4.9.zip` / `75b05d8ccbbec65ac6a0dc2aa64da709f57195e9a7c255192460ef4806c12b62`；两次独立生成字节一致 |
+| `candidate-manifest.json` / SHA-256 | `a407e5ec2a2d6055db8258079a876df68695cc204673f51f8ee6cdd3756c6313` |
+| 候选文件清单 SHA-256 | `c513c0f4dc4f29495be4da8a1ee74b4233ea98b674315f42ce1dce314c0becbd` |
 | 稳定 `release-manifest.json` / SHA-256 | 未生成；不得创建或修改稳定归档 |
-| 数据截止月份、源数据版本、解析器、审计器 | 未在本交接轮重新提取；不得根据旧候选记录代填 |
+| 数据截止月份、源数据版本 | `2026-06` / `2026-06-4fd1d1a8ff12` |
+| 解析器 / 审计器 | `official-html-v7-product-housing-only` / `full-record-audit-v5` |
 | 当前精确提交 CI | 未现场核验 |
 | 普通月度及历史修订回放 | 未在本候选身份上重新核验；旧候选证据不可替代 |
 
@@ -46,7 +48,7 @@ Android 与 iPhone 已获用户基础可用性确认，详细记录见 [`MINIPRO
 
 ## 交接前仍需完成的门禁
 
-- [ ] 在干净、同一精确提交上生成并重复回读不可变候选 ZIP 与 `candidate-manifest.json`。
+- [x] 在两个独立干净检出中生成并回读不可变候选 ZIP、`candidate-manifest.json` 和完整文件清单；三份候选文件 SHA-256 均一致。跨机器复现仍未完成。
 - [ ] 取得当前候选的 CI、数据和回放证据；旧候选记录不得代替。
 - [ ] 完成 Android 与 iPhone 各 18 项验收并保留原始证据。
 - [ ] 现场核验微信公众平台线上版本、隐私指引和权限配置。
