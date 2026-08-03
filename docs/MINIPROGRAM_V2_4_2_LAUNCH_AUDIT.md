@@ -10,9 +10,9 @@
 | 字段 | 当前值 |
 | --- | --- |
 | 小程序版本 | `v2.4.2` |
-| 精确Git SHA | 待填写 |
-| 不可变候选ZIP/SHA-256 | 待由确定性候选工具生成 |
-| `candidate-manifest.json` SHA-256 | 待生成；所有后续证据绑定该身份 |
+| 精确Git SHA | `3b84e9a293e18fbd960328be243e0e84f18612a1`（本地候选源码提交，未推送） |
+| 不可变候选ZIP/SHA-256 | `小程序源码-v2.4.2.zip` / `9537150768abb6d452ad2fec57bb8c01121f5867426bfc6cb8fb9911e3b1603d` |
+| `candidate-manifest.json` SHA-256 | `e08b69d4d97f26ccfa92927bf09403c30bd2002cdf2a42a5a67c0ab04945e547`；所有后续证据绑定该身份 |
 | 内置数据截止月份 | `2026-06`（发布前从候选快照重新读取） |
 | 内置源数据版本 | `2026-06-4fd1d1a8ff12`（发布前重新核对） |
 | 解析器 | `official-html-v7-product-housing-only`（发布前从审计读取） |
@@ -21,6 +21,8 @@
 | 审查人/时间 | 待填写 |
 
 任一身份在审查后变化，全部结果失效并从头执行。短SHA、工作区当前状态、`v2.4.0` 本地测试或 `v2.3.0` 平台记录不能替代精确候选身份。
+
+本地候选已在干净临时检出中生成并完成ZIP逐文件回读；第二次独立生成的ZIP和`candidate-manifest.json`哈希完全一致。候选目录为`work/miniprogram-release-candidates/v2.4.2-3b84e9a293e1-9537150768ab/`，复现目录为`work/miniprogram-release-candidates-repro-v2/v2.4.2-3b84e9a293e1-9537150768ab/`，均不属于稳定归档。本地`npm.cmd run check`和`npm.cmd run test:e2e`已通过；后者为39项通过、1项有意跳过（八尺寸响应式矩阵已在电脑Chromium项目完整执行，手机专属交互另有覆盖）。这些只构成本地候选证据，不能填写本表的CI、开发者工具、双真机、微信审核或正式发布项。
 
 ## 自动化与数据证据
 

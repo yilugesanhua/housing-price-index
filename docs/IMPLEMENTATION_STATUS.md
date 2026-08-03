@@ -73,7 +73,7 @@
 | --- | --- | --- |
 | R01 | `apps/miniprogram/config/version.js`；三份 `MINIPROGRAM_V2_4_1_*` 当前未执行模板；`v2.4.0`未执行模板和`v2.3.0`记录均为历史证据 | 精确提交 `cdea2207ff8f570aa1d8725ea474f22df30f26c8` 的自动审查、开发者工具编译/上传、Android和iPhone结果、平台状态及完整交接均通过 |
 | R02 | `.github/workflows/full-auto-update-replay.yml` 和 `docs/MINIPROGRAM_V2_4_1_FULL_CLOUD_REPLAY_20260802.md`：`main@53ac616` 的云端运行 `30752209300` 已从第1轮连续通过12轮普通月度隔离回放；每轮验证560条新增、历史零变化、两类错误候选上传前阻断、72个数据对象加1个控制对象回读、完整70城客户端启用和切城零下载。生产指针和正式目录未触及，自动发布仍关闭 | 独立历史修订12轮故障报告，绑定当前解析器、审计器、工作流SHA和真实云端运行；另需适用的云函数、开发者工具和双真机证据 |
-| R03 | `scripts/miniprogram/deterministic-candidate.mjs`、`deterministic-candidate.test.mjs`、`package.json` 的 `miniprogram:candidate` 命令；本地定向测试5项、全量小程序测试295项通过 | 从干净精确提交实际生成并冻结候选ZIP，完成跨环境相同SHA-256回读证据；随后再实现原字节晋级和稳定归档记录 |
+| R03 | `scripts/miniprogram/deterministic-candidate.mjs`、`deterministic-candidate.test.mjs`、`package.json` 的 `miniprogram:candidate` 命令；本地定向测试6项、全量小程序测试296项通过；已从干净精确提交`3b84e9a293e18fbd960328be243e0e84f18612a1`生成36文件的`v2.4.2`候选，并两次独立回读为相同ZIP/清单哈希 | 在另一环境复现相同候选SHA-256；随后实现原字节晋级和稳定归档记录 |
 | R04 | 现有 `release/miniprogram/v2.0.*` 只有ZIP、版本说明和 `SHA256.txt` | 清单生成器、schema校验器、身份冲突故障测试和首个完整新格式归档 |
 | R05 | 用户明确不同意 | 无；保持现状，除非未来取得新的明确决定并使用新决策记录 |
 | R06 | `release/attestations.json` 与 `scripts/release-readiness.mjs` 当前固定schema 1 | schema 2实现及提交/构建/数据/域名/证据/有效期的正反向自动测试和一次真实发布候选验证 |
@@ -363,6 +363,7 @@ I02在当前本地候选已有共享验证器和有限故障测试，登记为 `
 | 2026-08-02 | R02 | `partial` | `partial` | `passed_limited` | `passed_limited` | `cloud_v2.4.1_ordinary_monthly_replay_12_runs` | GitHub Actions `30752209300` 在 `main@53ac616` 连续通过 `2025-06 -> 2026-06` 的12轮真实隔离云端回放；每轮70城完整包、73对象回读、两类错误候选阻断和客户端完整包启用通过，生产指针/正式目录未触及且自动发布为`false`。历史修订、云函数、开发者工具和双真机未关闭 | Codex工件复核 |
 | 2026-08-03 | R03 | `not_started` | `implemented` | `not_tested` | `passed_limited` | `local_deterministic_candidate_generator_v1` | 新增 `scripts/miniprogram/deterministic-candidate.mjs`、`deterministic-candidate.test.mjs` 和 `miniprogram:candidate` 命令；本地定向5项及全量小程序295项通过。尚未在干净精确提交上生成候选构件，未形成跨环境回读证据 | Codex本地复核 |
 | 2026-08-03 | I10 | `not_started` | `partial` | `not_tested` | `passed_limited` | `local_candidate_stage_boundary_v1` | 候选生成基础能力已实现并通过本地测试；原字节晋级、最终 `release-manifest.json`、跨环境相同SHA-256和稳定归档仍未实现 | Codex本地复核 |
+| 2026-08-03 | R03 | `implemented` | `implemented` | `passed_limited` | `passed_limited` | `local_exact_candidate_generation_v2` | 在干净临时检出中从`3b84e9a293e18fbd960328be243e0e84f18612a1`生成`v2.4.2`候选；36个文件的ZIP SHA-256为`9537150768abb6d452ad2fec57bb8c01121f5867426bfc6cb8fb9911e3b1603d`，清单SHA-256为`e08b69d4d97f26ccfa92927bf09403c30bd2002cdf2a42a5a67c0ab04945e547`，两次独立生成完全一致。未推送、未形成跨环境复现、未晋级稳定归档 | Codex本地复核 |
 
 ## v2.4.2 候选切换登记（2026-08-02）
 
@@ -370,9 +371,9 @@ I02在当前本地候选已有共享验证器和有限故障测试，登记为 `
 
 - 当前源码版本：`v2.4.2`。
 - 开发者工具同步：已完成；`apps/miniprogram/config/version.js` 与 `70城小程序技术验证/config/version.js` SHA-256 一致。
-- 本地验证：小程序 295 项、`npm.cmd run check`、Web E2E 40 项均通过。
+- 本地验证：小程序 296 项、`npm.cmd run check`通过；Web E2E为39项通过、1项有意跳过（八尺寸响应式矩阵已在电脑Chromium项目完整执行，手机专属交互另有覆盖）。
 - 新模板：`MINIPROGRAM_V2_4_2_LAUNCH_AUDIT.md`、`MINIPROGRAM_V2_4_2_DEVICE_TEST.md`、`MINIPROGRAM_V2_4_2_RELEASE_HANDOFF.md` 已建立，均为未执行模板。
-- `v2.4.1` 的云端回放 `30752209300` 只保留为旧版本证据，不能证明 `v2.4.2`；`v2.4.2` 云端回放已通过，但精确候选身份、开发者工具、双真机和微信平台证据仍待完成。确定性候选生成工具已加入并通过本地测试，尚未从干净提交生成正式候选构件。
+- `v2.4.1` 的云端回放 `30752209300` 只保留为旧版本证据，不能证明 `v2.4.2`；`v2.4.2` 云端回放已通过。精确本地候选已从干净提交`3b84e9a293e18fbd960328be243e0e84f18612a1`生成并双次一致回读，但尚未推送、尚无同提交CI、开发者工具、双真机或微信平台证据。
 - 当前状态：`implementation_status=partial`，`verification_status=passed_limited`（仅限本地检查）；未部署、未上传、未审核、未发布，自动发布开关保持关闭。
 
 ### v2.4.2 云端回放结果更新（2026-08-02）
