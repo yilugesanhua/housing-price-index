@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import test from 'node:test'
 import { buildCandidateManifest, createDeterministicZip, inventoryDigest, normalizeArchiveEntries, readZipInventory } from './deterministic-candidate.mjs'
 
@@ -61,6 +62,6 @@ test('rejects a damaged ZIP and verifies entry checksums', () => {
 })
 
 test('temporary directory support is available for CLI integration tests', async () => {
-  const directory = await mkdtemp(`${tmpdir()}\\candidate-`)
+  const directory = await mkdtemp(join(tmpdir(), 'candidate-'))
   await rm(directory, { recursive: true, force: true })
 })
