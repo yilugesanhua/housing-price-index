@@ -383,3 +383,10 @@ I02在当前本地候选已有共享验证器和有限故障测试，登记为 `
 - 生产指针和生产发布目录未触及，`AUTOMATIC_RELEASE_ENABLED=false`。
 - R02 仍为 `partial/passed_limited`：本次只覆盖普通月度隔离云端回放；历史修订专项、云函数部署、开发者工具、双真机和微信平台证据仍未关闭。
 - 本次回放总耗时 `1,740,890 ms`（29 分 00.890 秒）；逐轮耗时和 14 条历史/信息问题记录见 `MINIPROGRAM_V2_4_2_FULL_CLOUD_REPLAY_20260802.md`。
+
+### 开发者工具 npm 运行包事件（2026-08-03）
+
+- 用户在 Android 真机调试中观察到 `miniprogram_npm/@antv/wx-f2/index.js` 加载时缺少 `@babel/runtime/helpers/slicedToArray.js`、`Arrayincludes.js`，首页因此无法显示。该现象属于开发者工具旧 npm 产物或编译缓存与当前源码运行包不一致，不能归类为数据错误或已发布版本故障。
+- 已执行源码到 `70城小程序技术验证/` 的重新同步、开发者工具编译缓存清理和项目重开；当前运行目录的 `@antv/wx-f2/index.js` 与源码同为 SHA-256 `00645843974f1f96ac5185c6e979c3c8f234652fdc9a323071e55efa5f91f333`，运行目录扫描未发现上述 Babel 外部引用。`snapshot.test.mjs` 28 项通过。
+- 本次只恢复本地开发者工具运行状态，未改动 `apps/miniprogram/` 源码、数据、云端、生产指针或版本号，也未上传、审核或发布。Android 与 iPhone 必须在重新连接后的当前候选上重新确认首页和三张图表，才能恢复对应真机验收结论。
+- 后续关闭条件：实现可达 npm 依赖的自动扫描与开发者工具缓存重建门禁，并保留 Android/iPhone 重新连接后的同候选证据。在此之前，此项仅有 `passed_limited` 的本地运行包复核，不得把它写成完整双真机通过。
