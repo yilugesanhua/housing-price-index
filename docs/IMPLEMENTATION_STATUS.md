@@ -55,11 +55,11 @@
 
 ## R01-R07 版本与发布证据登记
 
-本组治理“当前版本能否被旧证据代替、发布包能否复现、Web声明是否属于当前构建、运维时间是否唯一”问题。2026-07-29的原始事实基线是提交 `c1b52a06be9c53dc16af7ec97cf2c574c7735496` 和源码版本 `v2.4.0`；当前候选已升为 `v2.4.9`，精确提交为 `83efac8401b633916c6577600141a0f542a2ce0c`。本地小程序自动化 299/299 通过，开发者工具源码已同步，且用户确认 Android 与 iPhone 可基础使用；但不可变候选构件、当前候选 CI、18 项双真机验收、云端生产和微信平台证据均未完成，尚未形成稳定归档、上传、审核或正式发布证据。旧 `v2.4.2` 的 CI、云端回放和真机记录仅属历史候选，不能替代当前候选。文档模板或批准目标不能替代代码、云端、开发者工具、真机和平台证据。
+本组治理“当前版本能否被旧证据代替、发布包能否复现、Web声明是否属于当前构建、运维时间是否唯一”问题。2026-07-29的原始事实基线是提交 `c1b52a06be9c53dc16af7ec97cf2c574c7735496` 和源码版本 `v2.4.0`；当前候选为 `v2.4.9`，最终精确提交为 `31f99d5c69e71b85e600b7412fcbfbe43fd3b693`。本地小程序自动化 299/299 通过，同提交 GitHub CI `30802632748` 通过，开发者工具源码已同步；当前候选的18项双真机、云端生产和微信平台证据仍未完成，尚未形成稳定归档、上传、审核或正式发布证据。旧 `v2.4.2` 和旧 `v2.4.9` 候选的 CI、云端回放、构件和真机记录仅属历史候选，不能替代当前候选。文档模板或批准目标不能替代代码、云端、开发者工具、真机和平台证据。
 
 | ID | 用户决策 | 当前问题 | 已批准目标或保留决定 | 实现状态 | 验证状态 | 当前阻断 |
 | --- | --- | --- | --- | --- | --- | --- |
-| R01 | `approved` | 当前源码为 `v2.4.9`，精确提交已固定；双真机和交接记录已建立，只有基础真机确认，未形成不可变候选或完整验收；旧版本模板和记录只属于历史候选 | 生成同一精确提交的不可变候选构件，完成上线审查、交接、Android和iPhone全量验收并绑定同一身份；旧版证据只读保留 | `partial` | `passed_limited` | 阻断 `v2.4.9` 稳定归档、审核和发布结论 |
+| R01 | `approved` | 当前源码为 `v2.4.9`，最终精确提交、不可变候选和同提交 CI 已固定；旧候选真机确认因 ZIP 身份变化失效，当前候选尚未完成双真机或完整验收 | 绑定最终精确提交完成上线审查、交接、Android和iPhone全量验收并绑定同一身份；旧版证据只读保留 | `partial` | `passed_limited` | 阻断 `v2.4.9` 稳定归档、审核和发布结论 |
 | R02 | `approved` | 普通月度路径已有 `v2.4.2` 精确提交的12轮隔离云端证据，但不能证明历史修订协议安全或外部微信平台验收 | 在当前精确提交分别保留普通月度12次执行和历史修订专项12轮故障回放，两条证据不得互相替代 | `partial` | `passed_limited` | 普通月度12轮云端回放已在 `main@94db4dd` 通过；仍缺独立历史修订12轮、云函数部署、开发者工具和双真机证据 |
 | R03 | `approved` | 此前没有确定性候选构件工具，稳定归档仍不能按新规则生成 | `scripts/miniprogram/deterministic-candidate.mjs` 已能从精确提交生成确定性候选ZIP、回读清单和候选哈希；重复构建、乱序、排除项、非ASCII路径和损坏ZIP测试已覆盖。稳定归档晋级仍未实现 | `implemented` | `passed_limited` | 仍阻断按新规则新增稳定归档；候选生成须在干净提交且开发者工具目录逐文件一致时执行 |
 | R04 | `approved` | 归档只有人工版本说明和ZIP SHA，未绑定代码、数据、解析器、审计器及CI运行 | 自动生成并校验 `release-manifest.json`，机器绑定Git SHA、数据身份、归档身份、解析器、审计器、CI和编译证据 | `not_started` | `not_tested` | 阻断可追溯稳定归档和精确恢复声明 |
@@ -365,8 +365,7 @@ I02在当前本地候选已有共享验证器和有限故障测试，登记为 `
 | 2026-08-03 | I10 | `not_started` | `partial` | `not_tested` | `passed_limited` | `local_candidate_stage_boundary_v1` | 候选生成基础能力已实现并通过本地测试；原字节晋级、最终 `release-manifest.json`、跨环境相同SHA-256和稳定归档仍未实现 | Codex本地复核 |
 | 2026-08-03 | R03 | `implemented` | `implemented` | `passed_limited` | `passed_limited` | `local_exact_candidate_generation_v2` | 在干净临时检出中从`3b84e9a293e18fbd960328be243e0e84f18612a1`生成`v2.4.2`候选；36个文件的ZIP SHA-256为`9537150768abb6d452ad2fec57bb8c01121f5867426bfc6cb8fb9911e3b1603d`，清单SHA-256为`e08b69d4d97f26ccfa92927bf09403c30bd2002cdf2a42a5a67c0ab04945e547`，两次独立生成完全一致。未推送、未形成跨环境复现、未晋级稳定归档 | Codex本地复核 |
 | 2026-08-03 | R01 | `partial` | `partial` | `not_tested` | `passed_limited` | `v2.4.9_local_candidate_and_basic_device_confirmation` | 精确提交`83efac8401b633916c6577600141a0f542a2ce0c`；`npm.cmd run test:miniprogram` 299/299通过；开发者工具源码已同步；用户确认Android与iPhone基础可用。未生成不可变候选，未完成18项全量双真机、CI、上传、审核、发布或稳定归档 | Codex本地复核与用户现场确认 |
-| 2026-08-03 | R01 | `partial` | `partial` | `passed_limited` | `passed_limited` | `v2.4.9_deterministic_candidate_v1` | 精确提交`83efac8401b633916c6577600141a0f542a2ce0c`生成36文件候选；ZIP SHA-256为`75b05d8ccbbec65ac6a0dc2aa64da709f57195e9a7c255192460ef4806c12b62`，候选清单SHA-256为`a407e5ec2a2d6055db8258079a876df68695cc204673f51f8ee6cdd3756c6313`，文件清单SHA-256为`c513c0f4dc4f29495be4da8a1ee74b4233ea98b674315f42ce1dce314c0becbd`；CI、18项双真机、平台上传审核发布和稳定归档仍未完成 | Codex本地复核 |
-| 2026-08-03 | R01 | `partial` | `partial` | `passed_limited` | `passed_limited` | `v2.4.9_deterministic_candidate_repeat_v1` | 两个独立干净检出从同一精确提交重复生成；ZIP、`candidate-manifest.json` 与 `SHA256.txt` 三份文件的 SHA-256 完全一致。跨机器复现、CI、18项双真机、平台上传审核发布和稳定归档仍未完成 | Codex本地复核 |
+| 2026-08-03 | R01 | `partial` | `partial` | `passed_limited` | `passed_limited` | `v2.4.9_deterministic_candidate_v2` | 精确提交`31f99d5c69e71b85e600b7412fcbfbe43fd3b693`生成36文件候选；ZIP SHA-256为`c7d979ec036057bc7ff4d8e9411b80734ea7c5b2690e1a4cc817f822261ee2c2`，候选清单SHA-256为`a185c9e9e306da7e15a24f52a2af89c1e77886d5ec85ed3a545babf46bbcc184`，文件清单SHA-256为`c513c0f4dc4f29495be4da8a1ee74b4233ea98b674315f42ce1dce314c0becbd`；同提交CI `30802632748` 通过；当前候选双真机、平台上传审核发布和稳定归档仍未完成 | Codex本地复核 |
 
 ## v2.4.2 候选切换登记（2026-08-02）
 
@@ -401,10 +400,10 @@ I02在当前本地候选已有共享验证器和有限故障测试，登记为 `
 
 ## v2.4.9 候选切换登记（2026-08-03）
 
-`apps/miniprogram/config/version.js` 已随桌面端图表稳定性修复递增为 `v2.4.9`；当前唯一候选提交为 `83efac8401b633916c6577600141a0f542a2ce0c`。此前所有 `v2.4.2` 的候选、CI、回放、构件和真机记录均保留为历史证据，不得用于关闭 `v2.4.9` 的任何门禁。
+`apps/miniprogram/config/version.js` 当前为 `v2.4.9`；最终候选提交为 `31f99d5c69e71b85e600b7412fcbfbe43fd3b693`，同提交 CI `30802632748` 已通过。此前所有 `v2.4.2` 的候选、CI、回放、构件和真机记录，以及旧 `v2.4.9` 候选 `75b05d8c...`，均保留为历史证据，不得用于关闭当前候选的任何门禁。
 
-- 已知本地证据：`npm.cmd run test:miniprogram` 于本候选完成 299/299 通过；开发者工具源码已同步；用户确认 Android 与 iPhone 均可基础使用。详细边界见 `MINIPROGRAM_V2_4_9_DEVICE_TEST.md`。
-- 已建立 `MINIPROGRAM_V2_4_9_RELEASE_HANDOFF.md`；该候选未推送、未上传开发版、未设体验版、未提交审核、未发布，亦未生成不可变候选 ZIP、`candidate-manifest.json` 或稳定归档。
-- 当前状态：R01 为 `partial/passed_limited`，只限上述本地自动化、同步和基础真机确认；18 项全量双真机、当前候选 CI、云端/数据回放、微信平台现场复核和所有发布门禁继续保持未完成。
-- 候选构件已生成并绑定同一精确源码提交；候选构件本身不构成 CI、开发者工具编译、双真机、微信平台或正式发布证据。
-- 两个独立干净检出重复生成的候选 ZIP、候选清单与 `SHA256.txt` 均逐文件一致；这只证明本机重复构建确定性，不能替代跨机器复现或外部平台证据。
+- 已知本地与 CI 证据：`npm.cmd run test:miniprogram` 299/299 通过；同提交 CI `30802632748` 通过；开发者工具源码已同步。旧候选的 Android 与 iPhone 基础确认因候选 ZIP 身份变化失效，当前候选需重新确认。详细边界见 `MINIPROGRAM_V2_4_9_DEVICE_TEST.md`。
+- 已建立 `MINIPROGRAM_V2_4_9_RELEASE_HANDOFF.md`；该候选已推送并通过同提交 CI，但未上传开发版、未设体验版、未提交审核、未发布，尚未生成稳定归档。
+- 当前状态：R01 为 `partial/passed_limited`，只限本地自动化、同提交 CI、候选生成和开发者工具源码同步；当前候选双真机、云端/数据回放、微信平台现场复核和所有发布门禁继续保持未完成。
+- 当前候选 ZIP 与清单已绑定同一精确源码提交；候选构件本身不构成开发者工具编译、双真机、微信平台或正式发布证据。
+- 旧候选的重复生成结果只作为历史确定性证据保留，不能替代当前 `c7d979...` 候选的重新生成和真机证据。

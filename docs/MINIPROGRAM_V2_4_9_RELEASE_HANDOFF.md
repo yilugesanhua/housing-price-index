@@ -8,22 +8,22 @@
 | 字段 | 值 |
 | --- | --- |
 | 小程序版本 | `v2.4.9` |
-| 精确 Git SHA | `83efac8401b633916c6577600141a0f542a2ce0c` |
-| 候选提交 | `83efac8 fix(miniprogram): stabilize desktop charts v2.4.9` |
+| 精确 Git SHA | `31f99d5c69e71b85e600b7412fcbfbe43fd3b693` |
+| 候选提交 | `31f99d5 test(web): allow delayed breadth chart render`；小程序源码内容未变 |
 | 本地自动化 | `npm.cmd run test:miniprogram`：299/299 通过 |
 | 开发者工具同步 | 已完成本次候选源码同步；未记录可复查的编译产物身份 |
-| 不可变候选 ZIP / SHA-256 | `小程序源码-v2.4.9.zip` / `75b05d8ccbbec65ac6a0dc2aa64da709f57195e9a7c255192460ef4806c12b62`；两次独立生成字节一致 |
-| `candidate-manifest.json` / SHA-256 | `a407e5ec2a2d6055db8258079a876df68695cc204673f51f8ee6cdd3756c6313` |
+| 不可变候选 ZIP / SHA-256 | `小程序源码-v2.4.9.zip` / `c7d979ec036057bc7ff4d8e9411b80734ea7c5b2690e1a4cc817f822261ee2c2` |
+| `candidate-manifest.json` / SHA-256 | `a185c9e9e306da7e15a24f52a2af89c1e77886d5ec85ed3a545babf46bbcc184` |
 | 候选文件清单 SHA-256 | `c513c0f4dc4f29495be4da8a1ee74b4233ea98b674315f42ce1dce314c0becbd` |
 | 稳定 `release-manifest.json` / SHA-256 | 未生成；不得创建或修改稳定归档 |
 | 数据截止月份、源数据版本 | `2026-06` / `2026-06-4fd1d1a8ff12` |
 | 解析器 / 审计器 | `official-html-v7-product-housing-only` / `full-record-audit-v5` |
-| 当前精确提交 CI | 未现场核验 |
+| 当前精确提交 CI | GitHub Actions `30802632748`：`main@31f99d5`，通过 |
 | 普通月度及历史修订回放 | 未在本候选身份上重新核验；旧候选证据不可替代 |
 
 ## 已有真机边界
 
-Android 与 iPhone 已获用户基础可用性确认，详细记录见 [`MINIPROGRAM_V2_4_9_DEVICE_TEST.md`](MINIPROGRAM_V2_4_9_DEVICE_TEST.md)。两台设备的 18 项全量验收、原始截图/录屏、设备信息和不可变候选绑定均未完成，因此发布门禁仍未通过。
+旧候选上的 Android 与 iPhone 基础确认不能绑定当前 `c7d979...` 候选，详细边界见 [`MINIPROGRAM_V2_4_9_DEVICE_TEST.md`](MINIPROGRAM_V2_4_9_DEVICE_TEST.md)。当前候选的两台设备重新确认、18 项全量验收、原始截图/录屏和设备信息均未完成，因此发布门禁仍未通过。
 
 ## 平台操作记录
 
@@ -48,7 +48,7 @@ Android 与 iPhone 已获用户基础可用性确认，详细记录见 [`MINIPRO
 
 ## 交接前仍需完成的门禁
 
-- [x] 在两个独立干净检出中生成并回读不可变候选 ZIP、`candidate-manifest.json` 和完整文件清单；三份候选文件 SHA-256 均一致。跨机器复现仍未完成。
+- [x] 在干净检出中生成并回读当前候选 ZIP、`candidate-manifest.json` 和完整文件清单；GitHub CI 已绑定同一提交。跨机器重复生成和当前候选双真机复核仍未完成。
 - [ ] 取得当前候选的 CI、数据和回放证据；旧候选记录不得代替。
 - [ ] 完成 Android 与 iPhone 各 18 项验收并保留原始证据。
 - [ ] 现场核验微信公众平台线上版本、隐私指引和权限配置。
