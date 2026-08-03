@@ -77,6 +77,7 @@ function App() {
       lastLoadedAtRef.current = Date.now();
       // 先展示首屏摘要；城市趋势分片在下一阶段加载，避免单个分片阻塞整个页面。
       setData({ manifest, overviewRecords, marketRecords, breadthRecords, cityRecords: {} });
+      setLoading(false);
       const cities = viewRef.current.cities;
       if (cities.length === 0) return;
       setTrendLoading(true);
@@ -87,8 +88,8 @@ function App() {
       if (failedCount > 0) setTrendLoadError(failedCount === cities.length ? "趋势分片暂时无法读取" : `${failedCount}座城市的趋势分片暂时无法读取`);
     } catch (error) {
       setLoadError(error instanceof Error && error.name === "AbortError" ? "网络请求超时" : error instanceof Error ? error.message : "数据加载失败");
-    } finally {
       setLoading(false);
+    } finally {
       setTrendLoading(false);
     }
   }, []);

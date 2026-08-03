@@ -13,6 +13,7 @@ const viewports = [
 ] as const;
 
 test("keeps the page and chart stable across required viewports", async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name === "mobile", "The viewport matrix runs once in desktop Chromium; mobile interactions have dedicated coverage.");
   test.setTimeout(120_000);
   for (const viewport of viewports) {
     await page.setViewportSize({ width: viewport.width, height: viewport.height });
