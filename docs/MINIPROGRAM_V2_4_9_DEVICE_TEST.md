@@ -15,7 +15,7 @@
 | 不可变候选 ZIP / SHA-256 | `小程序源码-v2.4.9.zip` / `c7d979ec036057bc7ff4d8e9411b80734ea7c5b2690e1a4cc817f822261ee2c2` |
 | `candidate-manifest.json` SHA-256 | `a185c9e9e306da7e15a24f52a2af89c1e77886d5ec85ed3a545babf46bbcc184` |
 | 候选文件清单 SHA-256 | `c513c0f4dc4f29495be4da8a1ee74b4233ea98b674315f42ce1dce314c0becbd` |
-| 微信开发版 / 体验版 | 未上传 / 未设置；本记录不表示平台存在该版本 |
+| 微信开发版 / 体验版 | 用户确认已上传 / 未设置；未提供平台版本号、上传时间或回读截图，本记录不替代平台证据 |
 | 内置数据版本 / 截止月份 | `2026-06-4fd1d1a8ff12` / `2026-06` |
 | 解析器 / 独立审计器 | `official-html-v7-product-housing-only` / `full-record-audit-v5` |
 | 远程数据、生产控制面与自动发布 | 未现场核验 / 未触及；`AUTOMATIC_RELEASE_ENABLED=false` 的现状未改变 |
