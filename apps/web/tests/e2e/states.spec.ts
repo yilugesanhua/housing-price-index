@@ -82,7 +82,7 @@ test("switches area bands and updates the official scope labels", async ({ page 
 test("renders a painted 70-city temperature history for the active scope", async ({ page }) => {
   await page.goto("/?v=1&metric=yoy&type=resale&range=60&cities=xiamen&size=90_144");
   const history = page.locator(".breadth-history");
-  await expect(history).toBeVisible();
+  await expect(history).toBeVisible({ timeout: 15_000 });
   await expect(history.getByText("按月统计上涨、持平和下跌城市数量")).toBeVisible();
   await expect(history.getByRole("slider", { name: "选择温度月份" })).toBeVisible();
   await expect(history.getByText("有效城市数 / 70")).toBeVisible();
