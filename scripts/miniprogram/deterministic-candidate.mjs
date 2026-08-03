@@ -218,7 +218,7 @@ function parseSnapshot(rawText) {
   try { return { ...JSON.parse(match[1]), rawText } } catch (error) { fail(`snapshot.js is invalid JSON: ${error.message}`) }
 }
 
-export async function generateCandidate({ root = process.cwd(), sourceCommitSha, output = 'work/miniprogram-release-candidates', devtools = '70城小程序技术验证', createdAt = new Date().toISOString() }) {
+export async function generateCandidate({ root = process.cwd(), sourceCommitSha, output = 'work/miniprogram-release-candidates', devtools = '70城小程序技术验证', createdAt }) {
   if (!/^[0-9a-f]{40}$/.test(sourceCommitSha || '')) fail('source commit SHA must be a full 40-character lowercase SHA')
   await assertClean(root)
   const entries = await parseGitEntries(root, sourceCommitSha)
@@ -227,6 +227,7 @@ export async function generateCandidate({ root = process.cwd(), sourceCommitSha,
   const version = sourceVersionText.match(/version:\s*['"](v\d+\.\d+\.\d+)['"]/)?.[1]
   if (!version) fail('version.js does not contain a semantic vX.Y.Z version')
   const sourceCommitTime = await gitValue(root, ['show', '-s', '--format=%cI', sourceCommitSha])
+  const candidateCreatedAt = createdAt ?? sourceCommitTime
   const snapshotText = (await execFileAsync('git', ['show', `${sourceCommitSha}:apps/miniprogram/data/snapshot.js`], { cwd: root, encoding: 'utf8', maxBuffer: 50 * 1024 * 1024 })).stdout
   const snapshot = parseSnapshot(snapshotText)
   const auditText = (await execFileAsync('git', ['show', `${sourceCommitSha}:data/audit-report.json`], { cwd: root, encoding: 'utf8' })).stdout
@@ -245,7 +246,7 @@ export async function generateCandidate({ root = process.cwd(), sourceCommitSha,
   const inventory = readZipInventory(zip)
   const archiveInventorySha256 = inventoryDigest(inventory)
   const archiveSha256 = sha256(zip)
-  const manifest = buildCandidateManifest({ appVersion: version, sourceCommitSha, sourceCommitTime, archiveFile, archiveSha256, archiveInventorySha256, snapshot, parserVersion, auditVersion, createdAt })
+  const manifest = buildCandidateManifest({ appVersion: version, sourceCommitSha, sourceCommitTime, archiveFile, archiveSha256, archiveInventorySha256, snapshot, parserVersion, auditVersion, createdAt: candidateCreatedAt })
   const outputDir = resolve(root, output, `${version}-${sourceCommitSha.slice(0, 12)}-${archiveSha256.slice(0, 12)}`)
   try { await stat(outputDir); fail(`candidate output already exists: ${outputDir}`) } catch (error) { if (error.code !== 'ENOENT') throw error }
   await mkdir(outputDir, { recursive: true })

@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { mkdtemp, rm } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import test from 'node:test'
-import { createDeterministicZip, inventoryDigest, normalizeArchiveEntries, readZipInventory } from './deterministic-candidate.mjs'
+import { buildCandidateManifest, createDeterministicZip, inventoryDigest, normalizeArchiveEntries, readZipInventory } from './deterministic-candidate.mjs'
 
 const files = [
   { path: 'pages/index.js', data: Buffer.from('console.log("index")\n') },
@@ -17,6 +17,22 @@ test('same entries and timestamp produce byte-identical ZIPs', () => {
   const inventory = readZipInventory(a)
   assert.equal(inventory.length, 3)
   assert.equal(inventoryDigest(inventory), inventoryDigest(readZipInventory(b)))
+})
+
+test('candidate manifest is stable when it uses the source commit time', () => {
+  const input = {
+    appVersion: 'v2.4.2',
+    sourceCommitSha: 'a'.repeat(40),
+    sourceCommitTime: '2026-08-03T01:02:03.000Z',
+    archiveFile: '小程序源码-v2.4.2.zip',
+    archiveSha256: 'b'.repeat(64),
+    archiveInventorySha256: 'c'.repeat(64),
+    snapshot: { datasetAsOf: '2026-06', datasetVersion: '2026-06-example', rawText: '{"records":[]}' },
+    parserVersion: 'parser-test',
+    auditVersion: 'audit-test',
+    createdAt: '2026-08-03T01:02:03.000Z',
+  }
+  assert.deepEqual(buildCandidateManifest(input), buildCandidateManifest(input))
 })
 
 test('excluded files do not enter the archive', () => {
