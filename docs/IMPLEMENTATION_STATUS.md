@@ -55,11 +55,11 @@
 
 ## R01-R07 版本与发布证据登记
 
-本组治理“当前版本能否被旧证据代替、发布包能否复现、Web声明是否属于当前构建、运维时间是否唯一”问题。2026-07-29的原始事实基线是提交 `c1b52a06be9c53dc16af7ec97cf2c574c7735496` 和源码版本 `v2.4.0`；后续候选已升为 `v2.4.2`。当前 `v2.4.2` 实现已固定在精确提交 `94db4dd749f0ff4c0b2fa860e193e202b95f28a1`，普通GitHub CI运行 `30755560402` 和12轮云端回放 `30755834116` 已通过；开发者工具、真机、云端生产和微信平台证据仍未完成，尚未形成稳定归档、上传、审核或正式发布证据。文档模板或批准目标不能替代代码、云端、开发者工具、真机和平台证据。
+本组治理“当前版本能否被旧证据代替、发布包能否复现、Web声明是否属于当前构建、运维时间是否唯一”问题。2026-07-29的原始事实基线是提交 `c1b52a06be9c53dc16af7ec97cf2c574c7735496` 和源码版本 `v2.4.0`；当前候选已升为 `v2.4.9`，精确提交为 `83efac8401b633916c6577600141a0f542a2ce0c`。本地小程序自动化 299/299 通过，开发者工具源码已同步，且用户确认 Android 与 iPhone 可基础使用；但不可变候选构件、当前候选 CI、18 项双真机验收、云端生产和微信平台证据均未完成，尚未形成稳定归档、上传、审核或正式发布证据。旧 `v2.4.2` 的 CI、云端回放和真机记录仅属历史候选，不能替代当前候选。文档模板或批准目标不能替代代码、云端、开发者工具、真机和平台证据。
 
 | ID | 用户决策 | 当前问题 | 已批准目标或保留决定 | 实现状态 | 验证状态 | 当前阻断 |
 | --- | --- | --- | --- | --- | --- | --- |
-| R01 | `approved` | 当前源码为 `v2.4.2`，三份对应模板已经建立但尚未填写、未绑定精确候选且没有通过结果；旧版本模板和记录只属于历史候选 | 填写现有 `v2.4.2` 上线审查、交接、Android和iPhone验收模板并绑定同一精确SHA和候选身份；旧版证据只读保留 | `partial` | `not_tested` | 阻断 `v2.4.2` 稳定归档、审核和发布结论 |
+| R01 | `approved` | 当前源码为 `v2.4.9`，精确提交已固定；双真机和交接记录已建立，只有基础真机确认，未形成不可变候选或完整验收；旧版本模板和记录只属于历史候选 | 生成同一精确提交的不可变候选构件，完成上线审查、交接、Android和iPhone全量验收并绑定同一身份；旧版证据只读保留 | `partial` | `passed_limited` | 阻断 `v2.4.9` 稳定归档、审核和发布结论 |
 | R02 | `approved` | 普通月度路径已有 `v2.4.2` 精确提交的12轮隔离云端证据，但不能证明历史修订协议安全或外部微信平台验收 | 在当前精确提交分别保留普通月度12次执行和历史修订专项12轮故障回放，两条证据不得互相替代 | `partial` | `passed_limited` | 普通月度12轮云端回放已在 `main@94db4dd` 通过；仍缺独立历史修订12轮、云函数部署、开发者工具和双真机证据 |
 | R03 | `approved` | 此前没有确定性候选构件工具，稳定归档仍不能按新规则生成 | `scripts/miniprogram/deterministic-candidate.mjs` 已能从精确提交生成确定性候选ZIP、回读清单和候选哈希；重复构建、乱序、排除项、非ASCII路径和损坏ZIP测试已覆盖。稳定归档晋级仍未实现 | `implemented` | `passed_limited` | 仍阻断按新规则新增稳定归档；候选生成须在干净提交且开发者工具目录逐文件一致时执行 |
 | R04 | `approved` | 归档只有人工版本说明和ZIP SHA，未绑定代码、数据、解析器、审计器及CI运行 | 自动生成并校验 `release-manifest.json`，机器绑定Git SHA、数据身份、归档身份、解析器、审计器、CI和编译证据 | `not_started` | `not_tested` | 阻断可追溯稳定归档和精确恢复声明 |
@@ -364,6 +364,7 @@ I02在当前本地候选已有共享验证器和有限故障测试，登记为 `
 | 2026-08-03 | R03 | `not_started` | `implemented` | `not_tested` | `passed_limited` | `local_deterministic_candidate_generator_v1` | 新增 `scripts/miniprogram/deterministic-candidate.mjs`、`deterministic-candidate.test.mjs` 和 `miniprogram:candidate` 命令；本地定向5项及全量小程序295项通过。尚未在干净精确提交上生成候选构件，未形成跨环境回读证据 | Codex本地复核 |
 | 2026-08-03 | I10 | `not_started` | `partial` | `not_tested` | `passed_limited` | `local_candidate_stage_boundary_v1` | 候选生成基础能力已实现并通过本地测试；原字节晋级、最终 `release-manifest.json`、跨环境相同SHA-256和稳定归档仍未实现 | Codex本地复核 |
 | 2026-08-03 | R03 | `implemented` | `implemented` | `passed_limited` | `passed_limited` | `local_exact_candidate_generation_v2` | 在干净临时检出中从`3b84e9a293e18fbd960328be243e0e84f18612a1`生成`v2.4.2`候选；36个文件的ZIP SHA-256为`9537150768abb6d452ad2fec57bb8c01121f5867426bfc6cb8fb9911e3b1603d`，清单SHA-256为`e08b69d4d97f26ccfa92927bf09403c30bd2002cdf2a42a5a67c0ab04945e547`，两次独立生成完全一致。未推送、未形成跨环境复现、未晋级稳定归档 | Codex本地复核 |
+| 2026-08-03 | R01 | `partial` | `partial` | `not_tested` | `passed_limited` | `v2.4.9_local_candidate_and_basic_device_confirmation` | 精确提交`83efac8401b633916c6577600141a0f542a2ce0c`；`npm.cmd run test:miniprogram` 299/299通过；开发者工具源码已同步；用户确认Android与iPhone基础可用。未生成不可变候选，未完成18项全量双真机、CI、上传、审核、发布或稳定归档 | Codex本地复核与用户现场确认 |
 
 ## v2.4.2 候选切换登记（2026-08-02）
 
@@ -395,3 +396,11 @@ I02在当前本地候选已有共享验证器和有限故障测试，登记为 `
 
 - 用户确认 Android 与 iPhone 在当前 `v2.4.2` 候选上均正常使用；Android现场已确认首页及 `breadth`、`trend`、`cumulative` 三张图表完成初始化，Babel缺包错误未再出现。该结果已写入 `MINIPROGRAM_V2_4_2_DEVICE_TEST.md`，并绑定候选 `3b84e9a293e18fbd960328be243e0e84f18612a1` 与其不可变ZIP身份。
 - 这是 `passed_limited` 的基础可用性证据，不等于模板所列18项全部完成，更不等于远程更新、历史修订、定位/缓存、弱网、回滚、开发版上传、微信审核或正式发布通过。Android与iPhone全量项及原始证据未补齐前，R01仍保持 `partial/not_tested`。
+
+## v2.4.9 候选切换登记（2026-08-03）
+
+`apps/miniprogram/config/version.js` 已随桌面端图表稳定性修复递增为 `v2.4.9`；当前唯一候选提交为 `83efac8401b633916c6577600141a0f542a2ce0c`。此前所有 `v2.4.2` 的候选、CI、回放、构件和真机记录均保留为历史证据，不得用于关闭 `v2.4.9` 的任何门禁。
+
+- 已知本地证据：`npm.cmd run test:miniprogram` 于本候选完成 299/299 通过；开发者工具源码已同步；用户确认 Android 与 iPhone 均可基础使用。详细边界见 `MINIPROGRAM_V2_4_9_DEVICE_TEST.md`。
+- 已建立 `MINIPROGRAM_V2_4_9_RELEASE_HANDOFF.md`；该候选未推送、未上传开发版、未设体验版、未提交审核、未发布，亦未生成不可变候选 ZIP、`candidate-manifest.json` 或稳定归档。
+- 当前状态：R01 为 `partial/passed_limited`，只限上述本地自动化、同步和基础真机确认；18 项全量双真机、当前候选 CI、云端/数据回放、微信平台现场复核和所有发布门禁继续保持未完成。

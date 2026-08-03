@@ -1,8 +1,8 @@
 # 文档索引与状态
 
-更新日期：2026-08-02
+更新日期：2026-08-03
 
-本文件是项目文档的统一入口。当前产品与界面事实以 `apps/web/` 和 `apps/miniprogram/` 为准；小程序唯一机器可读源码版本来自 `apps/miniprogram/config/version.js`，截至本次整理其值为 `v2.4.2`。本文中的版本文字只是该次整理快照，不是第二版本源。`70城小程序技术验证/` 是同步副本，`release/miniprogram/` 是只读稳定归档。源码版本、历史测试或旧交接单均不等于微信平台已审核或发布。
+本文件是项目文档的统一入口。当前产品与界面事实以 `apps/web/` 和 `apps/miniprogram/` 为准；小程序唯一机器可读源码版本来自 `apps/miniprogram/config/version.js`，截至本次整理其值为 `v2.4.9`。本文中的版本文字只是该次整理快照，不是第二版本源。`70城小程序技术验证/` 是同步副本，`release/miniprogram/` 是只读稳定归档。源码版本、历史测试或旧交接单均不等于微信平台已审核或发布。
 
 ## 当前权威规范
 
@@ -37,16 +37,14 @@
 
 ## 当前版本待完成证据
 
-以下文件只为当前 `v2.4.2` 建立独立证据入口。它们现在都是 `not_tested` 模板，不能因文件存在而视为审查、真机、归档、微信审核或发布已经通过：
+以下文件只为当前 `v2.4.9` 建立独立证据入口。它们记录当前候选，不得因文件存在、本地测试或基础真机确认而视为审查、完整真机验收、归档、微信审核或发布已经通过：
 
-- [`MINIPROGRAM_V2_4_2_LAUNCH_AUDIT.md`](MINIPROGRAM_V2_4_2_LAUNCH_AUDIT.md)：当前版本自动化、数据、回放和外部证据审查单。
-- [`MINIPROGRAM_V2_4_2_DEVICE_TEST.md`](MINIPROGRAM_V2_4_2_DEVICE_TEST.md)：当前版本Android/iPhone双真机验收单。
-- [`MINIPROGRAM_V2_4_2_RELEASE_HANDOFF.md`](MINIPROGRAM_V2_4_2_RELEASE_HANDOFF.md)：当前版本平台上传、审核、发布和正式版复核交接单。
-- [`MINIPROGRAM_V2_4_2_FULL_CLOUD_REPLAY_20260802.md`](MINIPROGRAM_V2_4_2_FULL_CLOUD_REPLAY_20260802.md)：`v2.4.2`候选的完整云端回放入口，当前尚未执行。
+- [`MINIPROGRAM_V2_4_9_DEVICE_TEST.md`](MINIPROGRAM_V2_4_9_DEVICE_TEST.md)：当前候选 Android/iPhone 基础确认与未完成的双真机验收单。
+- [`MINIPROGRAM_V2_4_9_RELEASE_HANDOFF.md`](MINIPROGRAM_V2_4_9_RELEASE_HANDOFF.md)：当前候选的平台上传、审核、发布和正式版复核交接单。
 
 ## 历史证据与记录
 
-以下文件只证明其标注日期、提交、运行或候选版本。它们不得用于证明当前 `v2.4.2` 已通过验收，也不得反向要求当前页面恢复旧设计：
+以下文件只证明其标注日期、提交、运行或候选版本。它们不得用于证明当前 `v2.4.9` 已通过验收，也不得反向要求当前页面恢复旧设计：
 
 - [`ACCEPTANCE_EVIDENCE.md`](ACCEPTANCE_EVIDENCE.md)：始建于2026-07-19、部分数据证据更新至2026-07-28的Web验收矩阵。
 - [`DELIVERY.md`](DELIVERY.md)：按日期追加的历史交付日志；只追加，不重写既有记录。
@@ -54,6 +52,7 @@
 - [`MINIPROGRAM_V2_3_0_RELEASE_HANDOFF.md`](MINIPROGRAM_V2_3_0_RELEASE_HANDOFF.md)：`v2.3.0`候选交接证据。
 - [`MINIPROGRAM_V2_3_0_DEVICE_TEST.md`](MINIPROGRAM_V2_3_0_DEVICE_TEST.md)：`v2.3.0`未完成双真机验收模板。
 - [`MINIPROGRAM_V2_4_0_LAUNCH_AUDIT.md`](MINIPROGRAM_V2_4_0_LAUNCH_AUDIT.md)、[`MINIPROGRAM_V2_4_0_DEVICE_TEST.md`](MINIPROGRAM_V2_4_0_DEVICE_TEST.md)、[`MINIPROGRAM_V2_4_0_RELEASE_HANDOFF.md`](MINIPROGRAM_V2_4_0_RELEASE_HANDOFF.md)：`v2.4.0`未完成候选模板，只读保留，不得转填为当前版本证据。
+- [`MINIPROGRAM_V2_4_2_LAUNCH_AUDIT.md`](MINIPROGRAM_V2_4_2_LAUNCH_AUDIT.md)、[`MINIPROGRAM_V2_4_2_DEVICE_TEST.md`](MINIPROGRAM_V2_4_2_DEVICE_TEST.md)、[`MINIPROGRAM_V2_4_2_RELEASE_HANDOFF.md`](MINIPROGRAM_V2_4_2_RELEASE_HANDOFF.md)、[`MINIPROGRAM_V2_4_2_FULL_CLOUD_REPLAY_20260802.md`](MINIPROGRAM_V2_4_2_FULL_CLOUD_REPLAY_20260802.md)：`v2.4.2`候选及其历史证据；不得代替 `v2.4.9` 的验收、交接或发布证据。
 - [`audit/2026-07-29/miniprogram-launch-audit.md`](audit/2026-07-29/miniprogram-launch-audit.md)：`v2.3.0`上线前自动审查。
 - [`MINIPROGRAM_12_MONTH_REPLAY_30338521130.md`](MINIPROGRAM_12_MONTH_REPLAY_30338521130.md)、[`MINIPROGRAM_12_MONTH_REPLAY_30372208959.md`](MINIPROGRAM_12_MONTH_REPLAY_30372208959.md)、[`MINIPROGRAM_12_MONTH_REPLAY_30411300588.md`](MINIPROGRAM_12_MONTH_REPLAY_30411300588.md)：指定提交和GitHub运行的12个月隔离回放。
 - [`audit/2026-07-19/audit-notes.md`](audit/2026-07-19/audit-notes.md)、[`audit/2026-07-20/audit-notes.md`](audit/2026-07-20/audit-notes.md)：指定日期的Web审查记录。
