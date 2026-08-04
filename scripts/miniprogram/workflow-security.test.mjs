@@ -22,6 +22,7 @@ const rollbackPublisher = await readFile(resolve(root, 'scripts/miniprogram/roll
 const monitorSelector = await readFile(resolve(root, 'scripts/miniprogram/select-monitor-target.mjs'), 'utf8')
 const monitorEventRegistration = await readFile(resolve(root, 'scripts/miniprogram/register-monitor-control-event.mjs'), 'utf8')
 const strictValidatorDeployment = await readFile(resolve(root, 'scripts/miniprogram/deploy-strict-validator.mjs'), 'utf8')
+const previewValidatorDeployment = await readFile(resolve(root, 'scripts/miniprogram/deploy-preview-validator.mjs'), 'utf8')
 const tencentCloudSdk = await readFile(resolve(root, 'scripts/miniprogram/tencent-cloud-sdk.mjs'), 'utf8')
 const ci = await readFile(resolve(root, '.github/workflows/ci.yml'), 'utf8')
 
@@ -280,6 +281,9 @@ test('15-year development preview is manually triggered and cannot touch product
   assert.match(script, /production_pointer_untouched: true/)
   assert.match(script, /production_release_prefix_untouched: true/)
   assert.doesNotMatch(script, /housing-data\/current\.json|housing-data\/releases\//)
+  assert.match(previewValidatorDeployment, /ResourceNotFound\.Function/)
+  assert.match(previewValidatorDeployment, /cloud\.createFunction/)
+  assert.match(previewValidatorDeployment, /cloud\.updateFunctionCode/)
 })
 
 test('legacy current pointer repair is fail-closed under control schema v1', () => {

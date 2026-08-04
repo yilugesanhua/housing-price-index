@@ -10,6 +10,9 @@ const execFileAsync = promisify(execFile)
 const functionName = 'getHousingDataManifestPreview'
 const cloudEnvId = 'cloud1-d3gpdx70w5d05c68c'
 const output = resolve(root, 'work/miniprogram-preview-function')
+const isMissingFunction = (error) => error?.code === 'ResourceNotFound.Function'
+  || isMissingObjectError(error)
+  || /ResourceNotFound|FunctionNameNotFound|not found/i.test(String(error?.message || error))
 
 if (process.env.GITHUB_ACTIONS !== 'true') throw new Error('Preview validator deployment is allowed only in GitHub Actions')
 await rm(output, { recursive: true, force: true })
@@ -27,7 +30,7 @@ try {
   await cloud.getFunction(functionName)
   await cloud.updateFunctionCode({ functionName, zipFile })
 } catch (error) {
-  if (!isMissingObjectError(error) && !/ResourceNotFound|FunctionNameNotFound|not found/i.test(String(error?.message || error))) throw error
+  if (!isMissingFunction(error)) throw error
   operation = 'created'
   await cloud.createFunction({ functionName, zipFile })
 }
