@@ -281,9 +281,9 @@ test('15-year development preview is manually triggered and cannot touch product
   assert.match(script, /production_pointer_untouched: true/)
   assert.match(script, /production_release_prefix_untouched: true/)
   assert.doesNotMatch(script, /housing-data\/current\.json|housing-data\/releases\//)
-  assert.match(previewValidatorDeployment, /ResourceNotFound\.Function/)
-  assert.match(previewValidatorDeployment, /cloud\.createFunction/)
-  assert.match(previewValidatorDeployment, /cloud\.updateFunctionCode/)
+  assert.match(previewValidatorDeployment, /tcb', 'fn', 'deploy/)
+  assert.match(previewValidatorDeployment, /dependency rewrite failed/)
+  assert.match(completeHistoryPreview, /tcb login --apiKeyId/)
 })
 
 test('legacy current pointer repair is fail-closed under control schema v1', () => {

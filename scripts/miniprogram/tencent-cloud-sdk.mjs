@@ -113,7 +113,6 @@ export function createTencentCloudClient({
     }
   }
   const invokeFunction = (functionName, event) => scf.Invoke(buildScfInvokeRequest(functionName, cloudEnvId, event))
-  const getFunction = (functionName) => scf.GetFunction({ FunctionName: functionName, Namespace: cloudEnvId })
   const updateFunctionCode = ({ functionName, zipFile, handler = 'index.main' }) => {
     if (!Buffer.isBuffer(zipFile) || zipFile.length === 0 || zipFile.length > 20 * 1024 * 1024) {
       throw new Error('Function deployment zip is missing or exceeds the SCF inline limit')
@@ -125,23 +124,6 @@ export function createTencentCloudClient({
       ZipFile: zipFile.toString('base64'),
       InstallDependency: 'TRUE',
       Publish: 'FALSE',
-    })
-  }
-  const createFunction = ({ functionName, zipFile, handler = 'index.main' }) => {
-    if (!Buffer.isBuffer(zipFile) || zipFile.length === 0 || zipFile.length > 20 * 1024 * 1024) {
-      throw new Error('Function creation zip is missing or exceeds the SCF inline limit')
-    }
-    return scf.CreateFunction({
-      FunctionName: functionName,
-      Namespace: cloudEnvId,
-      Handler: handler,
-      Runtime: 'Nodejs18.15',
-      MemorySize: 128,
-      Timeout: 10,
-      Code: { ZipFile: zipFile.toString('base64') },
-      CodeSource: 'ZipFile',
-      InstallDependency: 'TRUE',
-      Description: 'Isolated 15-year housing-data preview manifest validator',
     })
   }
 
@@ -157,8 +139,6 @@ export function createTencentCloudClient({
     uploadDirectory,
     objectExists,
     invokeFunction,
-    getFunction,
     updateFunctionCode,
-    createFunction,
   }
 }
