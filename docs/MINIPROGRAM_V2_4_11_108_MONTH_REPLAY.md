@@ -47,7 +47,7 @@
 | --- | --- | --- | --- | --- |
 | `REPLAY-012` | 第 1 组首次启动 | 外层命令只等待 5 秒，后台回放完成 2 轮后被终止，没有最终报告 | 改为独立后台进程、日志重定向和逐月检查点监控；第 1 组从第 1 个月重跑并 36/36 通过 | 已修复 |
 | `REPLAY-013` | 首次完整小程序测试 | 工作流上限改为 300 分钟后，安全测试仍要求旧的 75 分钟 | 更新为封闭的 12/36 月输入、300 分钟上限、精确默认分支和隔离前缀；小程序测试 305/305 通过 | 已修复 |
-| `REPLAY-014` | 第 3 次 GitHub Actions 收尾注释 | `checkout`、`setup-node`、`upload-artifact` 的固定 SHA 当前仍使用 Node.js 20，GitHub 以 Node.js 24 强制运行并给出弃用提示；本次回放未失败 | 后续升级到支持 Node.js 24 的官方 Action 提交，重新固定完整 SHA，并先跑普通 CI 和回放回归 | 待处理 |
+| `REPLAY-014` | 第 3 次 GitHub Actions 收尾注释 | `checkout`、`setup-node`、`upload-artifact`、`download-artifact` 的旧固定 SHA 使用 Node.js 20，GitHub 以 Node.js 24 强制运行并给出弃用提示；本次回放未失败 | 已统一升级到支持 Node.js 24 的官方 Action，并继续固定完整 SHA：`checkout v7.0.1`、`setup-node v7.0.0`、`upload-artifact v7.0.1`、`download-artifact v8.0.1`；需在新提交上通过普通 CI 和回放回归 | 已修复，待回归 |
 
 `REPLAY-001` 至 `REPLAY-011` 继续作为历史问题和修复证据保留，不是本次三组回放的新失败。`REPLAY-PADDING-*` 仅是覆盖范围外的 null 测试填充提示，不是数据错误。
 

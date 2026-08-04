@@ -35,7 +35,7 @@ jobs:
       origin_run_attempt: ${{ steps.identity.outputs.origin_run_attempt }}
       origin_commit_sha: ${{ steps.origin.outputs.origin_commit_sha }}
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ github.event.repository.default_branch }}
           fetch-depth: 0
@@ -130,7 +130,7 @@ jobs:
           origin_commit_sha="${RECOVERY_ORIGIN_COMMIT_SHA:-$CURRENT_COMMIT_SHA}"
           [[ "$origin_commit_sha" =~ ^[a-f0-9]{40}$ ]]
           echo "origin_commit_sha=$origin_commit_sha" >> "$GITHUB_OUTPUT"
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
           cache: npm
@@ -150,7 +150,7 @@ jobs:
     timeout-minutes: 35
     environment: housing-data-production
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.prepare.outputs.commit_sha }}
           fetch-depth: 0
@@ -174,7 +174,7 @@ jobs:
           set -euo pipefail
           test "$AUTOMATIC_RELEASE_ENABLED" = "false"
           test -z "$PRODUCTION_RELEASE_AUTHORIZED" || test "$PRODUCTION_RELEASE_AUTHORIZED" = "false"
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version: 22
           cache: npm
@@ -182,7 +182,7 @@ jobs:
       - id: download_intent
         name: Reuse the immutable intent from this run or an explicit recovery origin
         continue-on-error: true
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: legacy-control-migration-intent-${{ needs.prepare.outputs.origin_run_id }}-${{ needs.prepare.outputs.origin_run_attempt }}
           path: work/downloaded-legacy-control-migration-intent
@@ -232,7 +232,7 @@ jobs:
           echo "prepared_here=$prepared_here" >> "$GITHUB_OUTPUT"
       - name: Persist the immutable intent before any production object write
         if: steps.intent.outputs.prepared_here == 'true'
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: legacy-control-migration-intent-${{ needs.prepare.outputs.origin_run_id }}-${{ needs.prepare.outputs.origin_run_attempt }}
           path: ${{ steps.intent.outputs.intent_path }}
@@ -338,7 +338,7 @@ jobs:
           --migration-audit-dir=work/control-migrations/legacy-control-2026-06-e9788d0bddf3/immutable-audit
           --integrity-only
       - name: Upload immutable migration audit for the credential-free commit job
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: legacy-control-migration-audit-${{ github.run_id }}-${{ github.run_attempt }}
           path: work/control-migrations/legacy-control-2026-06-e9788d0bddf3/immutable-audit/
@@ -346,7 +346,7 @@ jobs:
           retention-days: 90
       - name: Upload migration diagnostics
         if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: legacy-control-migration-diagnostics-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
@@ -364,7 +364,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           ref: ${{ needs.prepare.outputs.commit_sha }}
           fetch-depth: 0
@@ -379,7 +379,7 @@ jobs:
           git fetch origin "$DEFAULT_BRANCH"
           test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
           test "$(git rev-parse "origin/$DEFAULT_BRANCH")" = "$EXPECTED_SHA"
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
           name: legacy-control-migration-audit-${{ github.run_id }}-${{ github.run_attempt }}
           path: work/downloaded-legacy-control-migration-audit
