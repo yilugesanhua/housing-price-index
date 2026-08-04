@@ -111,6 +111,19 @@ test('builds a content-addressed COS key, complete cloud file ID, and current po
   assert.throws(() => validateRevocationRegistryArtifact({ ...artifact, text: `${artifact.text} ` }), /text is inconsistent/)
 })
 
+test('builds a separately namespaced preview registry and rejects unknown roots', () => {
+  const artifact = buildRevocationRegistryArtifact(emptyRegistry(), {
+    cloudEnvId: 'cloud1-d3gpdx70w5d05c68c',
+    storageBucket: '636c-cloud1-d3gpdx70w5d05c68c-1456861154',
+    dataRoot: 'housing-data/preview',
+  })
+  assert.equal(artifact.cosKey, `housing-data/preview/control/revocations-${artifact.sha256}.json`)
+  assert.equal(validateRevocationRegistryArtifact(artifact), artifact)
+  assert.throws(() => buildRevocationRegistryArtifact(emptyRegistry(), {
+    cloudEnvId: 'cloud1-d3gpdx70w5d05c68c', storageBucket: '636c-cloud1-d3gpdx70w5d05c68c-1456861154', dataRoot: 'housing-data/other',
+  }), /data root is invalid/)
+})
+
 test('rejects malformed, non-canonical, duplicate, and self-replacing registry entries', () => {
   const registry = emptyRegistry()
   assert.throws(() => validateRevocationRegistry({ ...registry, extra: true }), /fields are invalid/)

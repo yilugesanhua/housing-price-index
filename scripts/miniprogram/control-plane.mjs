@@ -421,14 +421,15 @@ export function assertRollbackClosure(registry, {
   return { datasetEntry, sourceEntry }
 }
 
-export function buildRevocationRegistryArtifact(registry, { cloudEnvId, storageBucket } = {}) {
+export function buildRevocationRegistryArtifact(registry, { cloudEnvId, storageBucket, dataRoot = 'housing-data' } = {}) {
   validateRevocationRegistry(registry)
   assert(/^cloud[\w-]+$/.test(cloudEnvId || ''), 'cloud environment ID is invalid')
   assert(/^[a-z0-9](?:[a-z0-9.-]{0,61}[a-z0-9])?$/.test(storageBucket || ''), 'cloud storage bucket is invalid')
+  assert(['housing-data', 'housing-data/preview'].includes(dataRoot), 'revocation registry data root is invalid')
   const text = stableJson(registry)
   const digest = sha256(text)
   assert(SHA256_PATTERN.test(digest), 'revocation registry SHA-256 is invalid')
-  const cosKey = `${REVOCATION_REGISTRY_KEY_PREFIX}${digest}.json`
+  const cosKey = `${dataRoot}/control/revocations-${digest}.json`
   const cloudFileId = `cloud://${cloudEnvId}.${storageBucket}/${cosKey}`
   const artifact = {
     registry: clone(registry),
@@ -451,7 +452,7 @@ export function validateRevocationRegistryArtifact(artifact) {
   assert(typeof artifact.text === 'string' && artifact.text === stableJson(artifact.registry), 'revocation registry artifact text is inconsistent')
   const digest = sha256(artifact.text)
   assert(artifact.sha256 === digest, 'revocation registry artifact SHA-256 is inconsistent')
-  assert(artifact.cosKey === `${REVOCATION_REGISTRY_KEY_PREFIX}${digest}.json`, 'revocation registry artifact COS key is inconsistent')
+  assert(['housing-data', 'housing-data/preview'].some((dataRoot) => artifact.cosKey === `${dataRoot}/control/revocations-${digest}.json`), 'revocation registry artifact COS key is inconsistent')
   assert(typeof artifact.cloudFileId === 'string' && artifact.cloudFileId.startsWith('cloud://') && artifact.cloudFileId.endsWith(`/${artifact.cosKey}`), 'revocation registry artifact cloud file ID is inconsistent')
   assertExactFields(artifact.currentFields, CURRENT_FIELDS, 'revocation registry current fields')
   assert(artifact.currentFields.revocations_file_id === artifact.cloudFileId, 'revocation registry current file ID is inconsistent')

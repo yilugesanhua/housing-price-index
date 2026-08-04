@@ -24,6 +24,24 @@ const { createDataRuntime, validateCurrent: validateRuntimeCurrent, STATE_KEY, C
 const { validateCurrent } = require(resolve(root, 'apps/miniprogram/cloudfunctions/getHousingDataManifest/validate-current.js'))
 const { buildValidationReceipt } = require(resolve(root, 'apps/miniprogram/cloudfunctions/getHousingDataManifest/validation-receipt.js'))
 
+test('development builds select only the isolated preview manifest and data root', () => {
+  const configPath = resolve(root, 'apps/miniprogram/config/data.js')
+  const previousWx = globalThis.wx
+  globalThis.wx = { getAccountInfoSync: () => ({ miniProgram: { envVersion: 'develop' } }) }
+  delete require.cache[configPath]
+  const preview = require(configPath)
+  assert.equal(preview.previewMode, true)
+  assert.equal(preview.manifestFunctionName, 'getHousingDataManifestPreview')
+  assert.equal(preview.remoteDataRoot, 'housing-data/preview')
+  if (previousWx === undefined) delete globalThis.wx
+  else globalThis.wx = previousWx
+  delete require.cache[configPath]
+  const formal = require(configPath)
+  assert.equal(formal.previewMode, false)
+  assert.equal(formal.manifestFunctionName, 'getHousingDataManifest')
+  assert.equal(formal.remoteDataRoot, 'housing-data')
+})
+
 function makeRelease(minimumAppVersion = versionConfig.version, snapshot = bundled) {
   const release = buildRemoteRelease(snapshot, {
     cloudEnvId: config.cloudEnvId,
@@ -445,6 +463,26 @@ test('v2 complete remote package activates atomically without city shards and su
   const restarted = createDataRuntime({ wxApi: mock.wxApi })
   assert.equal(restarted.getSource(), 'remote')
   assert.equal(restarted.getSnapshot().months.length, 180)
+})
+
+test('preview controls are accepted only by the preview root', () => {
+  const release = buildCompleteRemoteRelease(completeFixture(), {
+    cloudEnvId: config.cloudEnvId, storageBucket: config.storageBucket,
+    minimumAppVersion: versionConfig.version, nextCheckAt: '2026-08-17T01:40:00.000Z',
+    sourceBatchIds: ['official-html-test'], dataRoot: 'housing-data/preview',
+  })
+  const registry = createRevocationRegistry({ generatedAt: '2026-07-20T00:00:00.000Z' })
+  const artifact = buildRevocationRegistryArtifact(registry, { cloudEnvId: config.cloudEnvId, storageBucket: config.storageBucket, dataRoot: 'housing-data/preview' })
+  const current = {
+    ...release.current,
+    published_at: '2026-07-20T00:00:00.000Z',
+    control_schema_version: '1.0.0', control_generation: 1,
+    ...artifact.currentFields,
+    transition_type: 'publish', data_status: 'current', status_reason: 'isolated_development_preview',
+    control_generated_at: '2026-07-20T00:00:00.000Z', control_valid_until: '2026-07-20T01:00:00.000Z',
+  }
+  assert.equal(validateCurrent(current, { config: { ...config, remoteDataRoot: 'housing-data/preview' }, allowLegacy: false, requireContext: true, manifest: release.manifest, registry }), current)
+  assert.throws(() => validateCurrent(current, { config, allowLegacy: false }), /manifest file ID is invalid/)
 })
 
 test('v2 complete package corruption never replaces the bundled snapshot', async () => {

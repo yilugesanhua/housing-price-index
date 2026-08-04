@@ -63,10 +63,11 @@ export function validateCompleteRemoteSnapshot(snapshot) {
   return snapshot
 }
 
-export function buildCompleteRemoteRelease(snapshot, { cloudEnvId, storageBucket, minimumAppVersion, nextCheckAt, sourceBatchIds = [] }) {
+export function buildCompleteRemoteRelease(snapshot, { cloudEnvId, storageBucket, minimumAppVersion, nextCheckAt, sourceBatchIds = [], dataRoot = 'housing-data' }) {
   validateCompleteRemoteSnapshot(snapshot)
   assert(/^cloud[\w-]+$/.test(cloudEnvId), 'complete remote cloud environment is invalid')
   assert(/^[a-z0-9-]+$/.test(storageBucket), 'complete remote storage bucket is invalid')
+  assert(['housing-data', 'housing-data/preview'].includes(dataRoot), 'complete remote data root is invalid')
   assert(/^v\d+\.\d+\.\d+$/.test(minimumAppVersion || ''), 'complete remote minimum app version is invalid')
   assert(Number.isFinite(Date.parse(nextCheckAt || '')), 'complete remote next check time is invalid')
   const batches = [...new Set(sourceBatchIds)].sort()
@@ -79,7 +80,7 @@ export function buildCompleteRemoteRelease(snapshot, { cloudEnvId, storageBucket
   const datasetVersion = `${snapshot.datasetAsOf}-${identity}`
   const completeSnapshot = { ...snapshot, datasetVersion }
   const completeSnapshotText = stableJson(completeSnapshot)
-  const releaseRoot = `cloud://${cloudEnvId}.${storageBucket}/housing-data/releases/${datasetVersion}`
+  const releaseRoot = `cloud://${cloudEnvId}.${storageBucket}/${dataRoot}/releases/${datasetVersion}`
   const manifest = {
     format: COMPLETE_REMOTE_FORMAT,
     remote_schema_version: COMPLETE_REMOTE_SCHEMA_VERSION,

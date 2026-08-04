@@ -13,6 +13,7 @@ const fullReplay = await readFile(resolve(root, '.github/workflows/full-auto-upd
 const correctedPublisher = await readFile(resolve(root, '.github/workflows/manual-corrected-data-publish.yml'), 'utf8')
 const historicalCorrection = await readFile(resolve(root, '.github/workflows/historical-data-correction.yml'), 'utf8')
 const completeHistoryPublisher = await readFile(resolve(root, '.github/workflows/complete-history-data-publish.yml'), 'utf8')
+const completeHistoryPreview = await readFile(resolve(root, '.github/workflows/miniprogram-15-year-preview.yml'), 'utf8')
 const legacyMigration = await readFile(resolve(root, '.github/workflows/legacy-control-migration.yml'), 'utf8')
 const manualRollback = await readFile(resolve(root, '.github/workflows/manual-data-rollback.yml'), 'utf8')
 const pointerRepair = await readFile(resolve(root, 'scripts/miniprogram/repair-current-pointer.mjs'), 'utf8')
@@ -267,6 +268,18 @@ test('complete-history publication accepts only the attested 180-month package b
   assert.match(completeHistoryPublisher, /CI_COMPLETE_SNAPSHOT_SHA256/)
   assert.match(completeHistoryPublisher, /AUTOMATIC_RELEASE_ENABLED: \$\{\{ vars\.AUTOMATIC_RELEASE_ENABLED \}\}/)
   assert.match(completeHistoryPublisher, /PRODUCTION_RELEASE_AUTHORIZED: \$\{\{ vars\.PRODUCTION_RELEASE_AUTHORIZED \}\}/)
+})
+
+test('15-year development preview is manually triggered and cannot touch production paths', async () => {
+  const script = await readFile(resolve(root, 'scripts/miniprogram/publish-preview-complete-data.mjs'), 'utf8')
+  assert.match(completeHistoryPreview, /workflow_dispatch:/)
+  assert.match(completeHistoryPreview, /miniprogram:cloud:deploy-preview/)
+  assert.match(completeHistoryPreview, /miniprogram:data:publish-preview/)
+  assert.doesNotMatch(completeHistoryPreview, /AUTOMATIC_RELEASE_ENABLED|PRODUCTION_RELEASE_AUTHORIZED/)
+  assert.match(script, /dataRoot = 'housing-data\/preview'/)
+  assert.match(script, /production_pointer_untouched: true/)
+  assert.match(script, /production_release_prefix_untouched: true/)
+  assert.doesNotMatch(script, /housing-data\/current\.json|housing-data\/releases\//)
 })
 
 test('legacy current pointer repair is fail-closed under control schema v1', () => {

@@ -1,8 +1,24 @@
+function isDevelopmentPreview() {
+  try {
+    return typeof wx !== 'undefined'
+      && typeof wx.getAccountInfoSync === 'function'
+      && wx.getAccountInfoSync()?.miniProgram?.envVersion === 'develop'
+  } catch (_) {
+    return false
+  }
+}
+
+const previewMode = isDevelopmentPreview()
+
 module.exports = Object.freeze({
   enabled: true,
   cloudEnvId: 'cloud1-d3gpdx70w5d05c68c',
   storageBucket: '636c-cloud1-d3gpdx70w5d05c68c-1456861154',
-  manifestFunctionName: 'getHousingDataManifest',
+  // The development QR code may exercise the isolated 15-year candidate.
+  // Trial and release builds always use the production manifest function.
+  manifestFunctionName: previewMode ? 'getHousingDataManifestPreview' : 'getHousingDataManifest',
+  remoteDataRoot: previewMode ? 'housing-data/preview' : 'housing-data',
+  previewMode,
   remoteFormat: 'housing-miniprogram-data',
   remoteSchemaMajor: 2,
   acceptedRemoteSchemaMajors: [1, 2],

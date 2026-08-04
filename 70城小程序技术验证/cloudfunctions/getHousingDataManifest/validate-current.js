@@ -7,6 +7,7 @@ const SHA256_PATTERN = /^[a-f0-9]{64}$/
 const REVISION_ID_PATTERN = /^revision-[a-z0-9][a-z0-9-]{5,80}$/
 const DEFAULT_CLOUD_ENV_ID = 'cloud1-d3gpdx70w5d05c68c'
 const DEFAULT_STORAGE_BUCKET = '636c-cloud1-d3gpdx70w5d05c68c-1456861154'
+const ALLOWED_DATA_ROOTS = new Set(['housing-data', 'housing-data/preview'])
 const MAX_CONTROL_VALIDITY_MS = 24 * 60 * 60 * 1000
 const VALIDATION_RECEIPT_SCHEMA_VERSION = '1.0.0'
 const CONTROL_VALIDATOR_ID = 'housing-control-validator-v2'
@@ -189,8 +190,10 @@ function assertRegistryProgression(previousRegistry, registry) {
 function validateCurrent(value, options = {}) {
   const cloudEnvId = options.cloudEnvId || options.config?.cloudEnvId || DEFAULT_CLOUD_ENV_ID
   const storageBucket = options.storageBucket || options.config?.storageBucket || DEFAULT_STORAGE_BUCKET
-  const releaseRoot = `cloud://${cloudEnvId}.${storageBucket}/housing-data/releases/`
-  const controlRoot = `cloud://${cloudEnvId}.${storageBucket}/housing-data/control/`
+  const dataRoot = options.dataRoot || options.config?.remoteDataRoot || 'housing-data'
+  assert(ALLOWED_DATA_ROOTS.has(dataRoot), 'data root is invalid')
+  const releaseRoot = `cloud://${cloudEnvId}.${storageBucket}/${dataRoot}/releases/`
+  const controlRoot = `cloud://${cloudEnvId}.${storageBucket}/${dataRoot}/control/`
   const kind = classifyCurrent(value)
 
   assertDatasetVersion(value.dataset_version, 'dataset version')

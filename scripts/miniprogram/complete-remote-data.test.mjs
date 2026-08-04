@@ -60,3 +60,16 @@ test('complete remote release rejects any data-file tampering', () => {
   release.completeSnapshotText += ' '
   assert.match(verifyCompleteRemoteRelease(snapshot, release).join('\n'), /SHA-256 mismatch/)
 })
+
+test('complete remote preview package has no production release file IDs', () => {
+  const release = buildCompleteRemoteRelease(fixture(), {
+    cloudEnvId: 'cloud1-d3gpdx70w5d05c68c', storageBucket: '636c-cloud1-d3gpdx70w5d05c68c-1456861154',
+    minimumAppVersion: 'v2.5.1', nextCheckAt: '2026-08-17T01:40:00.000Z', sourceBatchIds: ['official-html-test'], dataRoot: 'housing-data/preview',
+  })
+  assert.match(release.manifest.complete_snapshot_file_id, /\/housing-data\/preview\/releases\//)
+  assert.doesNotMatch(release.manifest.complete_snapshot_file_id, /\/housing-data\/releases\//)
+  assert.throws(() => buildCompleteRemoteRelease(fixture(), {
+    cloudEnvId: 'cloud1-d3gpdx70w5d05c68c', storageBucket: '636c-cloud1-d3gpdx70w5d05c68c-1456861154',
+    minimumAppVersion: 'v2.5.1', nextCheckAt: '2026-08-17T01:40:00.000Z', dataRoot: 'housing-data/other',
+  }), /data root is invalid/)
+})
