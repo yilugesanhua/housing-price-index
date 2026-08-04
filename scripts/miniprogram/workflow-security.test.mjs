@@ -274,7 +274,6 @@ test('complete-history publication accepts only the attested 180-month package b
 test('15-year development preview is manually triggered and cannot touch production paths', async () => {
   const script = await readFile(resolve(root, 'scripts/miniprogram/publish-preview-complete-data.mjs'), 'utf8')
   assert.match(completeHistoryPreview, /workflow_dispatch:/)
-  assert.match(completeHistoryPreview, /miniprogram:cloud:deploy-preview/)
   assert.match(completeHistoryPreview, /miniprogram:data:publish-preview/)
   assert.doesNotMatch(completeHistoryPreview, /AUTOMATIC_RELEASE_ENABLED|PRODUCTION_RELEASE_AUTHORIZED/)
   assert.match(script, /dataRoot = 'housing-data\/preview'/)
@@ -283,7 +282,7 @@ test('15-year development preview is manually triggered and cannot touch product
   assert.doesNotMatch(script, /housing-data\/current\.json|housing-data\/releases\//)
   assert.match(previewValidatorDeployment, /tcb', 'fn', 'deploy/)
   assert.match(previewValidatorDeployment, /dependency rewrite failed/)
-  assert.match(completeHistoryPreview, /tcb login --apiKeyId/)
+  assert.match(previewValidatorDeployment, /--prepare-only/)
 })
 
 test('legacy current pointer repair is fail-closed under control schema v1', () => {

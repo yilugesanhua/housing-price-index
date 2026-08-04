@@ -65,6 +65,7 @@
     "miniprogram:data:migrate-legacy-control": "node scripts/miniprogram/migrate-legacy-control.mjs --migration=legacy-control-2026-06-e9788d0bddf3",
     "miniprogram:cloud:deploy": "tcb fn deploy getHousingDataManifest --force -e cloud1-d3gpdx70w5d05c68c",
     "miniprogram:cloud:deploy-preview": "node scripts/miniprogram/deploy-preview-validator.mjs",
+    "miniprogram:cloud:prepare-preview": "node scripts/miniprogram/deploy-preview-validator.mjs --prepare-only",
     "miniprogram:sync": "node scripts/miniprogram/sync-devtools-project.mjs",
     "miniprogram:patch-f2": "node scripts/miniprogram/patch-wx-f2-canvas.mjs",
     "test:data": "vitest run scripts/data",

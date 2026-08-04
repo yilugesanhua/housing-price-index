@@ -41,13 +41,6 @@ jobs:
           npm run miniprogram:data:complete
           npm run data:release-calendar
           npm run test:miniprogram
-      - name: Deploy the isolated preview manifest function
-        env:
-          TENCENTCLOUD_SECRET_ID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
-          TENCENTCLOUD_SECRET_KEY: ${{ secrets.TENCENTCLOUD_SECRET_KEY }}
-        run: |
-          npx tcb login --apiKeyId "$TENCENTCLOUD_SECRET_ID" --apiKey "$TENCENTCLOUD_SECRET_KEY" --json
-          npm run miniprogram:cloud:deploy-preview
       - name: Upload and verify the isolated 15-year preview package
         env:
           TENCENTCLOUD_SECRET_ID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
