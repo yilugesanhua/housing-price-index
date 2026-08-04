@@ -92,6 +92,7 @@ function unavailableSnapshot(bundled, reason = 'control-state-untrusted') {
   return {
     schemaVersion: bundled.schemaVersion,
     datasetVersion: bundled.datasetVersion,
+    sourceDatasetVersion: bundled.sourceDatasetVersion,
     datasetAsOf: bundled.datasetAsOf,
     releaseDate: bundled.releaseDate,
     generatedAt: bundled.generatedAt,
@@ -120,13 +121,22 @@ function validateRemoteMonth(current, bundled) {
   assert(current.dataset_as_of >= bundled.datasetAsOf, 'remote data is older than the bundled snapshot')
 }
 
-function validateRemoteSource(current, manifest, bundled, revisionManifest = null, activeSourceVersion = bundled.datasetVersion, activeDatasetAsOf = bundled.datasetAsOf) {
+function validateRemoteSource(current, manifest, bundled, revisionManifest = null, activeSourceVersion = bundled.sourceDatasetVersion, activeDatasetAsOf = bundled.datasetAsOf) {
   if (current.dataset_as_of > activeDatasetAsOf || manifest.source_dataset_version === activeSourceVersion) return
   assert(manifest.release_type === 'historical_correction' && revisionManifest, 'remote data conflicts with the bundled snapshot for the same month')
   const chain = revisionManifest.source_version_chain
   const activeIndex = chain.indexOf(activeSourceVersion)
   assert(activeIndex >= 0 && activeIndex < chain.length - 1, 'correction source chain does not supersede the active source')
   assert(chain.at(-1) === manifest.source_dataset_version, 'correction source chain does not end at the remote source')
+}
+
+function bundledSupersedesRemoteManifest(manifest, bundled, control) {
+  if (!manifest || !bundled || !control) return false
+  if (control.revokedDatasetVersions.includes(bundled.datasetVersion)
+    || control.revokedSourceDatasetVersions.includes(bundled.sourceDatasetVersion)) return false
+  return manifest.dataset_as_of === bundled.datasetAsOf
+    && manifest.source_dataset_version === bundled.sourceDatasetVersion
+    && Date.parse(bundled.generatedAt) > Date.parse(manifest.generated_at)
 }
 
 function validateCurrent(current, config, options = {}) {
@@ -283,6 +293,7 @@ function interpretAuditedLegacyBootstrap(bootstrap, manifest, current) {
   assert(bootstrap.months?.[0] === descriptor.client_coverage_start, 'remote migration client coverage start is invalid')
   return {
     ...bootstrap,
+    sourceDatasetVersion: manifest.source_dataset_version,
     sourceCoverageStart: descriptor.legacy_source_coverage_start,
     coverageStart: descriptor.client_coverage_start,
   }
@@ -292,7 +303,9 @@ function validateBootstrap(rawBootstrap, manifest, config, expectedCityIds = bun
   const bootstrap = interpretAuditedLegacyBootstrap(rawBootstrap, manifest, current)
   assert(bootstrap?.remoteFormat === config.remoteFormat, 'remote bootstrap format is invalid')
   assert(major(bootstrap.remoteSchemaVersion) === config.remoteSchemaMajor, 'remote bootstrap schema is unsupported')
-  assert(bootstrap.datasetVersion === manifest.dataset_version && bootstrap.datasetAsOf === manifest.dataset_as_of, 'remote bootstrap version is inconsistent')
+  assert(bootstrap.datasetVersion === manifest.dataset_version
+    && bootstrap.sourceDatasetVersion === manifest.source_dataset_version
+    && bootstrap.datasetAsOf === manifest.dataset_as_of, 'remote bootstrap version is inconsistent')
   assert(Array.isArray(bootstrap.cityIds) && bootstrap.cityIds.length === 70 && new Set(bootstrap.cityIds).size === 70, 'remote bootstrap city IDs are invalid')
   exactStringSet(bootstrap.cityIds, expectedCityIds, 'remote bootstrap differs from the authoritative 70-city set')
   assert(Array.isArray(bootstrap.featuredCityIds) && bootstrap.featuredCityIds.length === 6, 'remote bootstrap featured cities are invalid')
@@ -640,7 +653,7 @@ function createDataRuntime({ wxApi = typeof wx === 'undefined' ? null : wx, bund
       cachedCityIds = []
       return
     }
-    const bundledRevoked = control.revokedSourceDatasetVersions.includes(bundled.datasetVersion)
+    const bundledRevoked = control.revokedSourceDatasetVersions.includes(bundled.sourceDatasetVersion)
       || control.revokedDatasetVersions.includes(bundled.datasetVersion)
     activeSnapshot = bundledRevoked ? unavailableSnapshot(bundled, 'known-revoked-source-has-no-valid-cache') : bundled
     activeSource = bundledRevoked ? 'unavailable' : 'bundled'
@@ -773,8 +786,25 @@ function createDataRuntime({ wxApi = typeof wx === 'undefined' ? null : wx, bund
     return true
   }
 
+  function cachedPointerIsSupersededByBundled(pointer, control = localState.control) {
+    if (!pointer || !controlWasVerified(control)) return false
+    try {
+      const manifestText = readSync(`${versionRoot(pointer.datasetVersion)}/manifest.json`)
+      if (fileHash(manifestText) !== pointer.manifestSha256) return false
+      return bundledSupersedesRemoteManifest(safeParse(manifestText), bundled, control)
+    } catch (_) {
+      return false
+    }
+  }
+
   function hydrateCache() {
     if (!fs || !wxApi?.getStorageSync || !userRoot || !controlWasVerified()) return false
+    const active = cachedPointerIsSupersededByBundled(localState.active) ? null : localState.active
+    const fallback = cachedPointerIsSupersededByBundled(localState.fallback) ? null : localState.fallback
+    if (active !== localState.active || fallback !== localState.fallback) {
+      persistState({ ...localState, status: active ? localState.status : 'idle', active, fallback })
+      cleanupOrphanCaches()
+    }
     if (localState.status !== 'pending-rollback') {
       try {
         if (localState.active && useCachedPointer(localState.active)) return true
@@ -1005,7 +1035,7 @@ function createDataRuntime({ wxApi = typeof wx === 'undefined' ? null : wx, bund
       || (activeSource === 'remote' ? activeSnapshot.datasetVersion : null)
       || bundled.datasetVersion
     const priorSourceVersion = activeManifest?.source_dataset_version
-      || bundled.datasetVersion
+      || bundled.sourceDatasetVersion
     const datasetRevoked = Boolean(priorDatasetVersion && validated.revokedDatasetVersions.includes(priorDatasetVersion))
     const sourceRevoked = Boolean(priorSourceVersion && validated.revokedSourceDatasetVersions.includes(priorSourceVersion))
     const activeWasRevoked = datasetRevoked || sourceRevoked
@@ -1142,7 +1172,7 @@ function createDataRuntime({ wxApi = typeof wx === 'undefined' ? null : wx, bund
       const activeDatasetAsOfBeforeControl = localState.active?.datasetVersion?.slice(0, 7)
         || localState.pendingRollback?.fromDatasetVersion?.slice(0, 7)
         || activeSnapshot.datasetAsOf
-      const activeSourceVersionBeforeControl = activeManifest?.source_dataset_version || bundled.datasetVersion
+      const activeSourceVersionBeforeControl = activeManifest?.source_dataset_version || bundled.sourceDatasetVersion
       const response = await callFunction(config.manifestFunctionName)
       const current = validateCurrent(response?.result?.current, config, { allowLegacy: false })
       const control = await applyRemoteControl(current, response?.result?.validation_receipt)
@@ -1185,6 +1215,9 @@ function createDataRuntime({ wxApi = typeof wx === 'undefined' ? null : wx, bund
         manifest,
         registry: control.registry,
       })
+      if (activeSource === 'bundled' && bundledSupersedesRemoteManifest(manifest, bundled, localState.control)) {
+        return { updated: false, source: activeSource, reason: 'bundled-source-is-newer' }
+      }
       if (!control.authorizedRollback) {
         validateRemoteSource(current, manifest, bundled, revisionManifest, activeSourceVersionBeforeControl, activeDatasetAsOfBeforeControl)
       }

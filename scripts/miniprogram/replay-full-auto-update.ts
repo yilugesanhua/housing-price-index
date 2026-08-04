@@ -16,8 +16,9 @@ import {
 } from "../../packages/core/src/index";
 import { evaluateLatestCheck, evaluateReleaseSchedule } from "../data/check-latest";
 import { auditParsedBatch } from "../data/audit-batches";
-import { FULL_RECORD_AUDIT_METHOD, FULL_RECORD_AUDIT_VERSION, validateAuditReport, type AuditReport } from "../data/audit-report";
+import { FULL_RECORD_AUDIT_METHOD, FULL_RECORD_AUDIT_VERSION, recordsSha256, validateAuditReport, type AuditReport } from "../data/audit-report";
 import { PARSER_VERSION, parseOfficialHtml, recordKey, sha256 as sourceSha256 } from "../data/official-parser";
+import { sourceDatasetVersion } from "../data/source-identity";
 import { validateRecords } from "../data/validate";
 import type { ParsedBatch, SourceBatch, StandardRecord } from "../data/types";
 import { validateCandidateData } from "./candidate-data-gate.mjs";
@@ -49,7 +50,7 @@ const require = createRequire(import.meta.url);
 const gunzipAsync = promisify(gunzip);
 const argument = (name: string) => process.argv.find((value) => value.startsWith(`--${name}=`))?.slice(name.length + 3);
 const requestedMonths = Number(argument("months") ?? "12");
-assert(Number.isInteger(requestedMonths) && requestedMonths >= 1 && requestedMonths <= 12, "--months must be an integer from 1 to 12");
+assert(Number.isInteger(requestedMonths) && requestedMonths >= 1 && requestedMonths <= 36, "--months must be an integer from 1 to 36");
 const injectedFailureMonth = argument("inject-failure-month");
 if (injectedFailureMonth) assert.match(injectedFailureMonth, /^20\d{2}-(0[1-9]|1[0-2])$/, "invalid injected failure month");
 const runId = argument("run-id") ?? `local-${Date.now()}`;
@@ -58,6 +59,7 @@ const useCloud = process.argv.includes("--cloud");
 const cloudEnvId = argument("env") ?? "cloud1-d3gpdx70w5d05c68c";
 const storageBucket = "636c-cloud1-d3gpdx70w5d05c68c-1456861154";
 const outputRoot = resolve(root, "work/full-auto-update-replay", runId);
+const replayFormat = "housing-full-auto-update-historical-replay-v3";
 const allStages: StageReport[] = [];
 const issues: ReplayIssue[] = [
   {
@@ -74,7 +76,7 @@ const issues: ReplayIssue[] = [
     severity: "fixed",
     problem: "The first annual replay compared baseline and target pre-coverage padding in the wrong direction.",
     resolution: "Require the target padding window to equal the baseline window after its oldest month slides out.",
-    verification: "The annual replay must restart at month 1 and pass all 12 sequential windows.",
+    verification: "The replay must restart at month 1 and pass every requested sequential window.",
   },
   {
     id: "REPLAY-003",
@@ -132,6 +134,38 @@ const issues: ReplayIssue[] = [
     resolution: "Generate isolated control timestamps one second before the local clock and let the client-side receipt use the current clock, preserving the required receipt ordering.",
     verification: "The client refresh accepts the pointer and receipt, then completes the full package activation without weakening timestamp validation.",
   },
+  {
+    id: "REPLAY-010",
+    detected_in: "local-v2411-20260803-attempt-1",
+    severity: "fixed",
+    problem: "The replay expected the former audit batch shape and rejected the new records_sha256 evidence field before month 1 could enter candidate validation.",
+    resolution: "Require the replayed month's audited record SHA-256 to equal a fresh digest of all 560 archived records while retaining the exact audit batch comparison.",
+    verification: "Restart the sequential replay from month 1 and pass all 12 months through the current audit schema and fail-closed data gates.",
+  },
+  {
+    id: "REPLAY-011",
+    detected_in: "local-v2411-20260803-attempt-2",
+    severity: "fixed",
+    problem: "The replay snapshot did not provide the stable source dataset identity required by the current control protocol, so month 1 was rejected before isolated activation.",
+    resolution: "Generate each baseline and target source identity with the production source identity algorithm over all applicable official batches and revision-ledger entries.",
+    verification: "Restart the sequential replay from month 1; every controlled pointer, remote manifest, bootstrap, and client snapshot must carry the same valid source identity.",
+  },
+  {
+    id: "REPLAY-012",
+    detected_in: "local-v2411-36x3-run1-attempt-1",
+    severity: "fixed",
+    problem: "The outer command runner stopped waiting after five seconds and later terminated the detached replay after two completed months, leaving only a running checkpoint and no final report.",
+    resolution: "Launch long replays as independently tracked background processes with redirected logs, then monitor the durable per-month checkpoint until the process exits.",
+    verification: "Restart group 1 from month 1 and require all 36 consecutive months plus a final passed report.",
+  },
+  {
+    id: "REPLAY-013",
+    detected_in: "local-v2411-36x3-miniprogram-suite-1",
+    severity: "fixed",
+    problem: "The workflow security regression test still required the former 75-minute cloud timeout after the 36-month workflow raised its limit to 300 minutes.",
+    resolution: "Require the 300-minute timeout, the closed 12-or-36 month workflow choice, and the exact dispatch input while retaining the default-branch and isolated-prefix checks.",
+    verification: "Rerun the complete mini program test suite and require every workflow security test to pass.",
+  },
 ];
 
 function digest(value: unknown): string {
@@ -159,7 +193,7 @@ async function timed<T>(stages: StageReport[], name: string, action: () => Promi
 
 async function writeReplayCheckpoint(replayItems: Array<Record<string, unknown>>, targetMonth: string | null): Promise<void> {
   const checkpoint = {
-    format: "housing-full-auto-update-year-replay-v2",
+    format: replayFormat,
     status: "running",
     run_id: runId,
     cloud_run_id: useCloud ? cloudRunId : null,
@@ -247,7 +281,7 @@ function assertExactRecordSet(actual: StandardRecord[], expected: StandardRecord
   assert.equal(actualKeys.size, expectedByKey.size, `${label}: expected records are missing`);
 }
 
-function buildSnapshot(records: StandardRecord[], datasetAsOf: string, datasetVersion: string) {
+function buildSnapshot(records: StandardRecord[], datasetAsOf: string, datasetVersion: string, sourceVersion: string) {
   const months = monthRange(datasetAsOf);
   const lookup = new Map(records.map((record) => [recordKey(record), record]));
   const firstAvailableMonth = [...new Set(records.map((record) => record.stat_month))].sort()[0];
@@ -287,6 +321,7 @@ function buildSnapshot(records: StandardRecord[], datasetAsOf: string, datasetVe
     snapshot: {
       schemaVersion: "1.3.0",
       datasetVersion,
+      sourceDatasetVersion: sourceVersion,
       datasetAsOf,
       releaseDate: latestRecord.release_date,
       coverageStart: months[0],
@@ -428,14 +463,27 @@ assert.deepEqual(validateAuditReport(auditReport, auditedBatches), [], "current 
 assert(auditedBatches.every((batch) => batch.source_batch.parser_version === PARSER_VERSION), "source batches were not all produced by the current parser");
 const auditByBatchId = new Map(auditReport.batches.map((batch) => [batch.source_batch_id, batch]));
 const normalized = JSON.parse(await readFile(resolve(root, "data/normalized/records.json"), "utf8")) as { records: StandardRecord[] };
+const normalizedRevisions = JSON.parse(await readFile(resolve(root, "data/normalized/revisions.json"), "utf8")) as Parameters<typeof sourceDatasetVersion>[2];
 const latestMonth = [...new Set(normalized.records.map((record) => record.stat_month))].sort().at(-1)!;
 const targetMonths = Array.from({ length: requestedMonths }, (_, index) => shiftMonth(latestMonth, index - requestedMonths + 1));
 assert.equal(targetMonths.at(-1), latestMonth);
+const sourceVersionCache = new Map<string, string>();
+function replaySourceVersion(month: string): string {
+  const cached = sourceVersionCache.get(month);
+  if (cached) return cached;
+  const version = sourceDatasetVersion(
+    month,
+    auditedBatches.filter((batch) => batch.source_batch.stat_month <= month),
+    normalizedRevisions.filter((revision) => revision.revised_value.stat_month <= month),
+  );
+  sourceVersionCache.set(month, version);
+  return version;
+}
 const cloud = useCloud ? createTencentCloudClient({ cloudEnvId }) : null;
 if (useCloud) assert.match(cloudRunId ?? "", /^\d+(?:-\d+)?$/, "--cloud requires --cloud-run-id=<numeric-id>");
 const prefix = useCloud ? `housing-data/rehearsals/${cloudRunId}/full-auto-update-year/` : null;
 const key = (relative: string) => assertRehearsalKey(`${prefix}${relative}`, cloudRunId!);
-let isolatedPointerText = stableJson({ dataset_version: `${shiftMonth(targetMonths[0], -1)}-${"a".repeat(12)}`, marker: "12-month-baseline" });
+let isolatedPointerText = stableJson({ dataset_version: `${shiftMonth(targetMonths[0], -1)}-${"a".repeat(12)}`, marker: `${requestedMonths}-month-baseline` });
 if (cloud) await retryCloud("initialize isolated pointer", () => cloud.putObject(key("current.json"), Buffer.from(isolatedPointerText)));
 const replayRegistry = createRevocationRegistry({ generatedAt: new Date().toISOString() });
 const replayRegistryArtifact = buildRevocationRegistryArtifact(replayRegistry, { cloudEnvId, storageBucket });
@@ -503,6 +551,7 @@ for (const [index, targetMonth] of targetMonths.entries()) {
       source_batch_id: archive.source_batch.source_batch_id,
       stat_month: targetMonth,
       raw_content_sha256: archive.source_batch.raw_content_sha256,
+      records_sha256: recordsSha256(archive.records),
       records_checked: 560,
       result: "passed",
     }, `${targetMonth}: source batch differs from the current audit report`);
@@ -536,8 +585,8 @@ for (const [index, targetMonth] of targetMonths.entries()) {
   const packaged = await timed(stages, "candidate_package", async () => {
     const baselineVersion = `${baselineMonth}-${digest(baselineRecords).slice(0, 12)}`;
     const targetVersion = `${targetMonth}-${digest(targetRecords).slice(0, 12)}`;
-    const baselineBuilt = buildSnapshot(baselineRecords, baselineMonth, baselineVersion);
-    const targetBuilt = buildSnapshot(targetRecords, targetMonth, targetVersion);
+    const baselineBuilt = buildSnapshot(baselineRecords, baselineMonth, baselineVersion, replaySourceVersion(baselineMonth));
+    const targetBuilt = buildSnapshot(targetRecords, targetMonth, targetVersion, replaySourceVersion(targetMonth));
     assert.deepEqual(baselineBuilt.paddingMonths.slice(1), targetBuilt.paddingMonths);
     const nextCheckAt = new Date(Date.parse(`${archive.source_batch.release_date}T01:30:00.000Z`) + 31 * 24 * 60 * 60 * 1000).toISOString();
     const release = buildRemoteRelease(targetBuilt.snapshot, {
@@ -731,7 +780,7 @@ for (const [index, targetMonth] of targetMonths.entries()) {
     verification: "No later month may run until this failure is fixed.",
   });
   const failureReport = {
-    format: "housing-full-auto-update-year-replay-v2",
+    format: replayFormat,
     status: "failed",
     run_id: runId,
     failed_target_month: activeTargetMonth || null,
@@ -752,7 +801,7 @@ for (const [index, targetMonth] of targetMonths.entries()) {
 
 const pipelineDuration = replays.reduce((sum, replay) => sum + Number(replay.duration_ms), 0);
 const report = {
-  format: "housing-full-auto-update-year-replay-v2",
+  format: replayFormat,
   status: "passed",
   run_id: runId,
   cloud_run_id: useCloud ? cloudRunId : null,

@@ -45,6 +45,7 @@ const cityMap = Object.fromEntries(CITY_IDS.map((id: CityId) => [id, {
 const snapshot = {
   schemaVersion: manifest.schema_version,
   datasetVersion: manifest.dataset_version,
+  sourceDatasetVersion: manifest.source_dataset_version,
   datasetAsOf: manifest.dataset_as_of,
   releaseDate: manifest.release_date,
   coverageStart: months[0],

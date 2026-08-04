@@ -42,6 +42,12 @@ const legacyBootstrapText = legacyBootstrapBytes.toString('utf8')
 const legacyCurrent = JSON.parse(legacyCurrentText)
 const legacyManifest = JSON.parse(legacyManifestText)
 const legacyBootstrap = JSON.parse(legacyBootstrapText)
+const bundledAtMigration = {
+  ...clone(bundled),
+  datasetVersion: descriptor.source_dataset_version,
+  sourceDatasetVersion: descriptor.source_dataset_version,
+  generatedAt: legacyManifest.generated_at,
+}
 
 const DEFAULT_MIGRATED_AT = '2026-07-31T00:00:00.000Z'
 const DEFAULT_NOW = Date.parse('2026-07-31T00:05:00.000Z')
@@ -329,6 +335,7 @@ function syntheticNextMonthSnapshot() {
   snapshot.releaseDates = [...snapshot.releaseDates.slice(1), '2026-08-17']
   snapshot.datasetAsOf = '2026-07'
   snapshot.datasetVersion = '2026-07-111111111111'
+  snapshot.sourceDatasetVersion = '2026-07-111111111111'
   snapshot.releaseDate = '2026-08-17'
   snapshot.generatedAt = '2026-08-17T01:40:00.000Z'
   snapshot.nextCheckDueAt = '2026-09-15T01:40:00.000Z'
@@ -374,6 +381,24 @@ test('fixed legacy runtime fixture keeps its exact audited byte identities', () 
   assert.equal(legacyBootstrap.months[0], descriptor.client_coverage_start)
 })
 
+test('the current same-source bundled package quietly supersedes the older legacy migration package', async () => {
+  assert.notEqual(bundled.datasetVersion, descriptor.source_dataset_version)
+  const release = migrationRelease()
+  const mock = createWxMock(release, { now: DEFAULT_NOW })
+  const runtime = createDataRuntime({ wxApi: mock.wxApi, bundled, now: () => DEFAULT_NOW })
+
+  const result = await runtime.refresh({ force: true })
+
+  assert.equal(result.reason, 'bundled-source-is-newer')
+  assert.equal(result.updated, false)
+  assert.equal(runtime.getSource(), 'bundled')
+  assert.equal(runtime.getSnapshot().datasetVersion, bundled.datasetVersion)
+  assert.deepEqual(mock.stats.downloadFileIds, [
+    release.revocationArtifact.cloudFileId,
+    release.current.manifest_file_id,
+  ])
+})
+
 test('exact migration first install remains bundled until the complete 70-city package is verified and atomically activated', async () => {
   const release = migrationRelease()
   const bootstrapGate = createDownloadGate()
@@ -381,15 +406,15 @@ test('exact migration first install remains bundled until the complete 70-city p
     now: DEFAULT_NOW,
     downloadGates: new Map([[release.manifest.bootstrap_file_id, bootstrapGate]]),
   })
-  const runtime = createDataRuntime({ wxApi: mock.wxApi, bundled, now: () => DEFAULT_NOW })
+  const runtime = createDataRuntime({ wxApi: mock.wxApi, bundled: bundledAtMigration, now: () => DEFAULT_NOW })
 
   assert.equal(runtime.getSource(), 'bundled')
-  assert.equal(runtime.getSnapshot().datasetVersion, bundled.datasetVersion)
+  assert.equal(runtime.getSnapshot().datasetVersion, bundledAtMigration.datasetVersion)
   const refreshing = runtime.refresh({ force: true })
   await bootstrapGate.entered.promise
 
   assert.equal(runtime.getSource(), 'bundled')
-  assert.equal(runtime.getSnapshot().datasetVersion, bundled.datasetVersion)
+  assert.equal(runtime.getSnapshot().datasetVersion, bundledAtMigration.datasetVersion)
   assert.equal(runtimeState(mock).active, null)
 
   bootstrapGate.release.resolve()
@@ -420,7 +445,7 @@ test('a v2.3 legacy cache is never trusted directly and is replaced only after a
   ])
   const directories = new Set(['/user', '/user/housing-data', rootPath, `${rootPath}/cities`])
   const mock = createWxMock(release, { storage, files, directories, now: DEFAULT_NOW })
-  const runtime = createDataRuntime({ wxApi: mock.wxApi, bundled, now: () => DEFAULT_NOW })
+  const runtime = createDataRuntime({ wxApi: mock.wxApi, bundled: bundledAtMigration, now: () => DEFAULT_NOW })
 
   assert.equal(runtime.getSource(), 'bundled')
   assert.equal(mock.files.has(`${rootPath}/legacy-sentinel.txt`), true)
@@ -451,7 +476,7 @@ test('a failed migration bootstrap still persists revocations in main state and 
   const remote = cloudFiles(release)
   remote.set(release.manifest.bootstrap_file_id, Buffer.concat([legacyBootstrapBytes, Buffer.from(' ')]))
   const online = createWxMock(release, { storage, files, directories, remote, now: DEFAULT_NOW })
-  const runtime = createDataRuntime({ wxApi: online.wxApi, bundled, now: () => DEFAULT_NOW })
+  const runtime = createDataRuntime({ wxApi: online.wxApi, bundled: bundledAtMigration, now: () => DEFAULT_NOW })
 
   const result = await runtime.refresh({ force: true })
   assert.equal(result.reason, 'failed')
@@ -474,7 +499,7 @@ test('a failed migration bootstrap still persists revocations in main state and 
   })
   const restarted = createDataRuntime({
     wxApi: offline.wxApi,
-    bundled,
+    bundled: bundledAtMigration,
     now: () => DEFAULT_NOW + 60_000,
   })
 
@@ -494,7 +519,7 @@ test('an expired dynamic receipt ingests and persists only the bound revocation 
     now,
     validationReceipt: (current) => buildValidationReceipt(current, receiptIssuedAt),
   })
-  const runtime = createDataRuntime({ wxApi: mock.wxApi, bundled, now: () => now })
+  const runtime = createDataRuntime({ wxApi: mock.wxApi, bundled: bundledAtMigration, now: () => now })
 
   const result = await runtime.refresh({ force: true })
   assert.equal(result.reason, 'activation-not-authorized')
@@ -525,7 +550,7 @@ test('missing or incorrectly bound validation receipts cannot ingest even a sing
         now: DEFAULT_NOW,
         validationReceipt: (current) => makeReceipt(current),
       })
-      const runtime = createDataRuntime({ wxApi: mock.wxApi, bundled, now: () => DEFAULT_NOW })
+      const runtime = createDataRuntime({ wxApi: mock.wxApi, bundled: bundledAtMigration, now: () => DEFAULT_NOW })
 
       const result = await runtime.refresh({ force: true })
       assert.equal(result.reason, 'failed')
@@ -543,7 +568,7 @@ test('the next ordinary monthly publish advances control by one, preserves every
   const clock = { value: DEFAULT_NOW }
   const migration = migrationRelease()
   const mock = createWxMock(migration, { now: () => clock.value })
-  const runtime = createDataRuntime({ wxApi: mock.wxApi, bundled, now: () => clock.value })
+  const runtime = createDataRuntime({ wxApi: mock.wxApi, bundled: bundledAtMigration, now: () => clock.value })
   assert.equal((await runtime.refresh({ force: true })).updated, true)
 
   const next = ordinaryRelease(migration.current, migration.revocationArtifact)
@@ -600,8 +625,10 @@ test('legacy coverage repair is available only to the exact audited migration an
     'superseded_dataset_version',
     'superseded_source_dataset_version',
   ]) delete ordinaryCurrent[field]
+  const ordinaryBootstrap = clone(legacyBootstrap)
+  ordinaryBootstrap.sourceDatasetVersion = release.manifest.source_dataset_version
   assert.throws(() => validateBootstrap(
-    clone(legacyBootstrap),
+    ordinaryBootstrap,
     release.manifest,
     config,
     bundled.cityIds,
@@ -625,7 +652,7 @@ test('any manifest byte, bootstrap byte, or audited migration identity change fa
       const remote = cloudFiles(release)
       mutate(release, remote)
       const mock = createWxMock(release, { remote, now: DEFAULT_NOW })
-      const runtime = createDataRuntime({ wxApi: mock.wxApi, bundled, now: () => DEFAULT_NOW })
+      const runtime = createDataRuntime({ wxApi: mock.wxApi, bundled: bundledAtMigration, now: () => DEFAULT_NOW })
       const result = await runtime.refresh({ force: true })
       assert.equal(result.reason, 'failed')
       assert.equal(runtime.getSource(), 'bundled')
@@ -645,7 +672,7 @@ test('any manifest byte, bootstrap byte, or audited migration identity change fa
       const current = clone(release.current)
       mutate(current)
       const mock = createWxMock(release, { current, now: DEFAULT_NOW })
-      const runtime = createDataRuntime({ wxApi: mock.wxApi, bundled, now: () => DEFAULT_NOW })
+      const runtime = createDataRuntime({ wxApi: mock.wxApi, bundled: bundledAtMigration, now: () => DEFAULT_NOW })
       const result = await runtime.refresh({ force: true })
       assert.equal(result.reason, 'failed')
       assert.equal(runtime.getSource(), 'bundled')

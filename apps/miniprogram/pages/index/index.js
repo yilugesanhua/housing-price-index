@@ -761,24 +761,33 @@ Page({
   },
 
   onFocusCityChange(event) {
+    this._locationGeneration = (this._locationGeneration || 0) + 1
+    if (this.data.locationStatus === 'locating') this.setData({ locationStatus: 'idle' })
     const focusCity = LOCATION_CITY_IDS[Number(event.detail.value)]
     this.selectFocusCity(focusCity, 'manual')
   },
-  selectFocusCity(focusCity, source) {
-    if (!snapshot.cityMap[focusCity]) return
-    const cities = source === 'location' ? [focusCity] : [...this.data.state.cities]
-    if (source !== 'location' && !cities.includes(focusCity) && cities.length < 3) cities.push(focusCity)
+  selectFocusCity(focusCity, source, locationGeneration) {
+    if (!snapshot.cityMap[focusCity]) return Promise.resolve(false)
+    if (source === 'location' && locationGeneration !== undefined && locationGeneration !== this._locationGeneration) return Promise.resolve(false)
+    const selectionGeneration = (this._focusSelectionGeneration || 0) + 1
+    this._focusSelectionGeneration = selectionGeneration
     const apply = () => {
+      if (selectionGeneration !== this._focusSelectionGeneration) return false
+      if (source === 'location' && locationGeneration !== undefined && locationGeneration !== this._locationGeneration) return false
       snapshot = dataRuntime.getSnapshot()
+      const currentState = this.data.state
+      const cities = source === 'location' ? [focusCity] : [...currentState.cities]
+      if (source !== 'location' && !cities.includes(focusCity) && cities.length < 3) cities.push(focusCity)
       if (source === 'location') this.setData({ locatedCityId: focusCity })
-      this.applyState({ ...this.data.state, focusCity, cities })
+      this.applyState({ ...currentState, focusCity, cities })
       try { wx.setStorageSync(FOCUS_SOURCE_KEY, source) } catch (_) {}
+      return true
     }
-    const missing = cities.filter((cityId) => !dataRuntime.hasCity(cityId))
-    if (!missing.length) return apply()
-    dataRuntime.ensureCities(missing).then(apply).catch((error) => {
+    if (dataRuntime.hasCity(focusCity)) return Promise.resolve(apply())
+    return dataRuntime.ensureCities([focusCity]).then(apply).catch((error) => {
       console.error('[data:update] selected city download failed', error)
       wx.showToast({ title: '城市数据下载失败，请稍后重试', icon: 'none' })
+      return false
     })
   },
   locateCurrentCity(options = {}) {
@@ -788,10 +797,12 @@ Page({
       return
     }
 
+    const locationGeneration = (this._locationGeneration || 0) + 1
+    this._locationGeneration = locationGeneration
     if (options.useCache) {
       const cached = readValidLocationCache()
       if (cached) {
-        this.selectFocusCity(cached.cityId, 'location')
+        void this.selectFocusCity(cached.cityId, 'location', locationGeneration)
         return
       }
     }
@@ -801,20 +812,25 @@ Page({
       type: 'gcj02',
       isHighAccuracy: false,
       success: ({ latitude, longitude }) => {
+        if (locationGeneration !== this._locationGeneration) return
         wx.cloud.callFunction({
           name: locationConfig.cloudFunctionName,
           data: { latitude, longitude },
           success: ({ result }) => {
+            if (locationGeneration !== this._locationGeneration) return
             const cityId = resolveCityId(snapshot.cityMap, result && result.city, result && result.province)
             if (!cityId) return this.finishLocation('error', '当前位置未匹配到70城，请手动选择')
-            this.selectFocusCity(cityId, 'location')
-            try { wx.setStorageSync(LOCATION_CACHE_KEY, { cityId, locatedAt: Date.now() }) } catch (_) {}
-            this.finishLocation('success', `已定位到${snapshot.cityMap[cityId].name}`)
+            void this.selectFocusCity(cityId, 'location', locationGeneration).then((applied) => {
+              if (!applied || locationGeneration !== this._locationGeneration) return
+              try { wx.setStorageSync(LOCATION_CACHE_KEY, { cityId, locatedAt: Date.now() }) } catch (_) {}
+              this.finishLocation('success', `已定位到${snapshot.cityMap[cityId].name}`)
+            })
           },
-          fail: () => this.finishLocation('error', '定位服务暂不可用，请手动选择'),
+          fail: () => { if (locationGeneration === this._locationGeneration) this.finishLocation('error', '定位服务暂不可用，请手动选择') },
         })
       },
       fail: (error) => {
+        if (locationGeneration !== this._locationGeneration) return
         console.error('[location:fuzzy] getFuzzyLocation failed', error)
         this.finishLocation('error', '未能获取位置，可手动选择城市')
       },
@@ -868,7 +884,17 @@ Page({
     if (index >= 0) cities.splice(index, 1)
     else if (cities.length < 3) cities.push(id)
     else return wx.showToast({ title: '最多选择3座城市', icon: 'none' })
-    const apply = () => { snapshot = dataRuntime.getSnapshot(); this.applyState({ ...this.data.state, cities }) }
+    const apply = () => {
+      snapshot = dataRuntime.getSnapshot()
+      const latestState = this.data.state
+      if (index < 0) {
+        if (latestState.cities.includes(id)) return
+        if (latestState.cities.length >= 3) return wx.showToast({ title: '最多选择3座城市', icon: 'none' })
+        this.applyState({ ...latestState, cities: [...latestState.cities, id] })
+        return
+      }
+      this.applyState({ ...latestState, cities: latestState.cities.filter((cityId) => cityId !== id) })
+    }
     if (index < 0 && !dataRuntime.hasCity(id)) {
       dataRuntime.ensureCities([id]).then(apply).catch((error) => {
         console.error('[data:update] selected city download failed', error)
@@ -883,6 +909,15 @@ Page({
     const apply = () => { snapshot = dataRuntime.getSnapshot(); this.applyState({ ...this.data.state, cities: [cityId] }) }
     if (dataRuntime.hasCity(cityId)) return apply()
     dataRuntime.ensureCities([cityId]).then(apply).catch(() => wx.showToast({ title: '城市数据下载失败，请稍后重试', icon: 'none' }))
+  },
+  retryChart(event) {
+    const type = event.currentTarget.dataset.type
+    if (!['trend', 'cumulative', 'breadth'].includes(type)) return
+    const property = type === 'trend' ? 'chart' : `${type}Chart`
+    const chart = this[property]
+    if (chart && typeof chart.destroy === 'function') chart.destroy()
+    this[property] = null
+    this.setData({ [`${type}ChartError`]: false })
   },
   onPageScroll(event) {
     const shouldFixAnalysisNav = this._analysisNavTop !== undefined && event.scrollTop >= this._analysisNavTop
@@ -918,6 +953,8 @@ Page({
     })
   },
   onUnload() {
+    this._locationGeneration = (this._locationGeneration || 0) + 1
+    this._focusSelectionGeneration = (this._focusSelectionGeneration || 0) + 1
     clearTimeout(this._scrollTick)
     clearTimeout(this._resizeTick)
     ;[this.chart, this.cumulativeChart, this.breadthChart].forEach((chart) => {

@@ -125,6 +125,7 @@ export function buildBootstrap(snapshot) {
     remoteSchemaVersion: REMOTE_SCHEMA_VERSION,
     schemaVersion: snapshot.schemaVersion,
     datasetVersion: snapshot.datasetVersion,
+    sourceDatasetVersion: snapshot.sourceDatasetVersion,
     datasetAsOf: snapshot.datasetAsOf,
     releaseDate: snapshot.releaseDate,
     coverageStart: snapshot.coverageStart,
@@ -165,7 +166,7 @@ export function buildRemoteRelease(snapshot, { cloudEnvId, storageBucket, minimu
   if (correction) validateCorrectionDescriptor(correction, snapshot)
   const batches = [...new Set(sourceBatchIds)].sort()
   const releaseHash = sha256(stableJson({
-    sourceDatasetVersion: snapshot.datasetVersion,
+    sourceDatasetVersion: snapshot.sourceDatasetVersion,
     cloudEnvId,
     storageBucket,
     remoteFormat: REMOTE_FORMAT,
@@ -208,7 +209,7 @@ export function buildRemoteRelease(snapshot, { cloudEnvId, storageBucket, minimu
     approval_status: correction.approval_status,
     dataset_as_of: snapshot.datasetAsOf,
     supersedes_source_dataset_version: correction.supersedes_source_dataset_version,
-    source_dataset_version: snapshot.datasetVersion,
+    source_dataset_version: snapshot.sourceDatasetVersion,
     source_version_chain: clone(correction.source_version_chain),
     revoked_source_dataset_versions: clone(correction.revoked_source_dataset_versions),
     reason: correction.reason,
@@ -231,7 +232,7 @@ export function buildRemoteRelease(snapshot, { cloudEnvId, storageBucket, minimu
     remote_schema_version: REMOTE_SCHEMA_VERSION,
     schema_version: snapshot.schemaVersion,
     dataset_version: datasetVersion,
-    source_dataset_version: snapshot.datasetVersion,
+    source_dataset_version: snapshot.sourceDatasetVersion,
     dataset_as_of: snapshot.datasetAsOf,
     release_date: snapshot.releaseDate,
     generated_at: snapshot.generatedAt,
@@ -262,7 +263,7 @@ export function buildRemoteRelease(snapshot, { cloudEnvId, storageBucket, minimu
   const manifestText = stableJson(manifest)
   const current = {
     dataset_version: datasetVersion,
-    source_dataset_version: snapshot.datasetVersion,
+    source_dataset_version: snapshot.sourceDatasetVersion,
     dataset_as_of: snapshot.datasetAsOf,
     schema_version: snapshot.schemaVersion,
     manifest_file_id: `${releaseRoot}/manifest.json`,
@@ -286,7 +287,7 @@ export function validateCorrectionDescriptor(correction, snapshot = null) {
   assert(sourcePattern.test(correction.source_dataset_version || ''), 'invalid correction source dataset version')
   if (snapshot) {
     assert(correction.dataset_as_of === snapshot.datasetAsOf, 'correction month differs from snapshot')
-    assert(correction.source_dataset_version === snapshot.datasetVersion, 'correction source differs from snapshot')
+    assert(correction.source_dataset_version === snapshot.sourceDatasetVersion, 'correction source differs from snapshot')
   }
   assert(Array.isArray(correction.source_version_chain) && correction.source_version_chain.length >= 2, 'correction source chain is invalid')
   assert(correction.source_version_chain.at(-2) === correction.supersedes_source_dataset_version, 'correction source chain does not directly supersede the prior source')
@@ -344,9 +345,10 @@ export function verifyReleaseAgainstSnapshot(snapshot, release) {
   check(release.bootstrap.remoteSchemaVersion === REMOTE_SCHEMA_VERSION, 'bootstrap remote schema mismatch')
   check(release.manifest.format === REMOTE_FORMAT, 'manifest format mismatch')
   check(release.manifest.dataset_as_of === snapshot.datasetAsOf, 'manifest dataset month mismatch')
-  check(release.manifest.source_dataset_version === snapshot.datasetVersion, 'manifest source dataset version mismatch')
+  check(release.manifest.source_dataset_version === snapshot.sourceDatasetVersion, 'manifest source dataset version mismatch')
   check(release.current.dataset_version === release.manifest.dataset_version, 'current dataset version mismatch')
   check(release.bootstrap.datasetVersion === release.manifest.dataset_version, 'bootstrap dataset version mismatch')
+  check(release.bootstrap.sourceDatasetVersion === release.manifest.source_dataset_version, 'bootstrap source dataset version mismatch')
   check(release.manifest.bootstrap_sha256 === sha256(release.bootstrapText), 'bootstrap SHA-256 mismatch')
   check(release.manifest.bootstrap_bytes === byteLength(release.bootstrapText), 'bootstrap byte size mismatch')
   check(release.current.manifest_sha256 === sha256(release.manifestText), 'manifest SHA-256 mismatch')
@@ -397,6 +399,13 @@ export function verifyReleaseIntegrity(release) {
   const errors = []
   const check = (condition, message) => { if (!condition) errors.push(message) }
   const { bootstrap, bootstrapText, manifest, manifestText, revisionManifest, revisionManifestText, current, currentText, cities } = release
+  const usesApprovedLegacyCoverage = current?.transition_type === 'migration'
+    && current?.migration_id === LEGACY_CONTROL_MIGRATION_ID
+    && current?.migrated_from_manifest_sha256 === current?.manifest_sha256
+    && bootstrap?.sourceCoverageStart === undefined
+    && typeof bootstrap?.coverageStart === 'string'
+    && Array.isArray(bootstrap?.months)
+    && bootstrap.coverageStart < bootstrap.months[0]
 
   check(bootstrap?.remoteFormat === REMOTE_FORMAT, 'bootstrap format mismatch')
   check(bootstrap?.remoteSchemaVersion === REMOTE_SCHEMA_VERSION, 'bootstrap remote schema mismatch')
@@ -404,6 +413,8 @@ export function verifyReleaseIntegrity(release) {
   check(manifest?.remote_schema_version === REMOTE_SCHEMA_VERSION, 'manifest remote schema mismatch')
   check(current?.dataset_version === manifest?.dataset_version, 'current dataset version mismatch')
   check(bootstrap?.datasetVersion === manifest?.dataset_version, 'bootstrap dataset version mismatch')
+  check(bootstrap?.sourceDatasetVersion === manifest?.source_dataset_version
+    || (usesApprovedLegacyCoverage && bootstrap?.sourceDatasetVersion === undefined), 'bootstrap source dataset version mismatch')
   check(current?.dataset_as_of === manifest?.dataset_as_of, 'current dataset month mismatch')
   check(bootstrap?.datasetAsOf === manifest?.dataset_as_of, 'bootstrap dataset month mismatch')
   check(manifest?.bootstrap_sha256 === sha256(bootstrapText), 'bootstrap SHA-256 mismatch')
@@ -451,15 +462,8 @@ export function verifyReleaseIntegrity(release) {
   // The one approved legacy migration preserves the historical bootstrap bytes.
   // Its old coverageStart means source coverage; normalize that meaning only in
   // the verifier's in-memory reconstruction, never in the stored release.
-  const usesApprovedLegacyCoverage = current?.transition_type === 'migration'
-    && current?.migration_id === LEGACY_CONTROL_MIGRATION_ID
-    && current?.migrated_from_manifest_sha256 === current?.manifest_sha256
-    && bootstrap?.sourceCoverageStart === undefined
-    && typeof bootstrap?.coverageStart === 'string'
-    && Array.isArray(bootstrap?.months)
-    && bootstrap.coverageStart < bootstrap.months[0]
   const integrityBootstrap = usesApprovedLegacyCoverage
-    ? { ...bootstrap, coverageStart: bootstrap.months[0], sourceCoverageStart: bootstrap.coverageStart }
+    ? { ...bootstrap, sourceDatasetVersion: manifest.source_dataset_version, coverageStart: bootstrap.months[0], sourceCoverageStart: bootstrap.coverageStart }
     : bootstrap
   const reconstructedSnapshot = { ...integrityBootstrap, series: reconstructedSeries }
   try {
@@ -480,7 +484,7 @@ export function classifyRemoteFreshness(remoteManifest, bundledSnapshot) {
   if (remoteManifest.dataset_as_of < bundledSnapshot.datasetAsOf) {
     return { freshness_status: 'stale_month', client_action: 'keep_bundled_snapshot' }
   }
-  if (remoteManifest.source_dataset_version === bundledSnapshot.datasetVersion) {
+  if (remoteManifest.source_dataset_version === bundledSnapshot.sourceDatasetVersion) {
     return { freshness_status: 'matches_bundled_source', client_action: 'eligible_after_full_validation' }
   }
   if (remoteManifest.release_type === RELEASE_TYPES.correction) {

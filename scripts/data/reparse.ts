@@ -18,6 +18,7 @@ for (const batchPath of paths) {
   old.source_batch.parser_version = PARSER_VERSION;
   old.source_batch.verification_status = "unverified";
   old.source_batch.verification_method = "pending-full-record-audit";
+  delete old.source_batch.audited_records_sha256;
   const parsed = parseOfficialHtml(html, old.source_batch);
   const temporaryBatchPath = `${batchPath}.tmp`;
   rmSync(temporaryBatchPath, { force: true });

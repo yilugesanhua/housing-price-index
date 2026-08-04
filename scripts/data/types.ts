@@ -13,6 +13,7 @@ export interface SourceBatch {
   schema_version: string;
   verification_status: "unverified" | "sampled" | "verified";
   verification_method: string;
+  audited_records_sha256?: string;
   http_status: number;
   final_url: string;
   redirect_chain: string[];

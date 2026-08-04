@@ -2,6 +2,15 @@ name: full-auto-update-replay
 
 on:
   workflow_dispatch:
+    inputs:
+      months:
+        description: Consecutive historical months to replay
+        required: true
+        default: "12"
+        type: choice
+        options:
+          - "12"
+          - "36"
 
 permissions:
   contents: read
@@ -14,7 +23,7 @@ jobs:
   replay:
     if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
     runs-on: ubuntu-latest
-    timeout-minutes: 75
+    timeout-minutes: 300
     environment: housing-data-production
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
@@ -46,7 +55,7 @@ jobs:
           --env=cloud1-d3gpdx70w5d05c68c
           --run-id=${{ github.run_id }}-${{ github.run_attempt }}
           --cloud-run-id=${{ github.run_id }}-${{ github.run_attempt }}
-          --months=12
+          --months=${{ inputs.months }}
       - name: Add report to task summary
         if: always()
         shell: bash

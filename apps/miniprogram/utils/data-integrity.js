@@ -39,6 +39,8 @@ function validateSnapshotMetadata(snapshot, label) {
   assert(MONTH_PATTERN.test(snapshot.datasetAsOf || ''), `${label} dataset month is invalid`)
   assert(DATASET_PATTERN.test(snapshot.datasetVersion || ''), `${label} dataset version is invalid`)
   assert(snapshot.datasetVersion.startsWith(`${snapshot.datasetAsOf}-`), `${label} dataset version does not match its month`)
+  assert(DATASET_PATTERN.test(snapshot.sourceDatasetVersion || ''), `${label} source dataset version is invalid`)
+  assert(snapshot.sourceDatasetVersion.startsWith(`${snapshot.datasetAsOf}-`), `${label} source dataset version does not match its month`)
   assertIsoDate(snapshot.releaseDate, `${label} release date`)
   assert(/^https:\/\/(?:www\.)?stats\.gov\.cn\//.test(snapshot.latestOfficialUrl || ''), `${label} official URL is invalid`)
   assert(Number.isFinite(Date.parse(snapshot.generatedAt || '')), `${label} generation timestamp is invalid`)

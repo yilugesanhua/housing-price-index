@@ -18,5 +18,8 @@ await cp(resolve(source, 'miniprogram_npm'), resolve(target, 'miniprogram_npm'),
 await import('./patch-wx-f2-canvas.mjs')
 const project = JSON.parse(await readFile(resolve(source, 'project.config.json'), 'utf8'))
 project.projectname = '住房小二'
-await writeFile(resolve(target, 'project.config.json'), `${JSON.stringify(project, null, 2)}\n`, 'utf8')
+const targetProjectPath = resolve(target, 'project.config.json')
+const targetProjectText = await readFile(targetProjectPath, 'utf8').catch(() => '')
+const targetHadFinalNewline = /\r?\n$/.test(targetProjectText)
+await writeFile(targetProjectPath, `${JSON.stringify(project, null, 2)}${targetHadFinalNewline ? '\n' : ''}`, 'utf8')
 console.log(`Synced formal mini program to ${target}`)

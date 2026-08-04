@@ -105,6 +105,8 @@ test('mini program snapshot covers 70 cities and 120 months', async () => {
   assert.equal(snapshot.featuredCityIds.length, 6)
   assert.equal(snapshot.months.length, 120)
   assert.equal(snapshot.months.at(-1), snapshot.datasetAsOf)
+  assert.match(snapshot.datasetVersion, /^2026-06-[a-f0-9]{12}$/)
+  assert.equal(snapshot.sourceDatasetVersion, '2026-06-4fd1d1a8ff12')
   assert.equal(snapshot.coverageStart, snapshot.months[0])
   assert.match(snapshot.sourceCoverageStart, /^20\d{2}-(0[1-9]|1[0-2])$/)
   assert.ok(snapshot.sourceCoverageStart <= snapshot.coverageStart)
@@ -284,6 +286,10 @@ test('fuzzy location capability is declared and reverse geocoding keeps the map 
   assert.match(await readFile(resolve(root, 'apps/miniprogram/pages/index/index.js'), 'utf8'), /\[location:fuzzy\] getFuzzyLocation failed/)
   assert.match(cloudFunction, /process\.env\.TENCENT_LBS_KEY/)
   assert.match(cloudFunction, /\.trim\(\)/)
+  assert.match(cloudFunction, /REQUEST_TIMEOUT_MS\s*=\s*5000/)
+  assert.match(cloudFunction, /MAX_RESPONSE_BYTES\s*=\s*64 \* 1024/)
+  assert.match(cloudFunction, /response\.statusCode !== 200/)
+  assert.match(cloudFunction, /request\.setTimeout\(REQUEST_TIMEOUT_MS/)
   assert.doesNotMatch(cloudFunction, /key=[A-Za-z0-9]{20,}/)
   assert.match(locationConfig, /cloudEnvId:\s*'cloud1-[a-z0-9]+'/)
 })
@@ -301,6 +307,9 @@ test('home uses the global range for trends and exposes chart failure fallbacks'
     assert.match(wxml, new RegExp(`!${name}`))
     assert.match(script, new RegExp(`${name}: false`))
   }
+  assert.equal((wxml.match(/bindtap="retryChart"/g) || []).length, 3)
+  assert.match(script, /retryChart\(event\)/)
+  assert.match(wxml, /counts\.missing > 0/)
   assert.doesNotMatch(wxml, /bindchanging="onBreadthChange"/)
   assert.doesNotMatch(wxml, /class="slider-label-row"|aria-label="选择温度月份"/)
   assert.match(script, /showTitle:\s*false/)
@@ -343,6 +352,47 @@ test('manual location picker sorts cities by pinyin and preserves index mapping'
   assert.equal(page.data.state.focusCity, sortedIds[0])
   assert.equal(page.data.focusCityName, '安庆')
   delete globalThis.wx
+})
+
+test('an older location response cannot overwrite a newer manual city choice', async () => {
+  const snapshot = require(snapshotPath)
+  const page = pageHarness(loadPageConfig('apps/miniprogram/pages/index/index.js'))
+  let fuzzySuccess
+  let cloudSuccess
+  globalThis.wx = {
+    cloud: { callFunction(options) { cloudSuccess = options.success } },
+    getFuzzyLocation(options) { fuzzySuccess = options.success },
+    setStorageSync() {},
+    showToast() {},
+    createCanvasContext: canvasContextStub,
+  }
+
+  page.locateCurrentCity()
+  fuzzySuccess({ latitude: 39.9, longitude: 116.4 })
+  page.onFocusCityChange({ detail: { value: '0' } })
+  const manuallySelected = page.data.state.focusCity
+  cloudSuccess({ result: { city: '北京市', province: '北京市' } })
+  await Promise.resolve()
+
+  assert.equal(manuallySelected, [...snapshot.cityIds].sort((left, right) => left.localeCompare(right, 'en'))[0])
+  assert.equal(page.data.state.focusCity, manuallySelected)
+  assert.equal(page.data.locationStatus, 'idle')
+  delete globalThis.wx
+})
+
+test('chart retry clears only the requested chart failure and destroys its stale instance', () => {
+  const page = pageHarness(loadPageConfig('apps/miniprogram/pages/index/index.js'))
+  let destroyed = 0
+  page.chart = { destroy() { destroyed += 1 } }
+  page.data.trendChartError = true
+  page.data.cumulativeChartError = true
+
+  page.retryChart({ currentTarget: { dataset: { type: 'trend' } } })
+
+  assert.equal(destroyed, 1)
+  assert.equal(page.chart, null)
+  assert.equal(page.data.trendChartError, false)
+  assert.equal(page.data.cumulativeChartError, true)
 })
 
 test('legend hiding keeps at least one visible series', () => {

@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict'
-import { mkdtemp, rm } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import test from 'node:test'
-import { buildCandidateManifest, createDeterministicZip, inventoryDigest, normalizeArchiveEntries, readZipInventory } from './deterministic-candidate.mjs'
+import { buildCandidateManifest, compareDevtools, createDeterministicZip, inventoryDigest, normalizeArchiveEntries, readZipInventory, assertCandidatePaths } from './deterministic-candidate.mjs'
 
 const files = [
   { path: 'pages/index.js', data: Buffer.from('console.log("index")\n') },
@@ -49,6 +49,31 @@ test('excluded files do not enter the archive', () => {
 test('rejects duplicate or unsafe paths', () => {
   assert.throws(() => normalizeArchiveEntries([{ path: 'a.js', data: Buffer.from('a') }, { path: 'a.js', data: Buffer.from('b') }]), /duplicate archive path/)
   assert.throws(() => normalizeArchiveEntries([{ path: '../secret', data: Buffer.from('x') }]), /invalid archive path/)
+})
+
+test('rejects candidate source files outside the explicit mini-program whitelist', () => {
+  assert.throws(() => assertCandidatePaths([{ path: 'debug/output.txt', data: Buffer.from('x') }]), /source whitelist/)
+  assert.doesNotThrow(() => assertCandidatePaths([
+    { path: 'app.js', data: Buffer.from('') },
+    { path: 'pages/index/index.js', data: Buffer.from('') },
+  ]))
+})
+
+test('developer tools comparison allows only declared local extras', async () => {
+  const directory = await mkdtemp(join(tmpdir(), 'candidate-devtools-'))
+  try {
+    await mkdir(join(directory, 'pages'), { recursive: true })
+    await Promise.all([
+      writeFile(join(directory, 'pages/index.js'), 'console.log("index")\n'),
+      writeFile(join(directory, 'project.private.config.json'), '{}\n'),
+      writeFile(join(directory, 'package-lock.json'), '{}\n'),
+    ])
+    await compareDevtools(directory, [{ path: 'pages/index.js', data: Buffer.from('console.log("index")\n') }], '.')
+    await writeFile(join(directory, 'stale.js'), 'stale\n')
+    await assert.rejects(() => compareDevtools(directory, [{ path: 'pages/index.js', data: Buffer.from('console.log("index")\n') }], '.'), /unexpected files: stale\.js/)
+  } finally {
+    await rm(directory, { recursive: true, force: true })
+  }
 })
 
 test('rejects a damaged ZIP and verifies entry checksums', () => {

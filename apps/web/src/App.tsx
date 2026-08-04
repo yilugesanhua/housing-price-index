@@ -3,6 +3,7 @@ import { Activity, AlertCircle, ArrowDownRight, ArrowUpRight, BarChart3, Check, 
 import { CITY_IDS, CITY_NAMES, CITY_SEARCH_ALIASES, FEATURED_CITY_IDS, formatChange, formatChangeMagnitude, formatIndex, formatReleaseDate, getChange, getMarketPosition, getWindowRecords, type CityId, type DataManifest, type MarketBreadthPoint, type MarketPosition, type Metric, type PriceRecord, type PropertyType, type RankedMarketCity, type SizeBand } from "@housing/core";
 import { cityDataUrl, validateManifest, validateMarketBreadthData, validatePublishedData } from "./dataValidation";
 import { clearStoredViewState, DEFAULT_VIEW, readInitialViewState, writeViewState, type ViewState } from "./urlState";
+import { ChartErrorBoundary } from "./ChartErrorBoundary";
 
 const TrendChart = lazy(() => import("./TrendChart").then((module) => ({ default: module.TrendChart })));
 const BreadthHistoryChart = lazy(() => import("./BreadthHistoryChart").then((module) => ({ default: module.BreadthHistoryChart })));
@@ -17,6 +18,9 @@ const isInternalPreview = import.meta.env.VITE_APP_ENV !== "public";
 
 async function fetchJson<T>(input: RequestInfo | URL, init: RequestInit = {}, timeoutMs = 15_000): Promise<T> {
   const controller = new AbortController();
+  const abortFromCaller = () => controller.abort();
+  init.signal?.addEventListener("abort", abortFromCaller, { once: true });
+  if (init.signal?.aborted) controller.abort();
   const timeout = window.setTimeout(() => controller.abort(), timeoutMs);
   try {
     const response = await fetch(input, { ...init, signal: controller.signal });
@@ -24,14 +28,16 @@ async function fetchJson<T>(input: RequestInfo | URL, init: RequestInit = {}, ti
     return await response.json() as T;
   } finally {
     window.clearTimeout(timeout);
+    init.signal?.removeEventListener("abort", abortFromCaller);
   }
 }
 
-async function fetchCityRecords(manifest: DataManifest, city: CityId): Promise<PriceRecord[]> {
+async function fetchCityRecords(manifest: DataManifest, city: CityId, signal?: AbortSignal): Promise<PriceRecord[]> {
   try {
-    const payload = await fetchJson<unknown>(`${cityDataUrl(manifest, city)}?v=${encodeURIComponent(manifest.dataset_version)}`, { cache: "default" });
+    const payload = await fetchJson<unknown>(`${cityDataUrl(manifest, city)}?v=${encodeURIComponent(manifest.dataset_version)}`, { cache: "default", signal });
     return validatePublishedData(payload, manifest, { expectedRecordCount: manifest.city_record_counts[city], allowedCities: [city] });
   } catch (error) {
+    if (error instanceof Error && error.name === "AbortError" && signal?.aborted) throw error;
     const detail = error instanceof Error && error.name === "AbortError" ? "请求超时" : "暂时无法读取";
     throw new Error(`${CITY_NAMES[city]}趋势数据${detail}`);
   }
@@ -55,25 +61,32 @@ function App() {
   const [activeSection, setActiveSection] = useState("overview");
   const toastTimeoutRef = useRef<number | null>(null);
   const lastLoadedAtRef = useRef(0);
+  const loadControllerRef = useRef<AbortController | null>(null);
+  const loadGenerationRef = useRef(0);
   const cityMenuRef = useRef<HTMLDivElement>(null);
   const cityDialogRef = useRef<HTMLDivElement>(null);
   const cityTriggerRef = useRef<HTMLButtonElement>(null);
   const citySearchRef = useRef<HTMLInputElement>(null);
 
   const loadData = useCallback(async () => {
+    loadControllerRef.current?.abort();
+    const controller = new AbortController();
+    loadControllerRef.current = controller;
+    const generation = ++loadGenerationRef.current;
     setLoading(true);
     setLoadError(null);
     setTrendLoadError(null);
     try {
-      const manifest = validateManifest(await fetchJson<unknown>("/data/manifest.json", { cache: "no-store" }));
+      const manifest = validateManifest(await fetchJson<unknown>("/data/manifest.json", { cache: "no-store", signal: controller.signal }));
       const [overviewPayload, marketPayload, breadthPayload] = await Promise.all([
-        fetchJson<unknown>(`${manifest.overview_data_url}?v=${encodeURIComponent(manifest.dataset_version)}`, { cache: "default" }),
-        fetchJson<unknown>(`${manifest.market_data_url}?v=${encodeURIComponent(manifest.dataset_version)}`, { cache: "default" }),
-        manifest.schema_version === "1.3.0" ? fetchJson<unknown>(`${manifest.breadth_data_url}?v=${encodeURIComponent(manifest.dataset_version)}`, { cache: "default" }) : Promise.resolve(null),
+        fetchJson<unknown>(`${manifest.overview_data_url}?v=${encodeURIComponent(manifest.dataset_version)}`, { cache: "default", signal: controller.signal }),
+        fetchJson<unknown>(`${manifest.market_data_url}?v=${encodeURIComponent(manifest.dataset_version)}`, { cache: "default", signal: controller.signal }),
+        manifest.schema_version === "1.3.0" ? fetchJson<unknown>(`${manifest.breadth_data_url}?v=${encodeURIComponent(manifest.dataset_version)}`, { cache: "default", signal: controller.signal }) : Promise.resolve(null),
       ]);
       const overviewRecords = validatePublishedData(overviewPayload, manifest, { expectedRecordCount: manifest.overview_record_count, allowedCities: FEATURED_CITY_IDS });
       const marketRecords = validatePublishedData(marketPayload, manifest, { expectedRecordCount: manifest.market_record_count });
       const breadthRecords = breadthPayload ? validateMarketBreadthData(breadthPayload, manifest) : [];
+      if (generation !== loadGenerationRef.current) return;
       lastLoadedAtRef.current = Date.now();
       // 先展示首屏摘要；城市趋势分片在下一阶段加载，避免单个分片阻塞整个页面。
       setData({ manifest, overviewRecords, marketRecords, breadthRecords, cityRecords: {} });
@@ -81,22 +94,30 @@ function App() {
       const cities = viewRef.current.cities;
       if (cities.length === 0) return;
       setTrendLoading(true);
-      const cityResults = await Promise.allSettled(cities.map(async (city) => [city, await fetchCityRecords(manifest, city)] as const));
+      const cityResults = await Promise.allSettled(cities.map(async (city) => [city, await fetchCityRecords(manifest, city, controller.signal)] as const));
+      if (generation !== loadGenerationRef.current) return;
       const cityEntries = cityResults.filter((result): result is PromiseFulfilledResult<readonly [CityId, PriceRecord[]]> => result.status === "fulfilled");
       const failedCount = cityResults.length - cityEntries.length;
-      setData((current) => current ? { ...current, cityRecords: { ...current.cityRecords, ...Object.fromEntries(cityEntries.map((result) => result.value)) } } : current);
+      setData((current) => current?.manifest.dataset_version === manifest.dataset_version ? { ...current, cityRecords: { ...current.cityRecords, ...Object.fromEntries(cityEntries.map((result) => result.value)) } } : current);
       if (failedCount > 0) setTrendLoadError(failedCount === cities.length ? "趋势分片暂时无法读取" : `${failedCount}座城市的趋势分片暂时无法读取`);
     } catch (error) {
+      if (generation !== loadGenerationRef.current || controller.signal.aborted) return;
       setLoadError(error instanceof Error && error.name === "AbortError" ? "网络请求超时" : error instanceof Error ? error.message : "数据加载失败");
       setLoading(false);
     } finally {
-      setTrendLoading(false);
+      if (generation === loadGenerationRef.current) {
+        setTrendLoading(false);
+        if (loadControllerRef.current === controller) loadControllerRef.current = null;
+      }
     }
   }, []);
 
   useEffect(() => { viewRef.current = view; }, [view]);
   useEffect(() => { void loadData(); }, [loadData]);
-  useEffect(() => () => { if (toastTimeoutRef.current !== null) window.clearTimeout(toastTimeoutRef.current); }, []);
+  useEffect(() => () => {
+    loadControllerRef.current?.abort();
+    if (toastTimeoutRef.current !== null) window.clearTimeout(toastTimeoutRef.current);
+  }, []);
 
   useEffect(() => {
     const handleOnline = () => { setIsOffline(false); void loadData(); };
@@ -210,12 +231,14 @@ function App() {
   };
 
   const updateView = (next: ViewState) => {
+    viewRef.current = next;
     setView(next);
     writeViewState(next);
   };
 
   const ensureCityRecords = async (cities: CityId[]) => {
     if (!data) return;
+    const datasetVersion = data.manifest.dataset_version;
     const missing = cities.filter((city) => !data.cityRecords[city]);
     if (missing.length === 0) return;
     setTrendLoading(true);
@@ -223,7 +246,7 @@ function App() {
     try {
       const results = await Promise.allSettled(missing.map(async (city) => [city, await fetchCityRecords(data.manifest, city)] as const));
       const entries = results.filter((result): result is PromiseFulfilledResult<readonly [CityId, PriceRecord[]]> => result.status === "fulfilled").map((result) => result.value);
-      if (entries.length > 0) setData((current) => current ? { ...current, cityRecords: { ...current.cityRecords, ...Object.fromEntries(entries) } } : current);
+      if (entries.length > 0) setData((current) => current?.manifest.dataset_version === datasetVersion ? { ...current, cityRecords: { ...current.cityRecords, ...Object.fromEntries(entries) } } : current);
       const failedCount = results.length - entries.length;
       if (failedCount > 0) {
         const message = failedCount === missing.length ? "趋势分片暂时无法读取" : `${failedCount}座城市的趋势分片暂时无法读取`;
@@ -291,9 +314,13 @@ function App() {
   const breadthHistory = useMemo(() => data?.breadthRecords.filter((record) => record.property_type === view.propertyType && record.size_band === view.sizeBand && record.metric === view.metric).slice(-view.range) ?? [], [data, view.metric, view.propertyType, view.range, view.sizeBand]);
 
   const selectFocusCity = (focusCity: CityId) => {
-    const shouldAddToTrend = !view.cities.includes(focusCity) && view.cities.length < 3;
-    const nextCities = shouldAddToTrend ? [...view.cities, focusCity] : view.cities;
-    const apply = () => updateView({ ...view, cities: nextCities, focusCity });
+    const currentView = viewRef.current;
+    const shouldAddToTrend = !currentView.cities.includes(focusCity) && currentView.cities.length < 3;
+    const apply = () => {
+      const latestView = viewRef.current;
+      const cities = latestView.cities.includes(focusCity) || latestView.cities.length >= 3 ? latestView.cities : [...latestView.cities, focusCity];
+      updateView({ ...latestView, cities, focusCity });
+    };
     if (shouldAddToTrend) void ensureCityRecords([focusCity]).then(apply).catch((error) => showToast(error instanceof Error ? error.message : "城市数据加载失败"));
     else apply();
   };
@@ -318,18 +345,27 @@ function App() {
   }, [cityQuery]);
 
   const toggleCity = (city: CityId) => {
-    const isSelected = view.cities.includes(city);
-    if (!isSelected && view.cities.length >= 3) {
+    const currentView = viewRef.current;
+    const isSelected = currentView.cities.includes(city);
+    if (!isSelected && currentView.cities.length >= 3) {
       showToast("主图最多比较3座城市");
       return;
     }
     if (isSelected) {
-      const cities = view.cities.filter((item) => item !== city);
-      const focusCity = view.focusCity === city && cities.length > 0 ? cities[0] : view.focusCity;
-      updateView({ ...view, cities, focusCity });
+      const cities = currentView.cities.filter((item) => item !== city);
+      const focusCity = currentView.focusCity === city && cities.length > 0 ? cities[0] : currentView.focusCity;
+      updateView({ ...currentView, cities, focusCity });
       return;
     }
-    void ensureCityRecords([city]).then(() => updateView({ ...view, cities: [...view.cities, city], focusCity: city })).catch((error) => showToast(error instanceof Error ? error.message : "城市数据加载失败"));
+    void ensureCityRecords([city]).then(() => {
+      const latestView = viewRef.current;
+      if (latestView.cities.includes(city)) return;
+      if (latestView.cities.length >= 3) {
+        showToast("主图最多比较3座城市");
+        return;
+      }
+      updateView({ ...latestView, cities: [...latestView.cities, city], focusCity: city });
+    }).catch((error) => showToast(error instanceof Error ? error.message : "城市数据加载失败"));
   };
 
   const share = async () => {
@@ -509,7 +545,7 @@ function App() {
             ? <div className="chart-loading" role="status" aria-live="polite" aria-label="趋势数据加载中" aria-busy="true"><div className="skeleton skeleton-chart" /></div>
             : view.cities.length === 0
               ? <div className="chart-empty" role="region" aria-label="趋势图空状态"><div className="empty-chart-icon"><BarChart3 size={26} aria-hidden="true" /></div><strong>尚未选择趋势城市</strong><span aria-live="polite">添加城市后即可查看长期趋势和累计变化。</span><div className="empty-actions"><button type="button" className="outline-button" onClick={() => setShowCityMenu(true)}><Plus size={15} aria-hidden="true" />添加城市</button><button type="button" className="text-button" onClick={restoreDefaultCities}>恢复默认城市</button></div></div>
-             : <Suspense fallback={<div className="chart-loading" role="status" aria-live="polite" aria-label="正在加载图表组件" aria-busy="true"><div className="skeleton skeleton-chart" /></div>}><TrendChart records={selectedRecords} cities={view.cities} metric={view.metric} hasData={Boolean(data?.overviewRecords.length || selectedRecords.length)} loading={trendLoading} loadError={selectedRecords.length === 0 ? trendLoadError : null} onReset={resetView} /></Suspense>}
+              : <ChartErrorBoundary title="历史走势图" onRetry={() => window.location.reload()}><Suspense fallback={<div className="chart-loading" role="status" aria-live="polite" aria-label="正在加载图表组件" aria-busy="true"><div className="skeleton skeleton-chart" /></div>}><TrendChart records={selectedRecords} cities={view.cities} metric={view.metric} hasData={Boolean(data?.overviewRecords.length || selectedRecords.length)} loading={trendLoading} loadError={selectedRecords.length === 0 ? trendLoadError : null} onReset={resetView} /></Suspense></ChartErrorBoundary>}
         </section>
 
         <section className="method-section" id="data-notice" aria-labelledby="method-title">
@@ -612,6 +648,7 @@ function MarketPositionSection({ loading, position, marketCity, breadthHistory }
             <div><dt><i className="breadth-dot breadth-dot-down" />下跌</dt><dd>{position.counts.down}<small>城</small></dd></div>
           </dl>
           <p className="market-summary"><strong>{CITY_NAMES[marketCity]}</strong>位于70城第 <strong>{position.focus.rank}/{position.ranked.length}</strong> 位{position.focus.tied ? "（并列）" : ""}</p>
+          {position.counts.missing > 0 && <p className="market-note" role="status">另有{position.counts.missing}城当前指标缺失，未计入排名和涨平跌统计。</p>}
         </div>
 
         <div className="market-panel" role="group" aria-labelledby="tier-title">
@@ -630,7 +667,7 @@ function MarketPositionSection({ loading, position, marketCity, breadthHistory }
           </> : <div className="market-single-city"><strong>{CITY_NAMES[marketCity]}</strong><span>70城名单中，该省级区域仅收录本市，暂无省内横向比较。</span></div>}
           </div>
       </div> : <div className="market-empty" role="status">当前筛选缺少最新70城数据，请查看来源或稍后重试。</div>}
-    {!loading && breadthHistory.length > 0 && <Suspense fallback={<div className="breadth-history-loading skeleton" aria-label="70城温度走势加载中" />}><BreadthHistoryChart records={breadthHistory} /></Suspense>}
+    {!loading && breadthHistory.length > 0 && <ChartErrorBoundary title="70城温度走势" onRetry={() => window.location.reload()}><Suspense fallback={<div className="breadth-history-loading skeleton" aria-label="70城温度走势加载中" />}><BreadthHistoryChart records={breadthHistory} /></Suspense></ChartErrorBoundary>}
   </section>;
 }
 

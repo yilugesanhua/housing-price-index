@@ -16,6 +16,10 @@ const DEFAULT_EXCLUDES = [
   /(^|\/)(?:logs?|screenshots?|coverage|tmp|temp)\//i,
   /(^|\/)(?:\.DS_Store|.*\.swp|.*~)$/,
 ]
+const CANDIDATE_TOP_LEVEL_FILES = new Set(['app.js', 'app.json', 'app.wxss', 'package.json', 'project.config.json', 'sitemap.json'])
+const CANDIDATE_TOP_LEVEL_DIRECTORIES = new Set(['assets', 'cloudfunctions', 'config', 'data', 'miniprogram_npm', 'pages', 'styles', 'utils'])
+const DEVTOOLS_ALLOWED_EXTRA_FILES = new Set(['package-lock.json', 'project.private.config.json'])
+const DEVTOOLS_ALLOWED_EXTRA_PREFIXES = ['node_modules/']
 
 function fail(message) { throw new Error(`Deterministic candidate rejected: ${message}`) }
 
@@ -55,6 +59,15 @@ export function normalizeArchiveEntries(entries, { excludes = DEFAULT_EXCLUDES }
   for (let index = 1; index < normalized.length; index += 1) if (normalized[index - 1].path === normalized[index].path) fail(`duplicate archive path: ${normalized[index].path}`)
   if (normalized.length === 0) fail('archive contains no files')
   return normalized
+}
+
+export function assertCandidatePaths(entries) {
+  for (const entry of entries) {
+    const [topLevel, ...rest] = entry.path.split('/')
+    const allowed = rest.length === 0 ? CANDIDATE_TOP_LEVEL_FILES.has(topLevel) : CANDIDATE_TOP_LEVEL_DIRECTORIES.has(topLevel)
+    if (!allowed) fail(`file is outside the mini-program source whitelist: ${entry.path}`)
+  }
+  return entries
 }
 
 function u16(value) { const buffer = Buffer.alloc(2); buffer.writeUInt16LE(value); return buffer }
@@ -178,7 +191,7 @@ export async function parseGitEntries(root, sourceCommitSha) {
     if (header[1] !== 'blob') return null
     const { stdout: data } = await execFileAsync('git', ['show', `${sourceCommitSha}:${path}`], { cwd: root, encoding: 'buffer', maxBuffer: 50 * 1024 * 1024 })
     return { path: path.slice('apps/miniprogram/'.length), data }
-  })).then((items) => normalizeArchiveEntries(items.filter(Boolean)))
+  })).then((items) => assertCandidatePaths(normalizeArchiveEntries(items.filter(Boolean))))
 }
 
 async function gitValue(root, args) {
@@ -191,8 +204,22 @@ async function assertClean(root) {
   if (status) fail('working tree must be clean before candidate generation')
 }
 
-async function compareDevtools(root, entries, devtoolsRoot) {
+async function listFiles(rootPath, directory = rootPath) {
+  const files = []
+  for (const item of await readdir(directory, { withFileTypes: true })) {
+    const path = resolve(directory, item.name)
+    if (item.isDirectory()) files.push(...await listFiles(rootPath, path))
+    else if (item.isFile()) files.push(relative(rootPath, path).replaceAll('\\', '/'))
+  }
+  return files
+}
+
+export async function compareDevtools(root, entries, devtoolsRoot) {
   const rootPath = resolve(root, devtoolsRoot)
+  const expectedPaths = new Set(entries.map((entry) => entry.path))
+  const extraPaths = (await listFiles(rootPath)).filter((path) => !expectedPaths.has(path))
+  const unexpectedPaths = extraPaths.filter((path) => !DEVTOOLS_ALLOWED_EXTRA_FILES.has(path) && !DEVTOOLS_ALLOWED_EXTRA_PREFIXES.some((prefix) => path.startsWith(prefix)))
+  if (unexpectedPaths.length > 0) fail(`developer tools directory contains unexpected files: ${unexpectedPaths.sort().join(', ')}`)
   for (const entry of entries) {
     const target = resolve(rootPath, entry.path)
     const targetRelative = relative(rootPath, target)
