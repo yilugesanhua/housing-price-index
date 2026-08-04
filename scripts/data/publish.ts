@@ -6,6 +6,7 @@ import { atomicReplaceDirectory } from "./atomic-publish";
 import { validateAuditReport, type AuditReport } from "./audit-report";
 import { addOneMonth, deriveDataStatus } from "./status";
 import { hasRevisableRecordChange } from "./revision";
+import { sourceDatasetVersion } from "./source-identity";
 import { readBatches, validateRecords } from "./validate";
 import type { StandardRecord } from "./types";
 import { CITY_IDS, FEATURED_CITY_IDS, type CityId, type MarketBreadthPoint, type Metric, type PropertyType, type SizeBand } from "@housing/core";
@@ -78,6 +79,8 @@ if (errors.length > 0) {
   const recordsJson = JSON.stringify(sortedRecords);
   const shortHash = createHash("sha256").update(recordsJson).digest("hex").slice(0, 12);
   const datasetVersion = `${latestMonth}-${shortHash}`;
+  const existingRevisions = await readJson<RevisionRecord[]>(resolve(NORMALIZED_DIR, "revisions.json"), []);
+  const sourceVersion = sourceDatasetVersion(latestMonth, batches, existingRevisions);
   const generatedAt = new Date().toISOString();
   const latestBatch = batches.find((batch) => batch.source_batch.stat_month === latestMonth);
   const discovery = await readJson<{ checked_at?: string; historical_official_search_checked_at?: string }>(resolve("data", "discovered-official-pages.json"), {});
@@ -129,6 +132,7 @@ if (errors.length > 0) {
     dataset_as_of: latestMonth,
     schema_version: "1.3.0",
     dataset_version: datasetVersion,
+    source_dataset_version: sourceVersion,
     data_url: `/data/${dataFileName}`,
     overview_data_url: `/data/${overviewFileName}`,
     overview_record_count: overviewRecords.length,
@@ -161,7 +165,6 @@ if (errors.length > 0) {
 
   const oldPayload = await readJson<{ records?: StandardRecord[] }>(resolve(OUTPUT_DIR, "data.json"), {});
   const oldByKey = new Map((oldPayload.records ?? []).map((record) => [recordKey(record), record]));
-  const existingRevisions = await readJson<RevisionRecord[]>(resolve(NORMALIZED_DIR, "revisions.json"), []);
   const newRevisions: RevisionRecord[] = [];
   for (const record of sortedRecords) {
     const key = recordKey(record);
@@ -172,6 +175,7 @@ if (errors.length > 0) {
     const revisionId = createHash("sha256").update(`${key}|${JSON.stringify(previous)}|${JSON.stringify(record)}|${generatedAt}`).digest("hex");
     newRevisions.push({ revision_id: revisionId, record_key: key, previous_value: previous, revised_value: record, detected_at: generatedAt, source_batch_id: record.source_batch_id, reason: "official-source-record-changed-during-publish", supersedes_revision_id: prior?.revision_id ?? null });
   }
+  manifest.source_dataset_version = sourceDatasetVersion(latestMonth, batches, [...existingRevisions, ...newRevisions]);
 
   await rm(TEMP_DIR, { recursive: true, force: true });
   await mkdir(TEMP_DIR, { recursive: true });

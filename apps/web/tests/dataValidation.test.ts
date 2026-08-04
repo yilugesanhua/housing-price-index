@@ -65,12 +65,19 @@ describe("runtime published data validation", () => {
     expect(() => validateManifest({ ...manifest, market_record_count: 139 })).toThrow("市场快照记录数无效");
     expect(() => validateManifest({ ...manifest, city_data_url_template: "https://example.com/{city_id}.json" })).toThrow("城市数据文件地址无效");
     expect(() => validateManifest({ ...manifest, data_status: "unknown" })).toThrow("数据状态无效");
+    expect(() => validateManifest({ ...manifest, release_date: "2026-02-31" })).toThrow("发布日期或生成时间无效");
+    expect(() => validateManifest({ ...manifest, generated_at: "2026-02-31T00:00:00.000Z" })).toThrow("发布日期或生成时间无效");
+    expect(() => validateManifest({ ...manifest, latest_official_url: "https://example.com/source.html" })).toThrow("官方来源地址无效");
+    expect(() => validateManifest({ ...manifest, next_check_due_at: "not-a-time" })).toThrow("有效检查状态");
   });
 
   it("rejects malformed, inconsistent, and duplicate records", () => {
     expect(() => validatePublishedData({ dataset_version: manifest.dataset_version, records: [{ ...record, city_name: "错误城市" }] }, manifest)).toThrow("城市无效");
     expect(() => validatePublishedData({ dataset_version: manifest.dataset_version, records: [{ ...record, mom_change: 1.2 }] }, manifest)).toThrow("环比字段不一致");
     expect(() => validatePublishedData({ dataset_version: manifest.dataset_version, records: [record, record] }, { ...manifest, record_count: 2 })).toThrow("重复记录");
+    expect(() => validatePublishedData({ dataset_version: manifest.dataset_version, records: [{ ...record, release_date: "2026-02-31" }] }, manifest)).toThrow("月份或日期无效");
+    expect(() => validatePublishedData({ dataset_version: manifest.dataset_version, records: [{ ...record, source_url: "https://example.com/source.html" }] }, manifest)).toThrow("官方来源地址无效");
+    expect(() => validatePublishedData({ dataset_version: manifest.dataset_version, records: [{ ...record, fetched_at: "yesterday" }] }, manifest)).toThrow("抓取时间无效");
   });
 
   it("validates schema 1.3 breadth history", () => {

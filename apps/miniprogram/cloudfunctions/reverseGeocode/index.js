@@ -1,15 +1,44 @@
 const https = require('node:https')
+const REQUEST_TIMEOUT_MS = 5000
+const MAX_RESPONSE_BYTES = 64 * 1024
 
 function requestJson(url) {
   return new Promise((resolve, reject) => {
-    https.get(url, (response) => {
+    let settled = false
+    const succeed = (value) => { if (!settled) { settled = true; resolve(value) } }
+    const fail = (error) => { if (!settled) { settled = true; reject(error) } }
+    const request = https.get(url, (response) => {
+      if (response.statusCode !== 200) {
+        response.resume()
+        fail(new Error(`Reverse geocoding HTTP status ${response.statusCode || 'unknown'}`))
+        return
+      }
+      const declaredLength = Number(response.headers['content-length'])
+      if (Number.isFinite(declaredLength) && declaredLength > MAX_RESPONSE_BYTES) {
+        response.resume()
+        fail(new Error('Reverse geocoding response is too large'))
+        return
+      }
       let body = ''
+      let receivedBytes = 0
       response.setEncoding('utf8')
-      response.on('data', (chunk) => { body += chunk })
-      response.on('end', () => {
-        try { resolve(JSON.parse(body)) } catch (error) { reject(error) }
+      response.on('data', (chunk) => {
+        receivedBytes += Buffer.byteLength(chunk, 'utf8')
+        if (receivedBytes > MAX_RESPONSE_BYTES) {
+          fail(new Error('Reverse geocoding response is too large'))
+          response.destroy()
+          return
+        }
+        body += chunk
       })
-    }).on('error', reject)
+      response.on('end', () => {
+        if (settled) return
+        try { succeed(JSON.parse(body)) } catch (error) { fail(error) }
+      })
+      response.on('error', fail)
+    })
+    request.setTimeout(REQUEST_TIMEOUT_MS, () => request.destroy(new Error('Reverse geocoding request timed out')))
+    request.on('error', fail)
   })
 }
 

@@ -50,7 +50,7 @@ export function validateHistoricalCorrection({ request, previousData, currentDat
   if (!/^[a-f0-9]{40}$/.test(request?.baseline_commit_sha || '')) throw new Error('correction baseline commit SHA is invalid')
   validateCorrectionDescriptor(request, {
     datasetAsOf: currentData?.records?.reduce((latest, item) => item.stat_month > latest ? item.stat_month : latest, ''),
-    datasetVersion: currentData?.dataset_version,
+    sourceDatasetVersion: currentData?.dataset_version,
   })
   if (previousData?.dataset_version !== request.supersedes_source_dataset_version) throw new Error('baseline dataset version does not match superseded source')
   if (currentData?.dataset_version !== request.source_dataset_version) throw new Error('candidate dataset version does not match correction source')

@@ -4,7 +4,7 @@ import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import * as cheerio from "cheerio";
 import { detectOfficialMetadata, normalizeCityName, recordKey } from "./official-parser";
-import { FULL_RECORD_AUDIT_METHOD, FULL_RECORD_AUDIT_VERSION } from "./audit-report";
+import { FULL_RECORD_AUDIT_METHOD, FULL_RECORD_AUDIT_VERSION, recordsSha256, sourceIndexSha256, type AuditReport } from "./audit-report";
 import { TARGET_CITIES, type ParsedBatch, type StandardRecord } from "./types";
 import { validateRecords } from "./validate";
 import { readRawArchiveSync } from "./raw-archive";
@@ -156,26 +156,43 @@ function auditBatch(path: string): AuditedBatch {
   }
 }
 
+const AUDIT_CHECKS = ["raw SHA-256", "official URL allowlist", "title month", "release date", "record schema", "complete city/property/size-band keys", "independent source table type", "all-size versus size-band table", "source locator resolution", "raw source cell equality", "audited record SHA-256", "source index SHA-256"];
+
+function buildAuditReport(batches: ParsedBatch[], verifiedAt: string): AuditReport {
+  const months = batches.map(({ source_batch }) => source_batch.stat_month).sort();
+  const records = batches.flatMap((batch) => batch.records);
+  return {
+    schema_version: 2,
+    audit_version: FULL_RECORD_AUDIT_VERSION,
+    verified_at: verifiedAt,
+    verification_method: FULL_RECORD_AUDIT_METHOD,
+    batch_count: batches.length,
+    record_count: records.length,
+    records_sha256: recordsSha256(records),
+    source_index_sha256: sourceIndexSha256(batches),
+    coverage_start: months[0] ?? null,
+    coverage_end: months.at(-1) ?? null,
+    checks: AUDIT_CHECKS,
+    result: "passed",
+    batches: batches.map((batch) => ({
+      source_batch_id: batch.source_batch.source_batch_id,
+      stat_month: batch.source_batch.stat_month,
+      raw_content_sha256: batch.source_batch.raw_content_sha256,
+      records_sha256: recordsSha256(batch.records),
+      records_checked: batch.records.length,
+      result: "passed",
+    })),
+  };
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {
 const requestedPath = process.argv[2];
 const allPaths = globSync("data/raw/**/*.batch.json").sort();
 if (requestedPath === "--report-only") {
   const batches = allPaths.map((path) => JSON.parse(readFileSync(path, "utf8")) as ParsedBatch);
-  const invalid = batches.filter(({ source_batch }) => source_batch.verification_status !== "verified" || source_batch.verification_method !== FULL_RECORD_AUDIT_METHOD);
+  const invalid = batches.filter(({ source_batch, records }) => source_batch.verification_status !== "verified" || source_batch.verification_method !== FULL_RECORD_AUDIT_METHOD || !source_batch.audited_records_sha256 || source_batch.audited_records_sha256 !== recordsSha256(records));
   if (invalid.length > 0) throw new Error(`Cannot summarize audit: ${invalid.length} batch(es) lack current verification`);
-  const months = batches.map(({ source_batch }) => source_batch.stat_month).sort();
-  const report = {
-    audit_version: FULL_RECORD_AUDIT_VERSION,
-    verified_at: new Date().toISOString(),
-    verification_method: FULL_RECORD_AUDIT_METHOD,
-    batch_count: batches.length,
-    record_count: batches.reduce((sum, batch) => sum + batch.records.length, 0),
-    coverage_start: months[0] ?? null,
-    coverage_end: months.at(-1) ?? null,
-    checks: ["raw SHA-256", "official URL allowlist", "title month", "release date", "record schema", "complete city/property/size-band keys", "independent source table type", "all-size versus size-band table", "source locator resolution", "raw source cell equality"],
-    result: "passed",
-    batches: batches.map((batch) => ({ source_batch_id: batch.source_batch.source_batch_id, stat_month: batch.source_batch.stat_month, raw_content_sha256: batch.source_batch.raw_content_sha256, records_checked: batch.records.length, result: "passed" })),
-  };
+  const report = buildAuditReport(batches, new Date().toISOString());
   writeJsonAtomicallySync(resolve("data", "audit-report.json"), report);
   console.log(`Summarized ${report.record_count} verified records across ${report.batch_count} batches`);
   process.exit(0);
@@ -184,7 +201,6 @@ const paths = requestedPath ? [requestedPath] : allPaths;
 if (paths.length === 0) throw new Error("No raw source batches found for full-record audit");
 const orderedPaths = paths.sort();
 console.log(`Auditing ${orderedPaths.length} raw source batches`);
-const batchSummaries: Array<{ source_batch_id: string; stat_month: string; raw_content_sha256: string; records_checked: number; result: "passed" }> = [];
 const errorSamples: string[] = [];
 let errorCount = 0;
 let recordCount = 0;
@@ -193,13 +209,6 @@ for (const [index, path] of orderedPaths.entries()) {
   errorCount += item.errors.length;
   if (errorSamples.length < 50) errorSamples.push(...item.errors.slice(0, 50 - errorSamples.length));
   recordCount += item.parsed.records.length;
-  batchSummaries.push({
-    source_batch_id: item.parsed.source_batch.source_batch_id,
-    stat_month: item.parsed.source_batch.stat_month,
-    raw_content_sha256: item.parsed.source_batch.raw_content_sha256,
-    records_checked: item.parsed.records.length,
-    result: "passed",
-  });
   (globalThis as typeof globalThis & { gc?: () => void }).gc?.();
   if ((index + 1) % 10 === 0 || index + 1 === orderedPaths.length) console.log(`Audited ${index + 1}/${orderedPaths.length} batches`);
 }
@@ -214,24 +223,14 @@ if (errorCount > 0) {
     const parsed = JSON.parse(readFileSync(path, "utf8")) as ParsedBatch;
     parsed.source_batch.verification_status = "verified";
     parsed.source_batch.verification_method = FULL_RECORD_AUDIT_METHOD;
+    parsed.source_batch.audited_records_sha256 = recordsSha256(parsed.records);
     writeJsonAtomicallySync(path, parsed);
   }
   if (requestedPath) {
     console.log(`Verified ${recordCount} records in ${requestedPath}`);
   } else {
-  const months = batchSummaries.map((item) => item.stat_month).sort();
-  const report = {
-    audit_version: FULL_RECORD_AUDIT_VERSION,
-    verified_at: verifiedAt,
-    verification_method: FULL_RECORD_AUDIT_METHOD,
-    batch_count: batchSummaries.length,
-    record_count: recordCount,
-    coverage_start: months[0] ?? null,
-    coverage_end: months.at(-1) ?? null,
-    checks: ["raw SHA-256", "official URL allowlist", "title month", "release date", "record schema", "complete city/property/size-band keys", "independent source table type", "all-size versus size-band table", "source locator resolution", "raw source cell equality"],
-    result: "passed",
-    batches: batchSummaries,
-  };
+  const verifiedBatches = orderedPaths.map((path) => JSON.parse(readFileSync(path, "utf8")) as ParsedBatch);
+  const report = buildAuditReport(verifiedBatches, verifiedAt);
   writeJsonAtomicallySync(resolve("data", "audit-report.json"), report);
   console.log(`Verified ${report.record_count} records across ${report.batch_count} batches (${report.coverage_start} to ${report.coverage_end})`);
   }

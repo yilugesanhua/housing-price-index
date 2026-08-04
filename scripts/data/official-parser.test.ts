@@ -90,6 +90,11 @@ describe("official HTML parser", () => {
     expect(parsed.records.find((record) => record.city_id === "shenzhen" && record.property_type === "resale")).toMatchObject({ mom_index: 101.3, yoy_index: 103 });
     expect(parsed.records.every((record) => record.ytd_missing_reason === "not-published-for-this-table")).toBe(true);
   });
+  it("没有可信发布日期时失败关闭", () => {
+    const html = "<title>2026年6月份70个大中城市商品住宅销售价格变动情况</title>";
+    expect(() => detectOfficialMetadata(html, "https://www.stats.gov.cn/sj/zxfb/202606/example.html")).toThrow(/无法从官方页面识别发布日期/);
+  });
+
   it.each([
     { productFirst: false, expectedTable: 1 },
     { productFirst: true, expectedTable: 0 },

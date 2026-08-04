@@ -273,7 +273,11 @@ function createWxMock(release, options = {}) {
 }
 
 function correctionRelease() {
-  const corrected = { ...bundled, datasetVersion: '2026-06-222222222222' }
+  const corrected = {
+    ...bundled,
+    datasetVersion: '2026-06-222222222222',
+    sourceDatasetVersion: '2026-06-333333333333',
+  }
   const release = buildRemoteRelease(corrected, {
     cloudEnvId: config.cloudEnvId,
     storageBucket: config.storageBucket,
@@ -282,8 +286,8 @@ function correctionRelease() {
     sourceBatchIds: ['official-html-test-corrected'],
     correction: {
       revision_id: 'revision-2026-06-audited-fix', revision_type: 'historical_data_correction', approval_status: 'approved',
-      dataset_as_of: '2026-06', supersedes_source_dataset_version: bundled.datasetVersion, source_dataset_version: corrected.datasetVersion,
-      source_version_chain: [bundled.datasetVersion, corrected.datasetVersion], revoked_source_dataset_versions: [bundled.datasetVersion],
+      dataset_as_of: '2026-06', supersedes_source_dataset_version: bundled.sourceDatasetVersion, source_dataset_version: corrected.sourceDatasetVersion,
+      source_version_chain: [bundled.sourceDatasetVersion, corrected.sourceDatasetVersion], revoked_source_dataset_versions: [bundled.sourceDatasetVersion],
       reason: '国家统计局官方原始表经全量复核后的历史数据修订', official_urls: ['https://www.stats.gov.cn/source'],
       source_batch_ids: ['official-html-test-corrected'], parser_version: 'official-html-v7-product-housing-only', audit_version: 'full-record-audit-v4',
       audit_report_sha256: 'a'.repeat(64), commit_sha: 'b'.repeat(40), github_run_id: '12345',
@@ -298,7 +302,7 @@ function correctionRelease() {
     createRevocationRegistry({ generatedAt: '2026-07-20T00:00:00.000Z' }),
     {
       datasetVersion: bundled.datasetVersion,
-      sourceDatasetVersion: bundled.datasetVersion,
+      sourceDatasetVersion: bundled.sourceDatasetVersion,
       revokedAt: '2026-07-20T00:15:00.000Z',
       revisionId,
       replacementDatasetVersion: release.current.dataset_version,
@@ -310,7 +314,7 @@ function correctionRelease() {
     registry,
     transitionType: 'historical_correction',
     supersededDatasetVersion: bundled.datasetVersion,
-    supersededSourceDatasetVersion: bundled.datasetVersion,
+    supersededSourceDatasetVersion: bundled.sourceDatasetVersion,
   })
 }
 
@@ -320,6 +324,7 @@ function nextMonthSnapshot() {
   snapshot.releaseDates = [...snapshot.releaseDates.slice(1), '2026-08-17']
   snapshot.datasetAsOf = '2026-07'
   snapshot.datasetVersion = '2026-07-111111111111'
+  snapshot.sourceDatasetVersion = '2026-07-111111111111'
   snapshot.releaseDate = '2026-08-17'
   snapshot.coverageStart = snapshot.months[0]
   return snapshot
@@ -345,6 +350,7 @@ function snapshotForMonth(datasetAsOf, sourceHash) {
     releaseDates,
     datasetAsOf,
     datasetVersion: `${datasetAsOf}-${sourceHash}`,
+    sourceDatasetVersion: `${datasetAsOf}-${sourceHash}`,
     releaseDate: `${releaseDate.toISOString().slice(0, 7)}-17`,
     coverageStart: months[0],
   }
@@ -559,7 +565,11 @@ test('a bundled snapshot accepts only null padding before a later in-window sour
 })
 
 test('same-month remote conflicts cannot replace the audited bundled snapshot or hydrate from cache', async () => {
-  const conflictingSnapshot = { ...bundled, datasetVersion: '2026-06-000000000000' }
+  const conflictingSnapshot = {
+    ...bundled,
+    datasetVersion: '2026-06-000000000000',
+    sourceDatasetVersion: '2026-06-000000000000',
+  }
   const release = makeRelease(versionConfig.version, conflictingSnapshot)
   const mock = createWxMock(release)
   const runtime = createDataRuntime({ wxApi: mock.wxApi, bundled })
@@ -577,6 +587,32 @@ test('same-month remote conflicts cannot replace the audited bundled snapshot or
   assert.equal(restored.getSnapshot().datasetVersion, bundled.datasetVersion)
 })
 
+test('an older same-source remote package and cache quietly keep the newer bundled package', async () => {
+  const olderSnapshot = {
+    ...bundled,
+    generatedAt: new Date(Date.parse(bundled.generatedAt) - 60_000).toISOString(),
+  }
+  const release = makeRelease(versionConfig.version, olderSnapshot)
+  const directMock = createWxMock(release)
+  const direct = createDataRuntime({ wxApi: directMock.wxApi, bundled })
+  const result = await direct.refresh({ force: true })
+
+  assert.equal(result.updated, false)
+  assert.equal(result.reason, 'bundled-source-is-newer')
+  assert.equal(direct.getSource(), 'bundled')
+  assert.equal(runtimeState(directMock).active, null)
+
+  const cacheMock = createWxMock(release)
+  const olderRuntime = createDataRuntime({ wxApi: cacheMock.wxApi, bundled: olderSnapshot })
+  assert.equal((await olderRuntime.refresh({ force: true })).updated, true)
+  assert.equal(olderRuntime.getSource(), 'remote')
+
+  const restored = createDataRuntime({ wxApi: cacheMock.wxApi, bundled })
+  assert.equal(restored.getSource(), 'bundled')
+  assert.equal(restored.getSnapshot().datasetVersion, bundled.datasetVersion)
+  assert.equal(runtimeState(cacheMock).active, null)
+})
+
 test('same-month conflict is rejected against a newer active remote month, not only against bundled data', async () => {
   const newer = structuredClone(bundled)
   newer.months = [...newer.months.slice(1), '2026-07']
@@ -584,13 +620,18 @@ test('same-month conflict is rejected against a newer active remote month, not o
   newer.releaseDates = [...newer.releaseDates.slice(1), '2026-08-17']
   newer.datasetAsOf = '2026-07'
   newer.datasetVersion = '2026-07-111111111111'
+  newer.sourceDatasetVersion = '2026-07-111111111111'
   newer.releaseDate = '2026-08-17'
   const first = makeRelease(versionConfig.version, newer)
   const mock = createWxMock(first)
   const runtime = createDataRuntime({ wxApi: mock.wxApi, bundled })
   assert.equal((await runtime.refresh({ force: true })).updated, true)
 
-  const conflicting = { ...newer, datasetVersion: '2026-07-222222222222' }
+  const conflicting = {
+    ...newer,
+    datasetVersion: '2026-07-222222222222',
+    sourceDatasetVersion: '2026-07-222222222222',
+  }
   const second = makeRelease(versionConfig.version, conflicting)
   const secondMock = createWxMock(second, { files: mock.files, storage: mock.storage })
   const restored = createDataRuntime({ wxApi: secondMock.wxApi, bundled })
@@ -607,7 +648,7 @@ test('valid same-month audited correction activates atomically and revokes the s
   assert.equal(result.updated, true)
   assert.equal(runtime.getSource(), 'remote')
   assert.equal(mock.stats.downloads, 4)
-  assert.deepEqual(runtimeState(mock).control.revokedSourceDatasetVersions, [bundled.datasetVersion])
+  assert.deepEqual(runtimeState(mock).control.revokedSourceDatasetVersions, [bundled.sourceDatasetVersion])
   assert.equal(runtimeState(mock).active.cachedCityIds.length, 70)
   const restored = createDataRuntime({ wxApi: mock.wxApi, bundled })
   assert.equal(restored.getSource(), 'remote')
@@ -632,7 +673,7 @@ test('broken correction chains, damaged revision manifests, and revoked downgrad
 
   const monthly = makeRelease()
   const revoked = createWxMock(monthly)
-  revoked.storage.set(REVOKED_SOURCES_KEY, [bundled.datasetVersion])
+  revoked.storage.set(REVOKED_SOURCES_KEY, [bundled.sourceDatasetVersion])
   const revokedRuntime = createDataRuntime({ wxApi: revoked.wxApi, bundled })
   assert.equal(revokedRuntime.getSource(), 'unavailable')
   assert.equal(revokedRuntime.getSnapshot().dataStatus, 'unavailable')
@@ -958,7 +999,7 @@ test('a malformed or unreadable tombstone cannot remove revocations from the mai
   const original = createWxMock(correction)
   const originalRuntime = createDataRuntime({ wxApi: original.wxApi, bundled })
   assert.equal((await originalRuntime.refresh({ force: true })).updated, true)
-  assert.deepEqual(runtimeState(original).control.revokedSourceDatasetVersions, [bundled.datasetVersion])
+  assert.deepEqual(runtimeState(original).control.revokedSourceDatasetVersions, [bundled.sourceDatasetVersion])
 
   const cases = [
     ['missing revocation', (storage) => {
@@ -989,7 +1030,7 @@ test('a malformed or unreadable tombstone cannot remove revocations from the mai
       const runtime = createDataRuntime({ wxApi: mock.wxApi, bundled })
       assert.equal(runtime.getSource(), 'unavailable')
       assert.equal(runtime.getSnapshot().dataStatus, 'unavailable')
-      assert.deepEqual(storage.get(STATE_KEY).control.revokedSourceDatasetVersions, [bundled.datasetVersion])
+      assert.deepEqual(storage.get(STATE_KEY).control.revokedSourceDatasetVersions, [bundled.sourceDatasetVersion])
     })
   }
 
@@ -1062,7 +1103,7 @@ test('a newly revoked bundled source becomes unavailable immediately when its re
   assert.equal(runtime.getSource(), 'unavailable')
   assert.equal(runtime.getSnapshot().dataStatus, 'unavailable')
   assert.equal(runtimeState(mock).status, 'pending-rollback')
-  assert.deepEqual(runtimeState(mock).control.revokedSourceDatasetVersions, [bundled.datasetVersion])
+  assert.deepEqual(runtimeState(mock).control.revokedSourceDatasetVersions, [bundled.sourceDatasetVersion])
 })
 
 test('an ordinary older pointer cannot masquerade as a rollback after verified control state exists', async () => {
@@ -1234,7 +1275,7 @@ test('a known bundled revocation remains unavailable while offline even after co
     registry: correctedRelease.revocationArtifact.registry,
     transitionType: 'historical_correction',
     supersededDatasetVersion: bundled.datasetVersion,
-    supersededSourceDatasetVersion: bundled.datasetVersion,
+    supersededSourceDatasetVersion: bundled.sourceDatasetVersion,
     ...controlWindow(now),
   })
   const mock = createWxMock(correctedRelease, { receiptNow: now })

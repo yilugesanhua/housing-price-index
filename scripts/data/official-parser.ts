@@ -4,7 +4,7 @@ import * as cheerio from "cheerio";
 import type { CityId, PropertyType, SizeBand } from "../../packages/core/src/index";
 import { TARGET_CITIES, type ParsedBatch, type SourceBatch, type StandardRecord } from "./types";
 
-export const PARSER_VERSION = "official-html-v7-product-housing-only";
+export const PARSER_VERSION = "official-html-v8-product-housing-only-strict-release-date";
 export const SCHEMA_VERSION = "1.0.0";
 
 const cityByNormalizedName = new Map<string, CityId>(
@@ -21,7 +21,7 @@ function parseMonth(text: string): string {
   return `${match[1]}-${match[2].padStart(2, "0")}`;
 }
 
-function parseReleaseDate($: cheerio.CheerioAPI, sourceUrl: string, statMonth: string): string {
+function parseReleaseDate($: cheerio.CheerioAPI, sourceUrl: string): string {
   const meta = $("meta[name=PubDate], meta[name=publishdate], meta[name=ArticleDate]").attr("content");
   const fromMeta = meta?.match(/20\d{2}[-/]\d{1,2}[-/]\d{1,2}/)?.[0];
   if (fromMeta) return fromMeta.replaceAll("/", "-");
@@ -29,7 +29,7 @@ function parseReleaseDate($: cheerio.CheerioAPI, sourceUrl: string, statMonth: s
   if (visibleDate) return visibleDate.replaceAll("/", "-");
   const fromUrl = sourceUrl.match(/t(20\d{6})(?:_|\.)/i)?.[1];
   if (fromUrl) return `${fromUrl.slice(0, 4)}-${fromUrl.slice(4, 6)}-${fromUrl.slice(6, 8)}`;
-  return `${statMonth}-01`;
+  throw new Error(`无法从官方页面识别发布日期: ${sourceUrl}`);
 }
 
 export function detectOfficialMetadata(html: string, sourceUrl: string): { statMonth: string; releaseDate: string } {
@@ -38,7 +38,7 @@ export function detectOfficialMetadata(html: string, sourceUrl: string): { statM
     ?? $("h1, h2, .xxgkNbXq2").toArray().map((node) => $(node).text().replace(/\s+/g, " ").trim()).find((value) => /20\d{2}年\s*\d{1,2}月/.test(value))
     ?? $("title").text();
   const statMonth = parseMonth(title);
-  return { statMonth, releaseDate: parseReleaseDate($, sourceUrl, statMonth) };
+  return { statMonth, releaseDate: parseReleaseDate($, sourceUrl) };
 }
 
 function parseIndex(value: string | undefined): { value: number | null; reason: string | null } {
