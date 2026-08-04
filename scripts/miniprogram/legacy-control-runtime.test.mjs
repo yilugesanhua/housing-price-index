@@ -399,6 +399,25 @@ test('the current same-source bundled package quietly supersedes the older legac
   ])
 })
 
+test('the legacy supersession exception requires the exact bundled identity', async () => {
+  const release = migrationRelease()
+  const alteredBundled = {
+    ...clone(bundled),
+    datasetVersion: '2026-06-aaaaaaaaaaaa',
+  }
+  const mock = createWxMock(release, { now: DEFAULT_NOW })
+  const runtime = createDataRuntime({ wxApi: mock.wxApi, bundled: alteredBundled, now: () => DEFAULT_NOW })
+
+  const result = await runtime.refresh({ force: true })
+
+  assert.equal(result.reason, 'failed')
+  assert.equal(runtime.getSource(), 'bundled')
+  assert.deepEqual(mock.stats.downloadFileIds, [
+    release.revocationArtifact.cloudFileId,
+    release.current.manifest_file_id,
+  ])
+})
+
 test('exact migration first install remains bundled until the complete 70-city package is verified and atomically activated', async () => {
   const release = migrationRelease()
   const bootstrapGate = createDownloadGate()

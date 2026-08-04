@@ -52,6 +52,7 @@ test('all monthly and correction publishing workflows immediately select only th
     'monthly-data-pending-publish',
     'manual-corrected-data-publish',
     'historical-data-correction',
+    'complete-history-data-publish',
   ]) {
     const result = selectMonitorTarget([releaseA, releaseB], {
       eventName: 'workflow_run',

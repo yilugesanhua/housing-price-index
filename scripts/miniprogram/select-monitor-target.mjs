@@ -15,6 +15,7 @@ const MONITORED_WORKFLOWS = new Set([
   'monthly-data-pending-publish',
   'manual-corrected-data-publish',
   'historical-data-correction',
+  'complete-history-data-publish',
   'manual-data-rollback',
 ])
 const WINDOW_MS = 24 * 60 * 60 * 1000

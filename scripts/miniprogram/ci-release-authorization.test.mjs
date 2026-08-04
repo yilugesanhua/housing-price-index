@@ -161,3 +161,15 @@ test('accepts only an attested generic historical correction workflow', () => {
   assert.throws(() => validateCiReleaseAuthorization({ env: { ...env, AUTOMATIC_RELEASE_ENABLED: 'false' }, datasetVersion, cloudEnvId, gateReportText: text, checkedOutSha: env.CI_COMMIT_SHA }), /repository automatic release flag mismatch/)
   assert.throws(() => validateCiReleaseAuthorization({ env: { ...env, PRODUCTION_RELEASE_AUTHORIZED: 'false' }, datasetVersion, cloudEnvId, gateReportText: text, checkedOutSha: env.CI_COMMIT_SHA }), /production environment authorization mismatch/)
 })
+
+test('accepts only the dedicated complete-history workflow with a 180-month snapshot attestation', () => {
+  const completeGate = {
+    status: 'passed', gate_type: 'complete_history_release', dataset_version: datasetVersion, source_dataset_version: '2026-06-222222222222', cloud_env_id: cloudEnvId,
+    commit_sha: validEnv.CI_COMMIT_SHA, github_run_id: validEnv.GITHUB_RUN_ID, remote_schema_version: '2.0.0', coverage_start: '2011-07', month_count: 180, complete_snapshot_sha256: 'c'.repeat(64),
+  }
+  const text = `${JSON.stringify(completeGate)}\n`
+  const env = { ...validEnv, GITHUB_EVENT_NAME: 'workflow_dispatch', GITHUB_WORKFLOW: 'complete-history-data-publish', GITHUB_WORKFLOW_REF: 'owner/repo/.github/workflows/complete-history-data-publish.yml@refs/heads/main', CI_GATE_REPORT_SHA256: sha256(text), CI_COMPLETE_SNAPSHOT_SHA256: completeGate.complete_snapshot_sha256 }
+  assert.equal(validateCiReleaseAuthorization({ env, datasetVersion, cloudEnvId, gateReportText: text, checkedOutSha: env.CI_COMMIT_SHA }).gate_type, 'complete_history_release')
+  assert.throws(() => validateCiReleaseAuthorization({ env: { ...env, CI_COMPLETE_SNAPSHOT_SHA256: '0'.repeat(64) }, datasetVersion, cloudEnvId, gateReportText: text, checkedOutSha: env.CI_COMMIT_SHA }), /snapshot SHA-256 mismatch/)
+  assert.throws(() => validateCiReleaseAuthorization({ env: { ...env }, datasetVersion, cloudEnvId, gateReportText: `${JSON.stringify({ ...completeGate, month_count: 120 })}\n`, checkedOutSha: env.CI_COMMIT_SHA }), /gate report SHA-256 mismatch/)
+})

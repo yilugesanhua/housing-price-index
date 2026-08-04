@@ -131,6 +131,23 @@ describe("official HTML parser", () => {
     });
   });
 
+  it("recognizes legacy second-row table titles and city footnote markers", () => {
+    const html = `
+      <html><head><meta name="ArticleTitle" content="2011年10月份70个大中城市住宅销售价格变动情况"><meta name="PubDate" content="2011-11-18"></head><body>
+        <table><tr><th colspan="6">表2</th></tr><tr><th>城市</th><th colspan="2">新建商品住宅价格指数</th><th>城市</th><th colspan="2">新建商品住宅价格指数</th></tr><tr><th></th><th>环比</th><th>同比</th><th></th><th>环比</th><th>同比</th></tr><tr><td>北京*</td><td>99.9</td><td>102.2</td><td>上海</td><td>100.0</td><td>101.0</td></tr></table>
+        <table><tr><th colspan="6">表3</th></tr><tr><th>城市</th><th colspan="2">二手住宅价格指数</th><th>城市</th><th colspan="2">二手住宅价格指数</th></tr><tr><th></th><th>环比</th><th>同比</th><th></th><th>环比</th><th>同比</th></tr><tr><td>北京</td><td>99.5</td><td>100.4</td><td>上海</td><td>100.1</td><td>101.1</td></tr></table>
+      </body></html>`;
+    const parsed = parseOfficialHtml(html, {
+      ...sourceBatch,
+      source_batch_id: "official-html-2011-10-legacy-table-heading",
+      stat_month: "2011-10",
+      release_date: "2011-11-18",
+    });
+    expect(parsed.records).toHaveLength(4);
+    expect(parsed.records.find((record) => record.property_type === "new")).toMatchObject({ city_id: "beijing", mom_index: 99.9, yoy_index: 102.2 });
+    expect(parsed.records.find((record) => record.property_type === "resale")).toMatchObject({ city_id: "beijing", mom_index: 99.5, yoy_index: 100.4 });
+  });
+
   it("rejects conflicting duplicate records from otherwise allowed tables", () => {
     const table = (mom: string) => `
       <table>

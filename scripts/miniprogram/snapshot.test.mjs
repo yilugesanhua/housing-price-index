@@ -9,6 +9,7 @@ import { runInNewContext } from 'node:vm'
 const root = resolve(import.meta.dirname, '../..')
 const require = createRequire(import.meta.url)
 const snapshotPath = resolve(root, 'apps/miniprogram/data/snapshot.js')
+const publishedManifest = JSON.parse(readFileSync(resolve(root, 'apps/web/public/data/manifest.json'), 'utf8'))
 
 function loadPageConfig(relativePath) {
   let pageConfig
@@ -106,7 +107,7 @@ test('mini program snapshot covers 70 cities and 120 months', async () => {
   assert.equal(snapshot.months.length, 120)
   assert.equal(snapshot.months.at(-1), snapshot.datasetAsOf)
   assert.match(snapshot.datasetVersion, /^2026-06-[a-f0-9]{12}$/)
-  assert.equal(snapshot.sourceDatasetVersion, '2026-06-4fd1d1a8ff12')
+  assert.equal(snapshot.sourceDatasetVersion, publishedManifest.source_dataset_version)
   assert.equal(snapshot.coverageStart, snapshot.months[0])
   assert.match(snapshot.sourceCoverageStart, /^20\d{2}-(0[1-9]|1[0-2])$/)
   assert.ok(snapshot.sourceCoverageStart <= snapshot.coverageStart)

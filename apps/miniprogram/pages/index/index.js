@@ -8,13 +8,13 @@ const LABELS = {
   metric: { mom: '环比', yoy: '同比' },
   property: { new: '新房', resale: '二手房' },
   size: { all: '全部面积', le90: '90㎡及以下', '90_144': '90–144㎡', gt144: '144㎡以上' },
-  range: { 36: '近3年', 60: '近5年', 120: '近10年' },
+  range: { 36: '近3年', 60: '近5年', 120: '近10年', 180: '近15年' },
 }
 const OPTIONS = {
   metric: [{ value: 'mom', label: '环比' }, { value: 'yoy', label: '同比' }],
   property: [{ value: 'new', label: '新房' }, { value: 'resale', label: '二手房' }],
   size: [{ value: 'all', label: '全部面积' }, { value: 'le90', label: '90㎡及以下' }, { value: '90_144', label: '90–144㎡' }, { value: 'gt144', label: '144㎡以上' }],
-  range: [{ value: 36, label: '近3年' }, { value: 60, label: '近5年' }, { value: 120, label: '近10年' }],
+  range: [{ value: 36, label: '近3年' }, { value: 60, label: '近5年' }, { value: 120, label: '近10年' }, { value: 180, label: '近15年' }],
 }
 let LOCATION_CITY_IDS = [...snapshot.cityIds].sort((left, right) => left.localeCompare(right, 'en'))
 const SERIES_COLORS = ['#176c79', '#2f6fbb', '#9b5b2f']
@@ -214,10 +214,14 @@ function normalizeState(candidate) {
   if (candidate && ['mom', 'yoy'].includes(candidate.metric)) state.metric = candidate.metric
   if (candidate && ['new', 'resale'].includes(candidate.propertyType)) state.propertyType = candidate.propertyType
   if (candidate && ['all', 'le90', '90_144', 'gt144'].includes(candidate.sizeBand)) state.sizeBand = candidate.sizeBand
-  if (candidate && [36, 60, 120].includes(Number(candidate.range))) state.range = Number(candidate.range)
+  if (candidate && availableRangeOptions().some((item) => item.value === Number(candidate.range))) state.range = Number(candidate.range)
   if (candidate && snapshot.cityMap[candidate.focusCity]) state.focusCity = candidate.focusCity
   if (candidate && Array.isArray(candidate.cities)) state.cities = [...new Set(candidate.cities.filter((id) => snapshot.cityMap[id]))].slice(0, 3)
   return state
+}
+
+function availableRangeOptions() {
+  return snapshot.months.length >= 180 ? OPTIONS.range : OPTIONS.range.filter((item) => item.value < 180)
 }
 
 function parseQuery(query) {
@@ -386,7 +390,8 @@ function makeView(state, searchText = '', hiddenCityIds = []) {
     propertyIndex: OPTIONS.property.findIndex((item) => item.value === state.propertyType),
     metricIndex: OPTIONS.metric.findIndex((item) => item.value === state.metric),
     sizeIndex: OPTIONS.size.findIndex((item) => item.value === state.sizeBand),
-    rangeIndex: OPTIONS.range.findIndex((item) => item.value === state.range),
+    rangeOptions: availableRangeOptions().map((item) => item.label),
+    rangeIndex: availableRangeOptions().findIndex((item) => item.value === state.range),
     focusCityIndex: LOCATION_CITY_IDS.indexOf(state.focusCity),
     focusCityName: snapshot.cityMap[state.focusCity].name,
     focusTone: tone(focusValue),
@@ -443,7 +448,7 @@ Page({
     propertyOptions: OPTIONS.property.map((item) => item.label),
     metricOptions: OPTIONS.metric.map((item) => item.label),
     sizeOptions: OPTIONS.size.map((item) => item.label),
-    rangeOptions: OPTIONS.range.map((item) => item.label),
+    rangeOptions: availableRangeOptions().map((item) => item.label),
     dataNotice: '',
     dataUnavailable: !hasUsableSnapshot(),
     dataRetrying: false,
@@ -634,7 +639,7 @@ Page({
       coverageStart: snapshot.coverageStart,
       latestOfficialUrl: snapshot.latestOfficialUrl,
       focusCityNames: LOCATION_CITY_IDS.map((id) => snapshot.cityMap[id].name),
-      dataSourceLabel: dataRuntime.getSource() === 'remote' ? '云端数据已更新' : '内置数据',
+      dataSourceLabel: dataRuntime.getSource() === 'remote' ? (snapshot.months.length >= 180 ? '云端近15年数据已就绪' : '云端数据已更新') : '内置数据',
       dataNotice: snapshot.dataStatus !== 'current' || overdue ? `当前数据可能未及时更新，请以国家统计局最新发布为准。数据截至 ${snapshot.datasetAsOf}。` : '',
       dataUnavailable: false,
       dataUnavailableMessage: '',
@@ -843,7 +848,10 @@ Page({
   onPropertyChange(event) { this.applyState({ ...this.data.state, propertyType: OPTIONS.property[Number(event.detail.value)].value }) },
   onMetricChange(event) { this.applyState({ ...this.data.state, metric: OPTIONS.metric[Number(event.detail.value)].value }) },
   onSizeChange(event) { this.applyState({ ...this.data.state, sizeBand: OPTIONS.size[Number(event.detail.value)].value }) },
-  onRangeChange(event) { this.applyState({ ...this.data.state, range: OPTIONS.range[Number(event.detail.value)].value }) },
+  onRangeChange(event) {
+    const option = availableRangeOptions()[Number(event.detail.value)]
+    if (option) this.applyState({ ...this.data.state, range: option.value })
+  },
   resetFilters() { this.applyState({ ...this.data.state, metric: DEFAULT_STATE.metric, propertyType: DEFAULT_STATE.propertyType, sizeBand: DEFAULT_STATE.sizeBand, range: DEFAULT_STATE.range }) },
   jumpTo(event) {
     const target = event.currentTarget.dataset.target

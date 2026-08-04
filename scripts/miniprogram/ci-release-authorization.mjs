@@ -31,10 +31,13 @@ export function validateCiReleaseAuthorization({ env, datasetVersion, cloudEnvId
   requireEqual(env.GITHUB_ACTIONS, 'true', 'GitHub Actions marker')
   const correctedRelease = env.GITHUB_EVENT_NAME === 'workflow_dispatch' && env.GITHUB_WORKFLOW === CORRECTED_RELEASE.workflow
   const historicalCorrection = env.GITHUB_EVENT_NAME === 'workflow_dispatch' && env.GITHUB_WORKFLOW === 'historical-data-correction'
+  const completeHistory = env.GITHUB_EVENT_NAME === 'workflow_dispatch' && env.GITHUB_WORKFLOW === 'complete-history-data-publish'
   const allowedWorkflow = correctedRelease
     ? CORRECTED_RELEASE.workflowFile
     : historicalCorrection
       ? 'historical-data-correction.yml'
+      : completeHistory
+        ? 'complete-history-data-publish.yml'
     : env.GITHUB_EVENT_NAME === 'workflow_run' && env.GITHUB_WORKFLOW === 'monthly-data-auto-publish'
       ? 'monthly-data-auto-publish.yml'
       : env.GITHUB_EVENT_NAME === 'schedule' && env.GITHUB_WORKFLOW === 'monthly-data-pending-publish'
@@ -79,6 +82,13 @@ export function validateCiReleaseAuthorization({ env, datasetVersion, cloudEnvId
     requireEqual(gate.revision_id, env.CI_REVISION_ID, 'historical correction revision ID')
     requireEqual(gate.supersedes_source_dataset_version, env.CI_SUPERSEDES_SOURCE_DATASET_VERSION, 'historical correction superseded source')
     requireEqual(gate.request_sha256, env.CI_CORRECTION_REQUEST_SHA256, 'historical correction request SHA-256')
+  } else if (completeHistory) {
+    requireEqual(gate.gate_type, 'complete_history_release', 'complete history gate type')
+    requireEqual(gate.github_run_id, env.GITHUB_RUN_ID, 'complete history release run ID')
+    requireEqual(gate.remote_schema_version, '2.0.0', 'complete history remote schema')
+    requireEqual(gate.coverage_start, '2011-07', 'complete history coverage start')
+    requireEqual(String(gate.month_count), '180', 'complete history month count')
+    requireEqual(gate.complete_snapshot_sha256, env.CI_COMPLETE_SNAPSHOT_SHA256, 'complete history snapshot SHA-256')
   } else {
     requireEqual(String(gate.discovery_run_id), env.CI_DISCOVERY_RUN_ID, 'discovery run ID')
     if (gate.recovery === true) {

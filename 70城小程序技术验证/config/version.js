@@ -1,3 +1,3 @@
 module.exports = Object.freeze({
-  version: 'v2.4.11',
+  version: 'v2.5.0',
 })

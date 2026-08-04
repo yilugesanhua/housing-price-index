@@ -177,7 +177,7 @@ function directionCounts(values) {
   }, [0, 0, 0, 0])
 }
 
-function validateCompleteSnapshot(snapshot, { cityIds, featuredCityIds } = {}) {
+function validateCompleteSnapshot(snapshot, { cityIds, featuredCityIds, expectedMonthCount = 120, expectedCoverageStart } = {}) {
   assert(snapshot && typeof snapshot === 'object', 'complete snapshot is missing')
   validateSnapshotMetadata(snapshot, 'complete snapshot')
   const expectedCityIds = cityIds || snapshot.cityIds
@@ -188,8 +188,9 @@ function validateCompleteSnapshot(snapshot, { cityIds, featuredCityIds } = {}) {
   assertExactSet(Object.keys(snapshot.latestSeries || {}), expectedCityIds, 'snapshot latest-series city IDs')
   if (featuredCityIds) assert(sameValues(snapshot.featuredCityIds, featuredCityIds), 'snapshot featured cities differ from the bundled product baseline')
   const monthCount = snapshot.months.length
-  assert(monthCount === 120, 'complete snapshot must contain 120 months')
+  assert(monthCount === expectedMonthCount, `complete snapshot must contain ${expectedMonthCount} months`)
   assert(snapshot.coverageStart === snapshot.months[0], 'complete snapshot coverage start is inconsistent')
+  if (expectedCoverageStart) assert(snapshot.coverageStart === expectedCoverageStart && snapshot.sourceCoverageStart === expectedCoverageStart, 'complete snapshot coverage start differs from the required range')
   assert(MONTH_PATTERN.test(snapshot.sourceCoverageStart || ''), 'complete snapshot source coverage start is invalid')
   assert(snapshot.sourceCoverageStart <= snapshot.months.at(-1), 'complete snapshot source coverage cannot start after the client window')
   const sourceCoverageIndex = Math.max(0, snapshot.months.indexOf(snapshot.sourceCoverageStart))

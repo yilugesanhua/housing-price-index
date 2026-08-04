@@ -12,6 +12,7 @@ const rehearsal = await readFile(resolve(root, '.github/workflows/cloud-write-re
 const fullReplay = await readFile(resolve(root, '.github/workflows/full-auto-update-replay.yml'), 'utf8')
 const correctedPublisher = await readFile(resolve(root, '.github/workflows/manual-corrected-data-publish.yml'), 'utf8')
 const historicalCorrection = await readFile(resolve(root, '.github/workflows/historical-data-correction.yml'), 'utf8')
+const completeHistoryPublisher = await readFile(resolve(root, '.github/workflows/complete-history-data-publish.yml'), 'utf8')
 const legacyMigration = await readFile(resolve(root, '.github/workflows/legacy-control-migration.yml'), 'utf8')
 const manualRollback = await readFile(resolve(root, '.github/workflows/manual-data-rollback.yml'), 'utf8')
 const pointerRepair = await readFile(resolve(root, 'scripts/miniprogram/repair-current-pointer.mjs'), 'utf8')
@@ -93,7 +94,7 @@ test('scheduled recovery reads state without credentials and publishes only a re
 
 test('24-hour monitor uses a separate read-only identity and does not expose pointer writes', () => {
   assert.match(monitor, /workflow_dispatch:/)
-  assert.match(monitor, /workflow_run:[\s\S]*monthly-data-auto-publish[\s\S]*monthly-data-pending-publish[\s\S]*manual-corrected-data-publish[\s\S]*historical-data-correction[\s\S]*manual-data-rollback/)
+  assert.match(monitor, /workflow_run:[\s\S]*monthly-data-auto-publish[\s\S]*monthly-data-pending-publish[\s\S]*manual-corrected-data-publish[\s\S]*historical-data-correction[\s\S]*complete-history-data-publish[\s\S]*manual-data-rollback/)
   assert.match(monitor, /select-monitor-target\.mjs/)
   assert.match(monitor, /release_audit_sha256/)
   assert.match(monitor, /revision_id/)
@@ -128,7 +129,7 @@ test('24-hour monitor uses a separate read-only identity and does not expose poi
 })
 
 test('successful automatic rollback is registered without cloud credentials in every publishing workflow', () => {
-  for (const workflow of [publisher, recovery, correctedPublisher, historicalCorrection]) {
+  for (const workflow of [publisher, recovery, correctedPublisher, historicalCorrection, completeHistoryPublisher]) {
     assert.match(workflow, /Validate a successful automatic rollback for monitor registration/)
     assert.match(workflow, /register-monitor-control-event\.mjs/)
     assert.match(workflow, /Persist the automatic rollback monitor event without cloud credentials/)
@@ -253,6 +254,19 @@ test('manual corrected-data publication is narrowly locked behind both productio
   assert.doesNotMatch(prepare, /listWorkflowRunsForRepo|run\.name === 'ci'/)
   assert.match(publish, /AUTOMATIC_RELEASE_ENABLED: \$\{\{ vars\.AUTOMATIC_RELEASE_ENABLED \}\}/)
   assert.match(publish, /PRODUCTION_RELEASE_AUTHORIZED: \$\{\{ vars\.PRODUCTION_RELEASE_AUTHORIZED \}\}/)
+})
+
+test('complete-history publication accepts only the attested 180-month package behind both production switches', () => {
+  assert.match(completeHistoryPublisher, /workflow_dispatch:/)
+  assert.match(completeHistoryPublisher, /test "\$CONFIRMATION" = "2011-07-to-2026-06"/)
+  assert.match(completeHistoryPublisher, /Require successful ordinary CI for this exact commit/)
+  assert.match(completeHistoryPublisher, /environment: housing-data-production/)
+  assert.match(completeHistoryPublisher, /miniprogram:data:stage-complete/)
+  assert.match(completeHistoryPublisher, /miniprogram:data:verify-complete/)
+  assert.match(completeHistoryPublisher, /miniprogram:data:publish-complete-history/)
+  assert.match(completeHistoryPublisher, /CI_COMPLETE_SNAPSHOT_SHA256/)
+  assert.match(completeHistoryPublisher, /AUTOMATIC_RELEASE_ENABLED: \$\{\{ vars\.AUTOMATIC_RELEASE_ENABLED \}\}/)
+  assert.match(completeHistoryPublisher, /PRODUCTION_RELEASE_AUTHORIZED: \$\{\{ vars\.PRODUCTION_RELEASE_AUTHORIZED \}\}/)
 })
 
 test('legacy current pointer repair is fail-closed under control schema v1', () => {

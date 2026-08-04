@@ -46,13 +46,41 @@ async function searchOfficialSite(query: string): Promise<SearchResponse> {
 }
 
 const discoveryPath = resolve("data", "discovered-official-pages.json");
+const targetStart = process.env.HISTORICAL_COVERAGE_START ?? "2011-07";
 const discovery = JSON.parse(await readFile(discoveryPath, "utf8")) as {
   pages: DiscoveredPage[];
   historical_search_missing?: string[];
   [key: string]: unknown;
 };
 const existingMonths = new Set(discovery.pages.map((page) => page.title.match(/(20\d{2})年(\d{1,2})月份/)?.slice(1, 3)).filter(Boolean).map((parts) => `${parts![0]}-${parts![1].padStart(2, "0")}`));
-const missing = discovery.historical_search_missing ?? [];
+
+function previousMonth(value: string): string {
+  const date = new Date(`${value}-01T00:00:00Z`);
+  date.setUTCMonth(date.getUTCMonth() - 1);
+  return date.toISOString().slice(0, 7);
+}
+
+function monthRange(start: string, end: string): string[] {
+  if (!/^20\d{2}-(0[1-9]|1[0-2])$/.test(start) || !/^20\d{2}-(0[1-9]|1[0-2])$/.test(end) || start > end) {
+    throw new Error(`Invalid historical coverage range: ${start} -> ${end}`);
+  }
+  const months: string[] = [];
+  let cursor = start;
+  while (cursor <= end) {
+    months.push(cursor);
+    const next = new Date(`${cursor}-01T00:00:00Z`);
+    next.setUTCMonth(next.getUTCMonth() + 1);
+    cursor = next.toISOString().slice(0, 7);
+  }
+  return months;
+}
+
+const firstExistingMonth = [...existingMonths].sort().at(0);
+if (!firstExistingMonth) throw new Error("Official discovery contains no statistical months");
+const targetEnd = process.env.HISTORICAL_COVERAGE_END ?? previousMonth(firstExistingMonth);
+const missing = [...new Set([...(discovery.historical_search_missing ?? []), ...monthRange(targetStart, targetEnd)])]
+  .filter((value) => !existingMonths.has(value))
+  .sort();
 const found: DiscoveredPage[] = [];
 const unresolved: string[] = [];
 

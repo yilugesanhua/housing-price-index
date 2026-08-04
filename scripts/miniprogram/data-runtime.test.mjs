@@ -4,6 +4,7 @@ import { createRequire } from 'node:module'
 import { resolve } from 'node:path'
 import test from 'node:test'
 import { buildRemoteRelease } from './remote-data-lib.mjs'
+import { buildCompleteRemoteRelease } from './complete-remote-data.mjs'
 import {
   appendFailedDatasetRevocation,
   appendFailedReleaseRevocations,
@@ -44,6 +45,43 @@ function makeLegacyRelease(minimumAppVersion = versionConfig.version, snapshot =
   })
 }
 
+function completeFixture() {
+  const snapshot = structuredClone(bundled)
+  const paddingMonths = []
+  for (let index = 0; index < 60; index += 1) {
+    const date = new Date(`${bundled.months[0]}-01T00:00:00Z`)
+    date.setUTCMonth(date.getUTCMonth() - (60 - index))
+    paddingMonths.push(date.toISOString().slice(0, 7))
+  }
+  snapshot.months = [...paddingMonths, ...snapshot.months]
+  snapshot.coverageStart = '2011-07'
+  snapshot.sourceCoverageStart = '2011-07'
+  snapshot.releaseDates = [...Array(60).fill('2011-07-18'), ...snapshot.releaseDates]
+  for (const cityId of snapshot.cityIds) {
+    for (const code of Object.keys(snapshot.series[cityId])) snapshot.series[cityId][code] = [...Array(60 * 4).fill(null), ...snapshot.series[cityId][code]]
+  }
+  snapshot.latestSeries = Object.fromEntries(snapshot.cityIds.map((cityId) => [cityId, Object.fromEntries(Object.entries(snapshot.series[cityId]).map(([code, values]) => [code, values.slice(-4)]))]))
+  snapshot.breadthSeries = Object.fromEntries(Object.keys(snapshot.series[snapshot.cityIds[0]]).flatMap((code) => [['mom', 2], ['yoy', 3]].map(([metric, offset]) => [
+    `${code}_${metric}`,
+    snapshot.months.flatMap((_month, monthIndex) => snapshot.cityIds.reduce((counts, cityId) => {
+      const value = snapshot.series[cityId][code][monthIndex * 4 + offset]
+      counts[value === null ? 3 : value > 0 ? 0 : value < 0 ? 2 : 1] += 1
+      return counts
+    }, [0, 0, 0, 0])),
+  ])))
+  return snapshot
+}
+
+function makeCompleteRelease(minimumAppVersion = versionConfig.version) {
+  return attachControl(buildCompleteRemoteRelease(completeFixture(), {
+    cloudEnvId: config.cloudEnvId,
+    storageBucket: config.storageBucket,
+    minimumAppVersion,
+    nextCheckAt: '2026-08-17T01:40:00.000Z',
+    sourceBatchIds: ['official-html-test'],
+  }))
+}
+
 function appendRollbackRevocations(registry, {
   failedRelease,
   targetRelease,
@@ -70,6 +108,13 @@ function controlWindow(now) {
 }
 
 function cloudFiles(release) {
+  if (release.completeSnapshotText) {
+    return new Map([
+      ...(release.revocationArtifact ? [[release.revocationArtifact.cloudFileId, release.revocationArtifact.text]] : []),
+      [release.current.manifest_file_id, release.manifestText],
+      [release.manifest.complete_snapshot_file_id, release.completeSnapshotText],
+    ])
+  }
   return new Map([
     ...(release.revocationArtifact ? [[release.revocationArtifact.cloudFileId, release.revocationArtifact.text]] : []),
     [release.current.manifest_file_id, release.manifestText],
@@ -381,6 +426,38 @@ test('mini program SHA-256 matches standard UTF-8 vectors and staged bytes', () 
   }
   const release = makeRelease()
   assert.equal(sha256(utf8Bytes(release.bootstrapText)), release.manifest.bootstrap_sha256)
+})
+
+test('v2 complete remote package activates atomically without city shards and survives restart', async () => {
+  const release = makeCompleteRelease()
+  const mock = createWxMock(release)
+  const runtime = createDataRuntime({ wxApi: mock.wxApi })
+  const result = await runtime.refresh({ force: true })
+  assert.equal(result.updated, true)
+  assert.equal(runtime.getSource(), 'remote')
+  assert.equal(runtime.getSnapshot().months.length, 180)
+  assert.equal(runtime.getSnapshot().coverageStart, '2011-07')
+  assert.equal(mock.stats.downloads, 3)
+  assert.ok(mock.files.has(`/user/housing-data/${release.current.dataset_version}/complete-snapshot.json`))
+  assert.equal(await runtime.ensureCities(['haikou']), true)
+  assert.equal(mock.stats.downloads, 3)
+
+  const restarted = createDataRuntime({ wxApi: mock.wxApi })
+  assert.equal(restarted.getSource(), 'remote')
+  assert.equal(restarted.getSnapshot().months.length, 180)
+})
+
+test('v2 complete package corruption never replaces the bundled snapshot', async () => {
+  const release = makeCompleteRelease()
+  const remote = cloudFiles(release)
+  remote.set(release.manifest.complete_snapshot_file_id, `${release.completeSnapshotText} `)
+  const mock = createWxMock(release, { remote })
+  const runtime = createDataRuntime({ wxApi: mock.wxApi })
+  const result = await runtime.refresh({ force: true })
+  assert.equal(result.reason, 'failed')
+  assert.equal(runtime.getSource(), 'bundled')
+  assert.equal(runtime.getSnapshot().months.length, 120)
+  assert.equal(mock.files.has(`/user/housing-data/${release.current.dataset_version}/complete-snapshot.json`), false)
 })
 
 test('first online launch atomically activates remote data and valid cache hydrates synchronously', async () => {

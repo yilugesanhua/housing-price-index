@@ -47,6 +47,10 @@ function rowCells($: cheerio.CheerioAPI, row: any): string[] {
   return $(row).find("th,td").toArray().map((cell) => $(cell).text().replace(/[\u00a0\u2000-\u200b\u3000]/g, " ").replace(/\s+/g, " ").trim());
 }
 
+function auditCityName(value: string): string {
+  return normalizeCityName(value.replace(/[＊*†‡①②③④⑤⑥⑦⑧⑨⑩]+$/g, ""));
+}
+
 function auditedTableKind($: cheerio.CheerioAPI, table: any): AuditedTableKind {
   const tableElement = typeof table.get === "function" ? table : $(table);
   const tableNode = tableElement.get(0);
@@ -54,7 +58,8 @@ function auditedTableKind($: cheerio.CheerioAPI, table: any): AuditedTableKind {
     const cached = auditedTableKindCache.get(tableNode);
     if (cached) return cached;
   }
-  const embedded = tableElement.find("tr").first().text().replace(/\s+/g, "").trim();
+  // Older official tables put the substantive table title in their second row.
+  const embedded = tableElement.find("tr").slice(0, 3).text().replace(/\s+/g, "").trim();
   const preceding = tableElement.prevAll("p").filter((_index: number, node: any) => /价格(?:分类)?指数|分类价格指数/.test($(node).text())).first().text().replace(/\s+/g, "").trim();
   const parentPreceding = tableElement.parent().prevAll("p").filter((_index: number, node: any) => /价格(?:分类)?指数|分类价格指数/.test($(node).text())).first().text().replace(/\s+/g, "").trim();
   const documentNodes = $("body *").toArray();
@@ -99,7 +104,7 @@ function auditRecord(record: StandardRecord, tableRows: string[][][], tableKinds
   const offset = allLocator
     ? Number(allLocator[3]) * (cells.length >= 8 ? 4 : 3)
     : 1 + (["le90", "90_144", "gt144"].indexOf(sizeLocator![3])) * (cells.length >= 10 ? 3 : 2);
-  if (normalizeCityName(cells[allLocator ? offset : 0] ?? "") !== normalizeCityName(record.city_name)) errors.push(`${key}: source row city mismatch`);
+  if (auditCityName(cells[allLocator ? offset : 0] ?? "") !== auditCityName(record.city_name)) errors.push(`${key}: source row city mismatch`);
   if (record.city_name !== TARGET_CITIES[record.city_id]) errors.push(`${key}: city_id and city_name mismatch`);
   const comparisons: Array<[string, number | null, number | null]> = [
     ["mom_index", record.mom_index, rawCellValue(cells[offset + (allLocator ? 1 : 0)])],

@@ -4,12 +4,14 @@ import { detectOfficialMetadata, PARSER_VERSION, parseOfficialHtml } from "./off
 import { readRawArchiveSync } from "./raw-archive";
 import type { ParsedBatch } from "./types";
 
-const requestedPath = process.argv[2];
+const requestedPath = process.argv.find((argument) => argument.endsWith(".batch.json"));
+const onlyOutdated = process.argv.includes("--only-outdated");
 const paths = requestedPath ? [requestedPath] : globSync("data/raw/**/*.batch.json");
 if (paths.length === 0) throw new Error("No raw source batches found for reparse");
 let updated = 0;
 for (const batchPath of paths) {
   const old = JSON.parse(readFileSync(batchPath, "utf8")) as ParsedBatch;
+  if (onlyOutdated && old.source_batch.parser_version === PARSER_VERSION) continue;
   const htmlPath = resolve(dirname(batchPath), `${old.source_batch.raw_content_sha256}.html`);
   const html = readRawArchiveSync(htmlPath).toString("utf8");
   const metadata = detectOfficialMetadata(html, old.source_batch.source_url);
@@ -26,6 +28,6 @@ for (const batchPath of paths) {
   renameSync(temporaryBatchPath, batchPath);
   updated += 1;
   (globalThis as typeof globalThis & { gc?: () => void }).gc?.();
-  if (updated % 10 === 0 || updated === paths.length) console.log(`Reparsed ${updated}/${paths.length} batches`);
+  if (updated % 10 === 0) console.log(`Reparsed ${updated}${onlyOutdated ? " outdated" : ""} batches`);
 }
-console.log(`Reparsed ${updated} batches`);
+console.log(`Reparsed ${updated}${onlyOutdated ? " outdated" : ""} batches`);

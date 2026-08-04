@@ -1,0 +1,189 @@
+name: complete-history-data-publish
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Type 2011-07-to-2026-06 to publish the audited 15-year complete package
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: housing-data-production-publish
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    outputs:
+      dataset_version: ${{ steps.gate.outputs.dataset_version }}
+      snapshot_sha256: ${{ steps.gate.outputs.snapshot_sha256 }}
+      gate_report_sha256: ${{ steps.gate.outputs.gate_report_sha256 }}
+      commit_sha: ${{ steps.identity.outputs.commit_sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - id: identity
+        env:
+          CONFIRMATION: ${{ inputs.confirmation }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          REPOSITORY_AUTOMATIC_RELEASE_ENABLED: ${{ vars.AUTOMATIC_RELEASE_ENABLED }}
+          OUTSIDE_ENV_PRODUCTION_AUTHORIZATION: ${{ vars.PRODUCTION_RELEASE_AUTHORIZED }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$CONFIRMATION" = "2011-07-to-2026-06"
+          test "$REPOSITORY_AUTOMATIC_RELEASE_ENABLED" = "true"
+          test -z "$OUTSIDE_ENV_PRODUCTION_AUTHORIZATION" || test "$OUTSIDE_ENV_PRODUCTION_AUTHORIZATION" = "false"
+          git fetch origin "$DEFAULT_BRANCH"
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git rev-parse "origin/$DEFAULT_BRANCH")" = "$GITHUB_SHA"
+          echo "commit_sha=$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+      - name: Require successful ordinary CI for this exact commit
+        uses: actions/github-script@f28e40c7f34bde8b3046d885e986cb6290c5673b # v7
+        with:
+          script: |
+            const runs = await github.paginate(github.rest.actions.listWorkflowRuns, {
+              owner: context.repo.owner, repo: context.repo.repo, workflow_id: '.github/workflows/ci.yml',
+              head_sha: context.sha, event: 'push', status: 'success', per_page: 100,
+            })
+            if (!runs.some((run) => run.path === '.github/workflows/ci.yml' && run.head_sha === context.sha && run.event === 'push' && run.conclusion === 'success')) core.setFailed(`No successful ordinary CI push run found for ${context.sha}`)
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Re-audit all 15-year production records
+        run: |
+          npm run data:audit
+          npm run validate:data
+          npm run test:miniprogram
+      - name: Rebuild and verify the immutable complete package
+        run: |
+          npm run miniprogram:data:complete
+          npm run miniprogram:data:stage-complete -- --env=cloud1-d3gpdx70w5d05c68c
+          npm run miniprogram:data:verify-complete
+      - id: gate
+        env:
+          COMMIT_SHA: ${{ steps.identity.outputs.commit_sha }}
+        shell: bash
+        run: |
+          result="$(npm run --silent miniprogram:data:prepare-complete-history -- --commit="$COMMIT_SHA" --run-id="$GITHUB_RUN_ID" --env=cloud1-d3gpdx70w5d05c68c)"
+          node -e "const v=JSON.parse(process.argv[1]),fs=require('fs'); fs.appendFileSync(process.env.GITHUB_OUTPUT,'dataset_version='+v.dataset_version+'\nsnapshot_sha256='+v.complete_snapshot_sha256+'\ngate_report_sha256='+v.gate_report_sha256+'\n')" "$result"
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: complete-history-${{ github.run_id }}
+          path: |
+            work/complete-history-release/gate-report.json
+            work/miniprogram-complete-data/
+            data/audit-report.json
+          if-no-files-found: error
+          retention-days: 365
+
+  publish:
+    needs: prepare
+    permissions:
+      actions: read
+      contents: write
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    environment: housing-data-production
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.prepare.outputs.commit_sha }}
+          fetch-depth: 0
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Reconfirm the default branch immediately before the production switch
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          EXPECTED_SHA: ${{ needs.prepare.outputs.commit_sha }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$DEFAULT_BRANCH"
+          test "$(git rev-parse HEAD)" = "$EXPECTED_SHA"
+          test "$(git rev-parse "origin/$DEFAULT_BRANCH")" = "$EXPECTED_SHA"
+      - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: complete-history-${{ github.run_id }}
+          path: work/complete-history-artifact
+      - name: Restore the attested complete package
+        shell: bash
+        run: |
+          mkdir -p work/complete-history-release work/miniprogram-complete-data
+          cp work/complete-history-artifact/work/complete-history-release/gate-report.json work/complete-history-release/gate-report.json
+          cp -R work/complete-history-artifact/work/miniprogram-complete-data/. work/miniprogram-complete-data/
+      - name: Publish complete package, read it back, and atomically switch current.json
+        env:
+          TENCENTCLOUD_SECRET_ID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
+          TENCENTCLOUD_SECRET_KEY: ${{ secrets.TENCENTCLOUD_SECRET_KEY }}
+          CI_DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          CI_COMMIT_SHA: ${{ needs.prepare.outputs.commit_sha }}
+          CI_RUN_ID: ${{ github.run_id }}
+          CI_PRODUCTION_ENVIRONMENT: housing-data-production
+          CI_CLOUD_ENV_ID: cloud1-d3gpdx70w5d05c68c
+          CI_DATASET_VERSION: ${{ needs.prepare.outputs.dataset_version }}
+          CI_COMPLETE_SNAPSHOT_SHA256: ${{ needs.prepare.outputs.snapshot_sha256 }}
+          CI_GATE_REPORT_SHA256: ${{ needs.prepare.outputs.gate_report_sha256 }}
+          CI_GATE_REPORT_PATH: work/complete-history-release/gate-report.json
+          AUTOMATIC_RELEASE_ENABLED: ${{ vars.AUTOMATIC_RELEASE_ENABLED }}
+          PRODUCTION_RELEASE_AUTHORIZED: ${{ vars.PRODUCTION_RELEASE_AUTHORIZED }}
+        run: npm run miniprogram:data:publish-complete-history -- --env=cloud1-d3gpdx70w5d05c68c --dataset=${{ needs.prepare.outputs.dataset_version }}
+      - id: rollback_monitor_event
+        name: Validate a successful automatic rollback for monitor registration
+        if: failure()
+        env:
+          EXPECTED_COMMIT_SHA: ${{ needs.prepare.outputs.commit_sha }}
+          EXPECTED_GITHUB_RUN_ID: ${{ github.run_id }}
+        run: node scripts/miniprogram/register-monitor-control-event.mjs
+      - name: Persist the automatic rollback monitor event without cloud credentials
+        if: failure() && steps.rollback_monitor_event.outputs.registered == 'true'
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          EVENT_PATH: ${{ steps.rollback_monitor_event.outputs.event_path }}
+          FAILURE_PATH: ${{ steps.rollback_monitor_event.outputs.failure_path }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "housing-data-automation"
+          git config user.email "housing-data-automation@users.noreply.github.com"
+          git add -- "$EVENT_PATH" "$FAILURE_PATH"
+          git commit -m "data: record automatic rollback monitor event"
+          git push origin "HEAD:${DEFAULT_BRANCH}"
+      - name: Persist the immutable complete-history publish audit
+        if: success()
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "housing-data-automation"
+          git config user.email "housing-data-automation@users.noreply.github.com"
+          git add -- "data/releases/${{ needs.prepare.outputs.dataset_version }}.json"
+          git commit -m "data: record complete-history cloud release"
+          git push origin "HEAD:${DEFAULT_BRANCH}"
+      - name: Upload publication evidence
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: complete-history-publish-${{ github.run_id }}
+          path: |
+            data/releases/
+            work/complete-history-release/
+            work/miniprogram-complete-data/${{ needs.prepare.outputs.dataset_version }}/
+          if-no-files-found: error
+          retention-days: 365

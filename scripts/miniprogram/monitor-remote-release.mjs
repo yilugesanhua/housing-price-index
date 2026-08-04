@@ -18,6 +18,7 @@ import {
   mergeMigrationAuditEntries,
 } from './monitor-audit-chain.mjs'
 import { validateManualRollbackAudit } from './ci-rollback-authorization.mjs'
+import { COMPLETE_REMOTE_MONTHS, COMPLETE_REMOTE_SCHEMA_VERSION, COMPLETE_REMOTE_START, validateCompleteRemoteSnapshot } from './complete-remote-data.mjs'
 
 const execFileAsync = promisify(execFile)
 const root = resolve(import.meta.dirname, '../..')
@@ -138,12 +139,18 @@ await downloadObject(`${cloudRoot}/manifest.json`, resolve(outputRoot, 'manifest
 const manifestText = await readFile(resolve(outputRoot, 'manifest.json'), 'utf8')
 if (sha256(manifestText) !== current.manifest_sha256) throw new Error('Monitored manifest hash mismatch')
 const manifest = JSON.parse(manifestText)
+const isCompleteHistory = manifest.remote_schema_version === COMPLETE_REMOTE_SCHEMA_VERSION
 if (manifest.dataset_version !== audit.dataset_version
   || manifest.source_dataset_version !== audit.source_dataset_version
   || manifest.dataset_as_of !== audit.dataset_as_of
-  || manifest.bootstrap_sha256 !== audit.bootstrap_sha256
-  || manifest.bootstrap_bytes !== audit.bootstrap_bytes
-  || JSON.stringify([...(manifest.source_batch_ids || [])].sort()) !== JSON.stringify([...(audit.source_batch_ids || [])].sort())) {
+  || JSON.stringify([...(manifest.source_batch_ids || [])].sort()) !== JSON.stringify([...(audit.source_batch_ids || [])].sort())
+  || (isCompleteHistory
+    ? manifest.complete_snapshot_sha256 !== audit.complete_snapshot_sha256
+      || manifest.complete_snapshot_bytes !== audit.complete_snapshot_bytes
+      || manifest.coverage_start !== COMPLETE_REMOTE_START
+      || manifest.month_count !== COMPLETE_REMOTE_MONTHS
+    : manifest.bootstrap_sha256 !== audit.bootstrap_sha256
+      || manifest.bootstrap_bytes !== audit.bootstrap_bytes)) {
   throw new Error('Monitored manifest metadata no longer matches the immutable publish audit')
 }
 const registryKey = `housing-data/control/revocations-${current.revocations_sha256}.json`
@@ -158,14 +165,24 @@ validateControlPointer(current, {
   cloudEnvId,
   storageBucket: storageBucketId,
 })
-await downloadObject(`${cloudRoot}/bootstrap.json`, resolve(outputRoot, 'bootstrap.json'))
-if (manifest.release_type === 'historical_correction') await downloadObject(`${cloudRoot}/revision-manifest.json`, resolve(outputRoot, 'revision-manifest.json'))
-for (const cityId of Object.keys(manifest.city_files || {})) {
-  await downloadObject(`${cloudRoot}/cities/${cityId}.json`, resolve(outputRoot, 'cities', `${cityId}.json`))
+if (isCompleteHistory) {
+  const snapshotPath = resolve(outputRoot, 'complete-snapshot.json')
+  await downloadObject(`${cloudRoot}/complete-snapshot.json`, snapshotPath)
+  const snapshotText = await readFile(snapshotPath, 'utf8')
+  if (sha256(snapshotText) !== manifest.complete_snapshot_sha256 || Buffer.byteLength(snapshotText) !== manifest.complete_snapshot_bytes) throw new Error('Monitored complete snapshot hash or byte size mismatch')
+  const completeSnapshot = JSON.parse(snapshotText)
+  validateCompleteRemoteSnapshot(completeSnapshot)
+  if (completeSnapshot.datasetVersion !== datasetVersion || completeSnapshot.sourceDatasetVersion !== manifest.source_dataset_version) throw new Error('Monitored complete snapshot identity mismatch')
+} else {
+  await downloadObject(`${cloudRoot}/bootstrap.json`, resolve(outputRoot, 'bootstrap.json'))
+  if (manifest.release_type === 'historical_correction') await downloadObject(`${cloudRoot}/revision-manifest.json`, resolve(outputRoot, 'revision-manifest.json'))
+  for (const cityId of Object.keys(manifest.city_files || {})) {
+    await downloadObject(`${cloudRoot}/cities/${cityId}.json`, resolve(outputRoot, 'cities', `${cityId}.json`))
+  }
+  if (Object.keys(manifest.city_files || {}).length !== 70) throw new Error('Monitored manifest does not contain 70 cities')
+  await copyFile(currentPath, resolve(outputRoot, 'current.candidate.json'))
+  await execFileAsync(process.execPath, [resolve(root, 'scripts/miniprogram/verify-remote-data.mjs'), `--dir=${outputRoot}`, '--integrity-only'], { cwd: root, encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 })
 }
-if (Object.keys(manifest.city_files || {}).length !== 70) throw new Error('Monitored manifest does not contain 70 cities')
-await copyFile(currentPath, resolve(outputRoot, 'current.candidate.json'))
-await execFileAsync(process.execPath, [resolve(root, 'scripts/miniprogram/verify-remote-data.mjs'), `--dir=${outputRoot}`, '--integrity-only'], { cwd: root, encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 })
 const freshness = integrityOnly
   ? { freshness_status: 'not_evaluated_integrity_only', client_action: 'integrity_verification_only' }
   : classifyRemoteFreshness(manifest, bundledSnapshot)
@@ -185,6 +202,7 @@ const result = {
   current_sha256: sha256(currentText),
   manifest_sha256: current.manifest_sha256,
   city_count: 70,
+  complete_history_package: isCompleteHistory,
   cloud_function_verified: cloudFunctionVerified,
   cloud_function_validation_receipt_sha256: cloudFunctionValidation.receipt_sha256,
   publish_audit_matched: true,

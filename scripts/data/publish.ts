@@ -16,7 +16,7 @@ const OUTPUT_DIR = resolve(PUBLIC_PARENT, "data");
 const TEMP_DIR = resolve(PUBLIC_PARENT, ".data-publish-tmp");
 const BACKUP_DIR = resolve(PUBLIC_PARENT, ".data-publish-backup");
 const NORMALIZED_DIR = resolve("data", "normalized");
-const MIN_COVERAGE_START = "2016-01";
+const MIN_COVERAGE_START = "2011-07";
 
 interface RevisionRecord {
   revision_id: string;

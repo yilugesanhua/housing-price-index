@@ -130,12 +130,21 @@ function validateRemoteSource(current, manifest, bundled, revisionManifest = nul
   assert(chain.at(-1) === manifest.source_dataset_version, 'correction source chain does not end at the remote source')
 }
 
-function bundledSupersedesRemoteManifest(manifest, bundled, control) {
+function bundledSupersedesRemoteManifest(manifest, bundled, control, config = dataConfig) {
   if (!manifest || !bundled || !control) return false
   if (control.revokedDatasetVersions.includes(bundled.datasetVersion)
     || control.revokedSourceDatasetVersions.includes(bundled.sourceDatasetVersion)) return false
+  const exactLegacySupersession = (config.bundledLegacySupersession || []).some((entry) => {
+    const descriptor = AUDITED_LEGACY_MIGRATIONS[entry?.migrationId]
+    return descriptor
+      && bundled.datasetVersion === entry.bundledDatasetVersion
+      && bundled.sourceDatasetVersion === entry.bundledSourceDatasetVersion
+      && manifest.dataset_version === descriptor.dataset_version
+      && manifest.source_dataset_version === descriptor.source_dataset_version
+      && manifest.dataset_as_of === descriptor.dataset_as_of
+  })
   return manifest.dataset_as_of === bundled.datasetAsOf
-    && manifest.source_dataset_version === bundled.sourceDatasetVersion
+    && (manifest.source_dataset_version === bundled.sourceDatasetVersion || exactLegacySupersession)
     && Date.parse(bundled.generatedAt) > Date.parse(manifest.generated_at)
 }
 
@@ -229,9 +238,22 @@ function exactStringSet(actual, expected, label) {
 
 function validateManifest(manifest, current, config, expectedCityIds = bundledSnapshot.cityIds) {
   assert(manifest?.format === config.remoteFormat, 'remote manifest format is invalid')
-  assert(major(manifest.remote_schema_version) === config.remoteSchemaMajor, 'remote manifest schema is unsupported')
+  const schemaMajor = major(manifest.remote_schema_version)
+  const acceptedMajors = config.acceptedRemoteSchemaMajors || [config.remoteSchemaMajor]
+  assert(acceptedMajors.includes(schemaMajor), 'remote manifest schema is unsupported')
   assert(manifest.dataset_version === current.dataset_version && manifest.dataset_as_of === current.dataset_as_of, 'remote manifest version is inconsistent')
   assert(manifest.validation_status === 'passed', 'remote manifest has not passed validation')
+  if (schemaMajor === 2) {
+    const root = `cloud://${config.cloudEnvId}.${config.storageBucket}/housing-data/releases/${current.dataset_version}/`
+    assert(manifest.release_type === 'monthly_update', 'complete remote release type is invalid')
+    assert(manifest.source_dataset_version === current.source_dataset_version, 'complete remote source version is inconsistent')
+    assert(manifest.coverage_start === config.completeRemoteCoverageStart, 'complete remote coverage start is invalid')
+    assert(manifest.month_count === config.completeRemoteMonthCount, 'complete remote month count is invalid')
+    assert(manifest.complete_snapshot_file_id === `${root}complete-snapshot.json`, 'complete remote snapshot path is invalid')
+    assert(SHA_PATTERN.test(manifest.complete_snapshot_sha256 || '') && Number.isInteger(manifest.complete_snapshot_bytes) && manifest.complete_snapshot_bytes > 0, 'complete remote snapshot metadata is invalid')
+    assert(compareVersions(versionConfig.version, manifest.minimum_app_version) >= 0, 'remote data requires a newer mini program version')
+    return manifest
+  }
   assert([undefined, 'monthly_update', 'historical_correction'].includes(manifest.release_type), 'remote release type is invalid')
   assert(compareVersions(versionConfig.version, manifest.minimum_app_version) >= 0, 'remote data requires a newer mini program version')
   assert(SHA_PATTERN.test(manifest.bootstrap_sha256 || '') && Number.isInteger(manifest.bootstrap_bytes), 'remote bootstrap metadata is invalid')
@@ -251,6 +273,10 @@ function validateManifest(manifest, current, config, expectedCityIds = bundledSn
     assert(SHA_PATTERN.test(manifest.revision_manifest_sha256 || '') && Number.isInteger(manifest.revision_manifest_bytes), 'remote revision manifest metadata is invalid')
   }
   return manifest
+}
+
+function isCompleteRemoteManifest(manifest) {
+  return major(manifest?.remote_schema_version) === 2
 }
 
 function validateRevisionManifest(revision, manifest) {
@@ -302,7 +328,7 @@ function interpretAuditedLegacyBootstrap(bootstrap, manifest, current) {
 function validateBootstrap(rawBootstrap, manifest, config, expectedCityIds = bundledSnapshot.cityIds, expectedFeaturedCityIds = bundledSnapshot.featuredCityIds, current = null) {
   const bootstrap = interpretAuditedLegacyBootstrap(rawBootstrap, manifest, current)
   assert(bootstrap?.remoteFormat === config.remoteFormat, 'remote bootstrap format is invalid')
-  assert(major(bootstrap.remoteSchemaVersion) === config.remoteSchemaMajor, 'remote bootstrap schema is unsupported')
+  assert((config.acceptedRemoteSchemaMajors || [config.remoteSchemaMajor]).includes(major(bootstrap.remoteSchemaVersion)), 'remote bootstrap schema is unsupported')
   assert(bootstrap.datasetVersion === manifest.dataset_version
     && bootstrap.sourceDatasetVersion === manifest.source_dataset_version
     && bootstrap.datasetAsOf === manifest.dataset_as_of, 'remote bootstrap version is inconsistent')
@@ -348,7 +374,7 @@ function validateBootstrap(rawBootstrap, manifest, config, expectedCityIds = bun
 
 function validateCityShard(shard, manifest, cityId, config) {
   assert(shard?.remoteFormat === config.remoteFormat, `remote city format is invalid: ${cityId}`)
-  assert(major(shard.remoteSchemaVersion) === config.remoteSchemaMajor, `remote city schema is unsupported: ${cityId}`)
+  assert((config.acceptedRemoteSchemaMajors || [config.remoteSchemaMajor]).includes(major(shard.remoteSchemaVersion)), `remote city schema is unsupported: ${cityId}`)
   assert(shard.datasetVersion === manifest.dataset_version && shard.cityId === cityId, `remote city version is inconsistent: ${cityId}`)
   validateSeries(shard.series, 120, cityId)
   return shard
@@ -747,6 +773,22 @@ function createDataRuntime({ wxApi = typeof wx === 'undefined' ? null : wx, bund
     if (isCurrentPointer && !rollbackAuthorized) validateRemoteMonth(current, bundled)
     const manifest = validateManifest(safeParse(manifestText), current, config, bundled.cityIds)
     assert(!control.revokedSourceDatasetVersions.includes(manifest.source_dataset_version), 'cached source has been revoked')
+    if (isCompleteRemoteManifest(manifest)) {
+      assert(manifest.release_type === 'monthly_update', 'cached complete remote release type is invalid')
+      const snapshotText = readSync(`${root}/complete-snapshot.json`)
+      assert(utf8Bytes(snapshotText).byteLength === manifest.complete_snapshot_bytes, 'cached complete snapshot size mismatch')
+      assert(fileHash(snapshotText) === manifest.complete_snapshot_sha256, 'cached complete snapshot hash mismatch')
+      const completeSnapshot = safeParse(snapshotText)
+      validateCompleteSnapshot(completeSnapshot, {
+        cityIds: bundled.cityIds,
+        featuredCityIds: bundled.featuredCityIds,
+        expectedMonthCount: config.completeRemoteMonthCount,
+        expectedCoverageStart: config.completeRemoteCoverageStart,
+      })
+      assert(completeSnapshot.datasetVersion === manifest.dataset_version && completeSnapshot.sourceDatasetVersion === manifest.source_dataset_version && completeSnapshot.datasetAsOf === manifest.dataset_as_of, 'cached complete snapshot identity is invalid')
+      if (isCurrentPointer) validateCurrent(current, config, { allowLegacy: false, requireContext: true, manifest, registry: storedRegistry(control) })
+      return { snapshot: completeSnapshot, manifest, revisionManifest: null, cachedCityIds: [...completeSnapshot.cityIds] }
+    }
     let revisionManifest = null
     if (manifest.release_type === 'historical_correction') {
       const revisionText = readSync(`${root}/revision-manifest.json`)
@@ -791,7 +833,7 @@ function createDataRuntime({ wxApi = typeof wx === 'undefined' ? null : wx, bund
     try {
       const manifestText = readSync(`${versionRoot(pointer.datasetVersion)}/manifest.json`)
       if (fileHash(manifestText) !== pointer.manifestSha256) return false
-      return bundledSupersedesRemoteManifest(safeParse(manifestText), bundled, control)
+        return bundledSupersedesRemoteManifest(safeParse(manifestText), bundled, control, config)
     } catch (_) {
       return false
     }
@@ -971,6 +1013,54 @@ function createDataRuntime({ wxApi = typeof wx === 'undefined' ? null : wx, bund
         pendingRollback: null,
         control: { ...localState.control, revokedSourceDatasetVersions },
       })
+      cleanupOrphanCaches()
+    } catch (error) {
+      await removeDirectory(tempRoot).catch(() => {})
+      if (renamed && previousState.active?.datasetVersion !== current.dataset_version && previousState.fallback?.datasetVersion !== current.dataset_version) {
+        await removeDirectory(root).catch(() => {})
+      }
+      throw error
+    }
+  }
+
+  async function cacheCompleteRelease(current, manifestDownload, completeSnapshotDownload) {
+    const root = versionRoot(current.dataset_version)
+    const tempRoot = temporaryRoot(current.dataset_version)
+    const pointer = {
+      datasetVersion: current.dataset_version,
+      sourceDatasetVersion: current.source_dataset_version,
+      manifestSha256: current.manifest_sha256,
+      current,
+      cachedCityIds: [...completeSnapshotDownload.data.cityIds],
+      verifiedAt: now(),
+    }
+    const previousState = localState
+    let renamed = false
+    try {
+      await removeDirectory(tempRoot)
+      await mkdir(tempRoot)
+      await writeFile(`${tempRoot}/manifest.json`, manifestDownload.text)
+      await writeFile(`${tempRoot}/complete-snapshot.json`, completeSnapshotDownload.text)
+      readReleaseAtRoot(tempRoot, pointer, localState.control)
+
+      await removeDirectory(root)
+      await renameDirectory(tempRoot, root)
+      renamed = true
+      readReleaseAtRoot(root, pointer, localState.control)
+
+      let fallback = null
+      for (const candidate of [previousState.active, previousState.fallback]) {
+        if (!candidate
+          || candidate.datasetVersion === pointer.datasetVersion
+          || getRevokedDatasets().includes(candidate.datasetVersion)
+          || getRevokedSources().includes(candidate.sourceDatasetVersion || candidate.current?.source_dataset_version)) continue
+        try {
+          readCachedPointer(candidate, localState.control)
+          fallback = candidate
+          break
+        } catch (_) {}
+      }
+      persistState({ ...localState, status: 'active', active: pointer, fallback, pendingRollback: null })
       cleanupOrphanCaches()
     } catch (error) {
       await removeDirectory(tempRoot).catch(() => {})
@@ -1215,11 +1305,34 @@ function createDataRuntime({ wxApi = typeof wx === 'undefined' ? null : wx, bund
         manifest,
         registry: control.registry,
       })
-      if (activeSource === 'bundled' && bundledSupersedesRemoteManifest(manifest, bundled, localState.control)) {
+      if (activeSource === 'bundled' && bundledSupersedesRemoteManifest(manifest, bundled, localState.control, config)) {
         return { updated: false, source: activeSource, reason: 'bundled-source-is-newer' }
       }
       if (!control.authorizedRollback) {
         validateRemoteSource(current, manifest, bundled, revisionManifest, activeSourceVersionBeforeControl, activeDatasetAsOfBeforeControl)
+      }
+      if (isCompleteRemoteManifest(manifest)) {
+        const completeSnapshotDownload = await downloadJson(
+          manifest.complete_snapshot_file_id,
+          manifest.complete_snapshot_sha256,
+          manifest.complete_snapshot_bytes,
+        )
+        validateCompleteSnapshot(completeSnapshotDownload.data, {
+          cityIds: bundled.cityIds,
+          featuredCityIds: bundled.featuredCityIds,
+          expectedMonthCount: config.completeRemoteMonthCount,
+          expectedCoverageStart: config.completeRemoteCoverageStart,
+        })
+        assert(completeSnapshotDownload.data.datasetVersion === manifest.dataset_version
+          && completeSnapshotDownload.data.sourceDatasetVersion === manifest.source_dataset_version
+          && completeSnapshotDownload.data.datasetAsOf === manifest.dataset_as_of, 'complete remote snapshot identity is invalid')
+        await cacheCompleteRelease(current, manifestDownload, completeSnapshotDownload)
+        activeSnapshot = completeSnapshotDownload.data
+        activeSource = 'remote'
+        activeManifest = manifest
+        activeRevisionManifest = null
+        cachedCityIds = [...activeSnapshot.cityIds]
+        return { updated: true, source: activeSource, datasetVersion: activeSnapshot.datasetVersion }
       }
       const bootstrapDownload = await downloadJson(manifest.bootstrap_file_id, manifest.bootstrap_sha256, manifest.bootstrap_bytes)
       const bootstrap = validateBootstrap(bootstrapDownload.data, manifest, config, bundled.cityIds, bundled.featuredCityIds, current)

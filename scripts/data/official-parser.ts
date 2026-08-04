@@ -4,12 +4,16 @@ import * as cheerio from "cheerio";
 import type { CityId, PropertyType, SizeBand } from "../../packages/core/src/index";
 import { TARGET_CITIES, type ParsedBatch, type SourceBatch, type StandardRecord } from "./types";
 
-export const PARSER_VERSION = "official-html-v8-product-housing-only-strict-release-date";
+export const PARSER_VERSION = "official-html-v9-product-housing-only-strict-release-date";
 export const SCHEMA_VERSION = "1.0.0";
 
 const cityByNormalizedName = new Map<string, CityId>(
   Object.entries(TARGET_CITIES).map(([id, name]) => [normalizeCityName(String(name)), id as CityId]),
 );
+
+function stripCityFootnote(value: string): string {
+  return value.replace(/[\*＊†‡※]/g, "");
+}
 
 export function normalizeCityName(value: string): string {
   return value.replace(/[\u00a0\u2000-\u200b\u3000\s]/g, "").replace(/[（）()]/g, "").trim();
@@ -52,7 +56,7 @@ function parseIndex(value: string | undefined): { value: number | null; reason: 
 }
 
 function tableTitle($: cheerio.CheerioAPI, table: any): string {
-  const embeddedTitle = $(table).find("tr").first().text().replace(/\s+/g, "").trim();
+  const embeddedTitle = $(table).find("tr").slice(0, 3).toArray().map((row) => $(row).text()).join("").replace(/\s+/g, "").trim();
   if (/价格(?:分类)?指数|分类价格指数/.test(embeddedTitle)) return embeddedTitle;
   const directCandidate = $(table).prevAll("p").filter((_index, node) => /价格(?:分类)?指数|分类价格指数/.test($(node).text())).first().text().replace(/\s+/g, "").trim();
   if (directCandidate) return directCandidate;
@@ -103,7 +107,7 @@ function makeRecord(
   const blockWidth = cells.length >= 8 ? 4 : 3;
   const offset = block * blockWidth;
   const cityText = cells[offset];
-  const cityId = cityByNormalizedName.get(normalizeCityName(cityText ?? ""));
+  const cityId = cityByNormalizedName.get(normalizeCityName(stripCityFootnote(cityText ?? "")));
   if (!cityId) return null;
   const mom = parseIndex(cells[offset + 1]);
   const yoy = parseIndex(cells[offset + 2]);
@@ -150,7 +154,7 @@ function makeSizeBandRecord(
   rowIndex: number,
   ytdHeader: string,
 ): StandardRecord | null {
-  const cityId = cityByNormalizedName.get(normalizeCityName(cells[0] ?? ""));
+  const cityId = cityByNormalizedName.get(normalizeCityName(stripCityFootnote(cells[0] ?? "")));
   if (!cityId || cells.length < 7) return null;
   const bandIndex = SIZE_BANDS.indexOf(sizeBand);
   const bandWidth = cells.length >= 10 ? 3 : 2;

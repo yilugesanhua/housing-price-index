@@ -4,6 +4,330 @@
   "pages_checked": 67,
   "pages": [
     {
+      "title": "2011年10月份70个大中城市住宅销售价格变动情况",
+      "href": "https://www.stats.gov.cn/sj/zxfb/202303/t20230301_1919310.html",
+      "discovered_via": "official-site-search-api",
+      "official_doc_date": "2011-11-18"
+    },
+    {
+      "title": "2011年11月份70个大中城市住宅销售价格变动情况",
+      "href": "https://www.stats.gov.cn/sj/zxfb/202303/t20230301_1919318.html",
+      "discovered_via": "official-site-search-api",
+      "official_doc_date": "2011-12-18"
+    },
+    {
+      "title": "2011年12月份70个大中城市住宅销售价格变动情况",
+      "href": "https://www.stats.gov.cn/sj/zxfb/202303/t20230301_1919331.html",
+      "discovered_via": "official-site-search-api",
+      "official_doc_date": "2012-01-18"
+    },
+    {
+      "title": "2011年7月份70个大中城市住宅销售价格变动情况",
+      "href": "https://www.stats.gov.cn/sj/zxfb/202303/t20230301_1919283.html",
+      "discovered_via": "official-site-search-api",
+      "official_doc_date": "2011-08-18"
+    },
+    {
+      "title": "2011年8月份70个大中城市住宅销售价格变动情况",
+      "href": "https://www.stats.gov.cn/sj/zxfb/202303/t20230301_1919291.html",
+      "discovered_via": "official-site-search-api",
+      "official_doc_date": "2011-09-18"
+    },
+    {
+      "title": "2011年9月份70个大中城市住宅销售价格变动情况",
+      "href": "https://www.stats.gov.cn/sj/zxfb/202303/t20230301_1919299.html",
+      "discovered_via": "official-site-search-api",
+      "official_doc_date": "2011-10-18"
+    },
+    {
+      "title": "2012年10月份70个大中城市住宅销售价格变动情况",
+      "href": "https://www.stats.gov.cn/sj/zxfb/202303/t20230301_1919145.html",
+      "discovered_via": "official-site-search-api",
+      "official_doc_date": "2012-11-18"
+    },
+    {
+      "title": "2012年11月份70个大中城市住宅销售价格变动情况",
+      "href": "https://www.stats.gov.cn/sj/zxfb/202303/t20230301_1919157.html",
+      "discovered_via": "official-site-search-api",
+      "official_doc_date": "2012-12-18"
+    },
+    {
+      "title": "2012年12月份70个大中城市住宅销售价格变动情况",
+      "href": "https://www.stats.gov.cn/sj/zxfb/202302/t20230203_1898250.html",
+      "discovered_via": "official-site-search-api",
+      "official_doc_date": "2013-01-18"
+    },
+    {
+      "title": "2012年1月份70个大中城市住宅销售价格变动情况",
+      "href": "https://www.stats.gov.cn/sj/zxfb/202303/t20230301_1919339.html",
+      "discovered_via": "official-site-search-api",
+      "official_doc_date": "2012-02-18"
+    },
+    {
+      "title": "2012年2月份70个大中城市住宅销售价格变动情况",
+      "href": "https://www.stats.gov.cn/sj/zxfb/202303/t20230301_1919348.html",
+      "discovered_via": "official-site-search-api",
+      "official_doc_date": "2012-03-18"
+    },
+    {
+      "title": "2012年3月份70个大中城市住宅销售价格变动情况",
+      "href": "https://www.stats.gov.cn/sj/zxfb/202303/t20230301_1919053.html",
+      "discovered_via": "official-site-search-api",
+      "official_doc_date": "2012-04-18"
+    },
+    {
+      "title": "2012年4月份70个大中城市住宅销售价格变动情况",
+      "href": "https://www.stats.gov.cn/sj/zxfb/202303/t20230301_1919066.html",
+      "discovered_via": "official-site-search-api",
+      "official_doc_date": "2012-05-18"
+    },
+    {
+      "title": "2012年5月份70个大中城市住宅销售价格变动情况",
+      "href": "https://www.stats.gov.cn/sj/zxfb/202303/t20230301_1919080.html",
+      "discovered_via": "official-site-search-api",
+      "official_doc_date": "2012-06-18"
+    },
+    {
+      "title": "2012年6月份70个大中城市住宅销售价格变动情况",
+      "href": "https://www.stats.gov.cn/sj/zxfb/202303/t20230301_1919096.html",
+      "discovered_via": "official-site-search-api",
+      "official_doc_date": "2012-07-18"
+    },
+    {
+      "title": "2012年7月份70个大中城市住宅销售价格变动情况",
+      "href": "https://www.stats.gov.cn/sj/zxfb/202303/t20230301_1919108.html",
+      "discovered_via": "official-site-search-api",
+      "official_doc_date": "2012-08-18"
+    },
+    {
+      "title": "2012年8月份70个大中城市住宅销售价格变动情况",
+      "href": "https://www.stats.gov.cn/sj/zxfb/202303/t20230301_1919120.html",
+      "discovered_via": "official-site-search-api",
+      "official_doc_date": "2012-09-18"
+    },
+    {
+      "title": "2012年9月份70个大中城市住宅销售价格变动情况",
+      "href": "https://www.stats.gov.cn/sj/zxfb/202303/t20230301_1919126.html",
+      "discovered_via": "official-site-search-api",
+      "official_doc_date": "2012-10-18"
+    },
+    {
+      "title": "2013年10月份70个大中城市住宅销售价格变动情况",
+      "href": "https://www.stats.gov.cn/sj/zxfb/202302/t20230203_1898400.html",
+      "discovered_via": "official-site-search-api",
+      "official_doc_date": "2013-11-18"
+    },
+    {
+      "title": "2013年11月份70个大中城市住宅销售价格变动情况",
+      "href": "https://www.stats.gov.cn/sj/zxfb/202302/t20230203_1898415.html",
+      "discovered_via": "official-site-search-api",
+      "official_doc_date": "2013-12-18"
+    },
+    {
+      "title": "2013年12月份70个大中城市住宅销售价格变动情况",
+      "href": "https://www.stats.gov.cn/sj/zxfb/202302/t20230203_1898428.html",
+      "discovered_via": "official-site-search-api",
+      "official_doc_date": "2014-01-18"
+    },
+    {
+      "title": "2013年1月份70个大中城市住宅销售价格变动情况",
+      "href": "https://www.stats.gov.cn/sj/zxfb/202302/t20230203_1898265.html",
+      "discovered_via": "official-site-search-api",
+      "official_doc_date": "2013-02-22"
+    },
+    {
+      "title": "2013年2月份70个大中城市住宅销售价格变动情况",
+      "href": "https://www.stats.gov.cn/sj/zxfb/202302/t20230203_1898275.html",
+      "discovered_via": "official-site-search-api",
+      "official_doc_date": "2013-03-18"
+    },
+    {
+      "title": "2013年3月份70个大中城市住宅销售价格变动情况",
+      "href": "https://www.stats.gov.cn/sj/zxfb/202302/t20230203_1898289.html",
+      "discovered_via": "official-site-search-api",
+      "official_doc_date": "2013-04-18"
+    },
+    {
+      "title": "2013年4月份70个大中城市住宅销售价格变动情况",
+      "href": "https://www.stats.gov.cn/sj/zxfb/202302/t20230203_1898303.html",
+      "discovered_via": "official-site-search-api",
+      "official_doc_date": "2013-05-18"
+    },
+    {
+      "title": "2013年5月份70个大中城市住宅销售价格变动情况",
+      "href": "https://www.stats.gov.cn/sj/zxfb/202302/t20230203_1898315.html",
+      "discovered_via": "official-site-search-api",
+      "official_doc_date": "2013-06-18"
+    },
+    {
+      "title": "2013年6月份70个大中城市住宅销售价格变动情况",
+      "href": "https://www.stats.gov.cn/sj/zxfb/202302/t20230203_1898331.html",
+      "discovered_via": "official-site-search-api",
+      "official_doc_date": "2013-07-18"
+    },
+    {
+      "title": "2013年7月份70个大中城市住宅销售价格变动情况",
+      "href": "https://www.stats.gov.cn/sj/zxfb/202302/t20230203_1898342.html",
+      "discovered_via": "official-site-search-api",
+      "official_doc_date": "2013-08-18"
+    },
+    {
+      "title": "2013年8月份70个大中城市住宅销售价格变动情况",
+      "href": "https://www.stats.gov.cn/sj/zxfb/202302/t20230203_1898355.html",
+      "discovered_via": "official-site-search-api",
+      "official_doc_date": "2013-09-18"
+    },
+    {
+      "title": "2013年9月份70个大中城市住宅销售价格变动情况",
+      "href": "https://www.stats.gov.cn/sj/zxfb/202302/t20230203_1898356.html",
+      "discovered_via": "official-site-search-api",
+      "official_doc_date": "2013-10-22"
+    },
+    {
+      "title": "2014年10月份70个大中城市住宅销售价格变动情况",
+      "href": "https://www.stats.gov.cn/sj/zxfb/202302/t20230203_1898631.html",
+      "discovered_via": "official-site-search-api",
+      "official_doc_date": "2014-11-18"
+    },
+    {
+      "title": "2014年11月份70个大中城市住宅销售价格变动情况",
+      "href": "https://www.stats.gov.cn/sj/zxfb/202302/t20230203_1898657.html",
+      "discovered_via": "official-site-search-api",
+      "official_doc_date": "2014-12-18"
+    },
+    {
+      "title": "2014年12月份70个大中城市住宅销售价格变动情况",
+      "href": "https://www.stats.gov.cn/sj/zxfb/202302/t20230203_1898672.html",
+      "discovered_via": "official-site-search-api",
+      "official_doc_date": "2015-01-18"
+    },
+    {
+      "title": "2014年1月份70个大中城市住宅销售价格变动情况",
+      "href": "https://www.stats.gov.cn/sj/zxfb/202302/t20230203_1898452.html",
+      "discovered_via": "official-site-search-api",
+      "official_doc_date": "2014-02-24"
+    },
+    {
+      "title": "2014年2月份70个大中城市住宅销售价格变动情况",
+      "href": "https://www.stats.gov.cn/sj/zxfb/202302/t20230203_1898473.html",
+      "discovered_via": "official-site-search-api",
+      "official_doc_date": "2014-03-18"
+    },
+    {
+      "title": "2014年3月份70个大中城市住宅销售价格变动情况",
+      "href": "https://www.stats.gov.cn/sj/zxfb/202302/t20230203_1898494.html",
+      "discovered_via": "official-site-search-api",
+      "official_doc_date": "2014-04-18"
+    },
+    {
+      "title": "2014年4月份70个大中城市住宅销售价格变动情况",
+      "href": "https://www.stats.gov.cn/sj/zxfb/202302/t20230203_1898514.html",
+      "discovered_via": "official-site-search-api",
+      "official_doc_date": "2014-05-18"
+    },
+    {
+      "title": "2014年5月份70个大中城市住宅销售价格变动情况",
+      "href": "https://www.stats.gov.cn/sj/zxfb/202302/t20230203_1898535.html",
+      "discovered_via": "official-site-search-api",
+      "official_doc_date": "2014-06-18"
+    },
+    {
+      "title": "2014年6月份70个大中城市住宅销售价格变动情况",
+      "href": "https://www.stats.gov.cn/sj/zxfb/202302/t20230203_1898557.html",
+      "discovered_via": "official-site-search-api",
+      "official_doc_date": "2014-07-18"
+    },
+    {
+      "title": "2014年7月份70个大中城市住宅销售价格变动情况",
+      "href": "https://www.stats.gov.cn/sj/zxfb/202302/t20230203_1898574.html",
+      "discovered_via": "official-site-search-api",
+      "official_doc_date": "2014-08-18"
+    },
+    {
+      "title": "2014年8月份70个大中城市住宅销售价格变动情况",
+      "href": "https://www.stats.gov.cn/sj/zxfb/202302/t20230203_1898593.html",
+      "discovered_via": "official-site-search-api",
+      "official_doc_date": "2014-09-18"
+    },
+    {
+      "title": "2014年9月份70个大中城市住宅销售价格变动情况",
+      "href": "https://www.stats.gov.cn/sj/zxfb/202302/t20230203_1898616.html",
+      "discovered_via": "official-site-search-api",
+      "official_doc_date": "2014-10-24"
+    },
+    {
+      "title": "2015年10月份70个大中城市住宅销售价格变动情况",
+      "href": "https://www.stats.gov.cn/sj/zxfb/202302/t20230203_1898963.html",
+      "discovered_via": "official-site-search-api",
+      "official_doc_date": "2015-11-18"
+    },
+    {
+      "title": "2015年11月份70个大中城市住宅销售价格变动情况",
+      "href": "https://www.stats.gov.cn/sj/zxfb/202302/t20230203_1898993.html",
+      "discovered_via": "official-site-search-api",
+      "official_doc_date": "2015-12-18"
+    },
+    {
+      "title": "2015年12月份70个大中城市住宅销售价格变动情况",
+      "href": "https://www.stats.gov.cn/sj/zxfb/202302/t20230203_1899015.html",
+      "discovered_via": "official-site-search-api",
+      "official_doc_date": "2016-01-18"
+    },
+    {
+      "title": "2015年1月份70个大中城市住宅销售价格变动情况",
+      "href": "https://www.stats.gov.cn/sj/zxfb/202302/t20230203_1898702.html",
+      "discovered_via": "official-site-search-api",
+      "official_doc_date": "2015-02-17"
+    },
+    {
+      "title": "2015年2月份70个大中城市住宅销售价格变动情况",
+      "href": "https://www.stats.gov.cn/sj/zxfb/202302/t20230203_1898736.html",
+      "discovered_via": "official-site-search-api",
+      "official_doc_date": "2015-03-18"
+    },
+    {
+      "title": "2015年3月份70个大中城市住宅销售价格变动情况",
+      "href": "https://www.stats.gov.cn/sj/zxfb/202302/t20230203_1898762.html",
+      "discovered_via": "official-site-search-api",
+      "official_doc_date": "2015-04-18"
+    },
+    {
+      "title": "2015年4月份70个大中城市住宅销售价格变动情况",
+      "href": "https://www.stats.gov.cn/sj/zxfb/202302/t20230203_1898789.html",
+      "discovered_via": "official-site-search-api",
+      "official_doc_date": "2015-05-18"
+    },
+    {
+      "title": "2015年5月份70个大中城市住宅销售价格变动情况",
+      "href": "https://www.stats.gov.cn/sj/zxfb/202302/t20230203_1898822.html",
+      "discovered_via": "official-site-search-api",
+      "official_doc_date": "2015-06-18"
+    },
+    {
+      "title": "2015年6月份70个大中城市住宅销售价格变动情况",
+      "href": "https://www.stats.gov.cn/sj/zxfb/202302/t20230203_1898853.html",
+      "discovered_via": "official-site-search-api",
+      "official_doc_date": "2015-07-18"
+    },
+    {
+      "title": "2015年7月份70个大中城市住宅销售价格变动情况",
+      "href": "https://www.stats.gov.cn/sj/zxfb/202302/t20230203_1898883.html",
+      "discovered_via": "official-site-search-api",
+      "official_doc_date": "2015-08-18"
+    },
+    {
+      "title": "2015年8月份70个大中城市住宅销售价格变动情况",
+      "href": "https://www.stats.gov.cn/sj/zxfb/202302/t20230203_1898913.html",
+      "discovered_via": "official-site-search-api",
+      "official_doc_date": "2015-09-18"
+    },
+    {
+      "title": "2015年9月份70个大中城市住宅销售价格变动情况",
+      "href": "https://www.stats.gov.cn/sj/zxfb/202302/t20230203_1898939.html",
+      "discovered_via": "official-site-search-api",
+      "official_doc_date": "2015-10-23"
+    },
+    {
       "title": "2016年10月份70个大中城市及10月下半月一线和热点二线城市住宅销售价格变动情况 - 国家统计局",
       "href": "https://www.stats.gov.cn/sj/zxfb/202302/t20230203_1899340.html"
     },
@@ -581,5 +905,5 @@
   "historical_search_imported_at": "2026-07-15T11:00:04.220Z",
   "historical_search_source": "AnySearch exact-title official-domain search",
   "historical_search_missing": [],
-  "historical_official_search_checked_at": "2026-07-15T12:27:50.221Z"
+  "historical_official_search_checked_at": "2026-08-04T09:17:07.670Z"
 }
