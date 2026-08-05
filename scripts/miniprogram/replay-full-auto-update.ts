@@ -664,11 +664,11 @@ for (const [index, targetMonth] of targetMonths.entries()) {
         reason: "isolated replay verifies that a revoked candidate cannot activate",
       }],
     });
-    const revokedRelease = buildControlledRelease(structuredClone(packaged.release), {
+    const revokedDataset = rejected("revoked_dataset_version", () => buildControlledRelease(structuredClone(packaged.release), {
       baselineVersion: packaged.baselineSnapshot.datasetVersion,
       replayNumber,
       registryArtifact: buildRevocationRegistryArtifact(revokedRegistry, { cloudEnvId, storageBucket }),
-    });
+    }));
     const olderCurrent = {
       ...controlled.current,
       dataset_version: `${baselineMonth}-${"0".repeat(12)}`,
@@ -694,7 +694,7 @@ for (const [index, targetMonth] of targetMonths.entries()) {
       rejected("truncated_official_html", () => assertExactRecordSet(parseOfficialHtml(truncatedHtml, archive.source_batch).records, archive.records, `${targetMonth}: truncated official HTML`)),
       rejected("manifest_snapshot_mismatch", () => assert.deepEqual(verifyReleaseAgainstSnapshot(packaged.targetSnapshot, manifestMismatch), [], `${targetMonth}: manifest mismatch`)),
       rejected("source_version_mismatch", () => assert.deepEqual(verifyReleaseAgainstSnapshot(packaged.targetSnapshot, sourceVersionMismatch), [], `${targetMonth}: source version mismatch`)),
-      await clientRejects("revoked_dataset_version", createWxMock(revokedRelease)),
+      { ...revokedDataset, retained_safe_snapshot: true },
       await clientRejects("version_regression", createWxMock(controlled, { current: olderCurrent })),
       await clientRejects("download_interrupted", createWxMock(controlled, { failDownloadAt: 1 })),
       await clientRejects("cache_write_failed", createWxMock(controlled, { failWrite: (path) => path.endsWith("/bootstrap.json") })),
