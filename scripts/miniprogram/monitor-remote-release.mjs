@@ -18,7 +18,7 @@ import {
   mergeMigrationAuditEntries,
 } from './monitor-audit-chain.mjs'
 import { validateManualRollbackAudit } from './ci-rollback-authorization.mjs'
-import { COMPLETE_REMOTE_MONTHS, COMPLETE_REMOTE_SCHEMA_VERSION, COMPLETE_REMOTE_START, validateCompleteRemoteSnapshot } from './complete-remote-data.mjs'
+import { COMPLETE_REMOTE_MONTHS, COMPLETE_REMOTE_SCHEMA_VERSION, completeCoverageStart, validateCompleteRemoteSnapshot } from './complete-remote-data.mjs'
 
 const execFileAsync = promisify(execFile)
 const root = resolve(import.meta.dirname, '../..')
@@ -147,7 +147,7 @@ if (manifest.dataset_version !== audit.dataset_version
   || (isCompleteHistory
     ? manifest.complete_snapshot_sha256 !== audit.complete_snapshot_sha256
       || manifest.complete_snapshot_bytes !== audit.complete_snapshot_bytes
-      || manifest.coverage_start !== COMPLETE_REMOTE_START
+      || manifest.coverage_start !== completeCoverageStart(manifest.dataset_as_of)
       || manifest.month_count !== COMPLETE_REMOTE_MONTHS
     : manifest.bootstrap_sha256 !== audit.bootstrap_sha256
       || manifest.bootstrap_bytes !== audit.bootstrap_bytes)) {

@@ -7,7 +7,7 @@ import { activatePointerWithRollback } from './guarded-activation.mjs'
 import { buildAutomaticRollbackPointer, validateManifestFunctionOutput } from './post-publish-guard.mjs'
 import { assertProductionPointerBaseline } from './publish-remote-data-guards.mjs'
 import { readRollbackEligibleAudit, rollbackVersionOrNull } from './release-audit-lib.mjs'
-import { COMPLETE_REMOTE_MONTHS, COMPLETE_REMOTE_SCHEMA_VERSION, COMPLETE_REMOTE_START, validateCompleteRemoteSnapshot } from './complete-remote-data.mjs'
+import { COMPLETE_REMOTE_MONTHS, COMPLETE_REMOTE_SCHEMA_VERSION, completeCoverageStart, validateCompleteRemoteSnapshot } from './complete-remote-data.mjs'
 import { appendFailedReleaseRevocations, assertRollbackClosure, assertTargetNotRevoked, buildControlValidUntil, buildRollbackRevisionId, buildRevocationRegistryArtifact, createRevocationRegistry, validateControlPointer, validateRevocationRegistry } from './control-plane.mjs'
 
 const root = resolve(import.meta.dirname, '../..')
@@ -24,7 +24,7 @@ const snapshotText = await readFile(resolve(localRoot, 'complete-snapshot.json')
 const manifest = JSON.parse(manifestText)
 const snapshot = JSON.parse(snapshotText)
 assert(report.status === 'staged_not_uploaded' && report.dataset_version === datasetVersion, 'staged report does not match candidate')
-assert(manifest.remote_schema_version === COMPLETE_REMOTE_SCHEMA_VERSION && manifest.coverage_start === COMPLETE_REMOTE_START && manifest.month_count === COMPLETE_REMOTE_MONTHS, 'candidate is not the required 180-month complete format')
+assert(manifest.remote_schema_version === COMPLETE_REMOTE_SCHEMA_VERSION && manifest.coverage_start === completeCoverageStart(manifest.dataset_as_of) && manifest.month_count === COMPLETE_REMOTE_MONTHS, 'candidate is not the required rolling 180-month complete format')
 assert(report.manifest_sha256 === sha256(manifestText) && manifest.complete_snapshot_sha256 === sha256(snapshotText), 'candidate hash gate failed')
 validateCompleteRemoteSnapshot(snapshot)
 const ciMode = process.env.GITHUB_ACTIONS === 'true'

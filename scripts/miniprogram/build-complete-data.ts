@@ -6,7 +6,6 @@ const root = resolve(import.meta.dirname, '../..')
 const manifest = JSON.parse(await readFile(resolve(root, 'apps/web/public/data/manifest.json'), 'utf8'))
 const payload = JSON.parse(await readFile(resolve(root, 'apps/web/public/data/data.json'), 'utf8')) as { records: PriceRecord[] }
 const output = resolve(root, 'work/miniprogram-data-input/complete-snapshot.json')
-const expectedStart = process.argv.find((argument) => argument.startsWith('--start='))?.slice('--start='.length) || '2011-07'
 const expectedMonths = 180
 const seriesCodes = ['n_a', 'n_s', 'n_m', 'n_l', 'r_a', 'r_s', 'r_m', 'r_l']
 const bandCode: Record<PriceRecord['size_band'], string> = { all: 'a', le90: 's', '90_144': 'm', gt144: 'l' }
@@ -21,9 +20,17 @@ function monthRange(start: string, end: string): string[] {
   return result
 }
 
+function rollingStart(end: string, count: number): string {
+  const date = new Date(`${end}-01T00:00:00Z`)
+  date.setUTCMonth(date.getUTCMonth() - (count - 1))
+  return date.toISOString().slice(0, 7)
+}
+
+const expectedStart = process.argv.find((argument) => argument.startsWith('--start='))?.slice('--start='.length) || rollingStart(manifest.dataset_as_of, expectedMonths)
+
 const months = monthRange(expectedStart, manifest.dataset_as_of)
 if (months.length !== expectedMonths) throw new Error(`complete snapshot must contain ${expectedMonths} months; got ${months.length}`)
-if (manifest.coverage_start !== expectedStart) throw new Error(`published data coverage must start at ${expectedStart}; got ${manifest.coverage_start}`)
+if (manifest.coverage_start > expectedStart) throw new Error(`published data coverage starts too late for ${expectedStart}; got ${manifest.coverage_start}`)
 const allowedMonths = new Set(months)
 const records = payload.records.filter((record) => allowedMonths.has(record.stat_month))
 if (records.length !== expectedMonths * CITY_IDS.length * 2 * 4) throw new Error(`complete snapshot record count is invalid: ${records.length}`)
@@ -75,7 +82,7 @@ const snapshot = {
   datasetAsOf: manifest.dataset_as_of,
   releaseDate: manifest.release_date,
   coverageStart: months[0],
-  sourceCoverageStart: manifest.coverage_start,
+  sourceCoverageStart: months[0],
   latestOfficialUrl: manifest.latest_official_url,
   generatedAt: manifest.generated_at,
   dataStatus: manifest.data_status,

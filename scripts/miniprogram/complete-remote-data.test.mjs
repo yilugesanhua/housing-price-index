@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import { createRequire } from 'node:module'
 import { resolve } from 'node:path'
 import test from 'node:test'
-import { buildCompleteRemoteRelease, COMPLETE_REMOTE_MONTHS, COMPLETE_REMOTE_START, verifyCompleteRemoteRelease } from './complete-remote-data.mjs'
+import { buildCompleteRemoteRelease, COMPLETE_REMOTE_MONTHS, completeCoverageStart, verifyCompleteRemoteRelease } from './complete-remote-data.mjs'
 
 const root = resolve(import.meta.dirname, '../..')
 const require = createRequire(import.meta.url)
@@ -17,8 +17,8 @@ function fixture() {
     paddingMonths.push(date.toISOString().slice(0, 7))
   }
   snapshot.months = [...paddingMonths, ...snapshot.months]
-  snapshot.coverageStart = COMPLETE_REMOTE_START
-  snapshot.sourceCoverageStart = COMPLETE_REMOTE_START
+  snapshot.coverageStart = completeCoverageStart(snapshot.datasetAsOf)
+  snapshot.sourceCoverageStart = completeCoverageStart(snapshot.datasetAsOf)
   snapshot.releaseDates = [...Array(60).fill('2011-07-18'), ...snapshot.releaseDates]
   for (const cityId of snapshot.cityIds) {
     for (const code of Object.keys(snapshot.series[cityId])) snapshot.series[cityId][code] = [...Array(60 * 4).fill(null), ...snapshot.series[cityId][code]]
@@ -70,9 +70,15 @@ test('complete remote release is one verified 180-month business data file', () 
   const snapshot = fixture()
   const release = buildCompleteRemoteRelease(snapshot, buildOptions(snapshot))
   assert.equal(release.manifest.month_count, 180)
-  assert.equal(release.manifest.coverage_start, '2011-07')
+  assert.equal(release.manifest.coverage_start, completeCoverageStart(snapshot.datasetAsOf))
   assert.ok(release.manifest.complete_snapshot_file_id.endsWith('/complete-snapshot.json'))
   assert.deepEqual(verifyCompleteRemoteRelease(snapshot, release), [])
+})
+
+test('complete remote coverage rolls forward with the target month', () => {
+  assert.equal(completeCoverageStart('2026-06'), '2011-07')
+  assert.equal(completeCoverageStart('2026-07'), '2011-08')
+  assert.equal(completeCoverageStart('2027-06'), '2012-07')
 })
 
 test('complete remote release rejects any data-file tampering', () => {

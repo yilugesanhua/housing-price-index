@@ -281,6 +281,15 @@ function assertExactRecordSet(actual: StandardRecord[], expected: StandardRecord
   assert.equal(actualKeys.size, expectedByKey.size, `${label}: expected records are missing`);
 }
 
+function rejected(label: string, action: () => void): { kind: string; rejected: true; error: string } {
+  try {
+    action();
+  } catch (error) {
+    return { kind: label, rejected: true, error: error instanceof Error ? error.message : String(error) };
+  }
+  throw new Error(`${label}: corrupted input was accepted`);
+}
+
 function buildSnapshot(records: StandardRecord[], datasetAsOf: string, datasetVersion: string, sourceVersion: string) {
   const months = monthRange(datasetAsOf);
   const lookup = new Map(records.map((record) => [recordKey(record), record]));
@@ -395,10 +404,15 @@ function buildControlledRelease(release: any, {
   };
 }
 
-function createWxMock(release: any) {
+function createWxMock(release: any, options: {
+  remote?: Map<string, string>;
+  current?: any;
+  failDownloadAt?: number;
+  failWrite?: (filePath: string) => boolean;
+} = {}) {
   const files = new Map<string, Buffer>();
   const storage = new Map<string, any>();
-  const remote = cloudFiles(release);
+  const remote = options.remote ?? cloudFiles(release);
   const { buildValidationReceipt } = require(resolve(root, "apps/miniprogram/cloudfunctions/getHousingDataManifest/validation-receipt.js"));
   let tempIndex = 0;
   const stats = { downloads: 0 };
@@ -409,7 +423,10 @@ function createWxMock(release: any) {
       return encoding ? value.toString(encoding) : value;
     },
     readFile({ filePath, encoding, success, fail }: any) { try { success({ data: fs.readFileSync(filePath, encoding) }); } catch (error) { fail(error); } },
-    writeFile({ filePath, data, success }: any) { files.set(filePath, Buffer.from(data, "utf8")); success({}); },
+    writeFile({ filePath, data, success, fail }: any) {
+      if (options.failWrite?.(filePath)) return fail(new Error(`simulated cache write failure: ${filePath}`));
+      files.set(filePath, Buffer.from(data, "utf8")); success({});
+    },
     mkdir({ success }: any) { success({}); },
     rename({ oldPath, newPath, success, fail }: any) {
       const entries = [...files.entries()].filter(([filePath]) => filePath === oldPath || filePath.startsWith(`${oldPath}/`));
@@ -435,10 +452,12 @@ function createWxMock(release: any) {
       removeStorageSync: (key: string) => storage.delete(key),
       cloud: {
         callFunction({ success }: any) {
-          success({ result: { current: structuredClone(release.current), validation_receipt: buildValidationReceipt(release.current) } });
+          const current = options.current ?? release.current;
+          success({ result: { current: structuredClone(current), validation_receipt: buildValidationReceipt(current) } });
         },
         downloadFile({ fileID, success, fail }: any) {
           stats.downloads += 1;
+          if (options.failDownloadAt === stats.downloads) return fail(new Error(`simulated download interruption: ${fileID}`));
           const value = remote.get(fileID);
           if (value === undefined) return fail(new Error(`remote file missing: ${fileID}`));
           const tempFilePath = `/temp/${tempIndex += 1}`;
@@ -612,35 +631,83 @@ for (const [index, targetMonth] of targetMonths.entries()) {
 
   await timed(stages, "corrupt_candidate_rejected", async () => {
     const pointerBefore = cloud ? (await retryCloud("read pointer before corrupt candidate", () => cloud.getObject(key("current.json")))).toString("utf8") : isolatedPointerText;
-    const missingRecord = archive.records.slice(0, -1);
-    assert.throws(() => validateCandidateData({
-      previousPayload: { records: baselineRecords },
-      candidatePayload: { records: [...baselineRecords, ...missingRecord] },
-      expectedMonth: targetMonth,
-      sourceBatch: archive.source_batch,
-    }), /increase by 560|new month must contain 560/);
+    const missingCity = archive.records.filter((record) => record.city_id !== archive.records[0].city_id);
+    const missingMonth: StandardRecord[] = [];
+    const duplicateRecord = [...archive.records, structuredClone(archive.records[0])];
     const wrongValue = structuredClone(archive.records);
     const altered = wrongValue[0];
     altered.mom_index = Number((altered.mom_index + 0.1).toFixed(1));
     altered.mom_change = Number((altered.mom_change + 0.1).toFixed(1));
-    const alteredCandidate = [...baselineRecords, ...wrongValue];
-    assert.doesNotThrow(() => validateCandidateData({
-      previousPayload: { records: baselineRecords },
-      candidatePayload: { records: alteredCandidate },
-      expectedMonth: targetMonth,
-      sourceBatch: archive.source_batch,
-    }));
     const alteredAudit = auditParsedBatch(archive.path, { source_batch: archive.source_batch, records: wrongValue }, Buffer.from(archive.html));
     assert(alteredAudit.errors.some((error) => /mom_index|mom_change/.test(error)), `${targetMonth}: altered official value was not rejected by raw-cell audit`);
+    const shiftedArea = structuredClone(archive.records);
+    shiftedArea[0].size_band = shiftedArea[1].size_band;
+    const truncatedHtml = archive.html.slice(0, Math.floor(archive.html.length / 2));
+    const complete = structuredClone(packaged.release);
+    const controlled = buildControlledRelease(complete, {
+      baselineVersion: packaged.baselineSnapshot.datasetVersion,
+      replayNumber,
+      registryArtifact: replayRegistryArtifact,
+    });
+    const hashMismatch = structuredClone(packaged.release);
+    hashMismatch.bootstrapText = `${hashMismatch.bootstrapText} `;
+    const manifestMismatch = structuredClone(packaged.release);
+    manifestMismatch.manifest.dataset_as_of = baselineMonth;
+    const sourceVersionMismatch = structuredClone(packaged.release);
+    sourceVersionMismatch.manifest.source_dataset_version = `${targetMonth}-${"0".repeat(12)}`;
+    const revokedAt = new Date(Date.now() - 2_000).toISOString();
+    const revokedRegistry = createRevocationRegistry({
+      generatedAt: revokedAt,
+      revokedDatasetVersions: [{
+        dataset_version: controlled.current.dataset_version,
+        revoked_at: revokedAt,
+        reason: "isolated replay verifies that a revoked candidate cannot activate",
+      }],
+    });
+    const revokedRelease = buildControlledRelease(structuredClone(packaged.release), {
+      baselineVersion: packaged.baselineSnapshot.datasetVersion,
+      replayNumber,
+      registryArtifact: buildRevocationRegistryArtifact(revokedRegistry, { cloudEnvId, storageBucket }),
+    });
+    const olderCurrent = {
+      ...controlled.current,
+      dataset_version: `${baselineMonth}-${"0".repeat(12)}`,
+      dataset_as_of: baselineMonth,
+      manifest_file_id: controlled.current.manifest_file_id.replace(controlled.current.dataset_version, `${baselineMonth}-${"0".repeat(12)}`),
+    };
+    const clientRejects = async (label: string, mock: ReturnType<typeof createWxMock>) => {
+      const config = require(resolve(root, "apps/miniprogram/config/data.js"));
+      const { createDataRuntime } = require(resolve(root, "apps/miniprogram/utils/data-runtime.js"));
+      const runtime = createDataRuntime({ wxApi: mock.wxApi, bundled: packaged.baselineSnapshot, config });
+      const result = await runtime.refresh({ force: true });
+      assert.equal(result.updated, false, `${targetMonth}: ${label} unexpectedly updated the client`);
+      assert.equal(runtime.getSnapshot().datasetAsOf, baselineMonth, `${targetMonth}: ${label} replaced the last safe snapshot`);
+      return { kind: label, rejected: true as const, retained_safe_snapshot: true };
+    };
+    const corruptions = [
+      rejected("missing_city", () => validateMonthlyCandidate(baselineRecords, missingCity, archive.source_batch)),
+      rejected("missing_month", () => validateMonthlyCandidate(baselineRecords, missingMonth, archive.source_batch)),
+      rejected("duplicate_record", () => validateMonthlyCandidate(baselineRecords, duplicateRecord, archive.source_batch)),
+      { kind: "mom_yoy_misaligned", rejected: true as const, audit_error_count: alteredAudit.errors.length, record_key: recordKey(altered) },
+      rejected("area_band_misaligned", () => assertExactRecordSet(shiftedArea, archive.records, `${targetMonth}: shifted area band`)),
+      rejected("sha256_mismatch", () => assert.deepEqual(verifyReleaseAgainstSnapshot(packaged.targetSnapshot, hashMismatch), [], `${targetMonth}: package SHA-256 mismatch`)),
+      rejected("truncated_official_html", () => assertExactRecordSet(parseOfficialHtml(truncatedHtml, archive.source_batch).records, archive.records, `${targetMonth}: truncated official HTML`)),
+      rejected("manifest_snapshot_mismatch", () => assert.deepEqual(verifyReleaseAgainstSnapshot(packaged.targetSnapshot, manifestMismatch), [], `${targetMonth}: manifest mismatch`)),
+      rejected("source_version_mismatch", () => assert.deepEqual(verifyReleaseAgainstSnapshot(packaged.targetSnapshot, sourceVersionMismatch), [], `${targetMonth}: source version mismatch`)),
+      await clientRejects("revoked_dataset_version", createWxMock(revokedRelease)),
+      await clientRejects("version_regression", createWxMock(controlled, { current: olderCurrent })),
+      await clientRejects("download_interrupted", createWxMock(controlled, { failDownloadAt: 1 })),
+      await clientRejects("cache_write_failed", createWxMock(controlled, { failWrite: (path) => path.endsWith("/bootstrap.json") })),
+    ];
+    assert.equal(corruptions.length, 13, `${targetMonth}: all required exception cases must run`);
+    assert(corruptions.every((item) => item.rejected), `${targetMonth}: an exception case was not rejected`);
     const pointerAfter = cloud ? (await retryCloud("read pointer after corrupt candidate", () => cloud.getObject(key("current.json")))).toString("utf8") : isolatedPointerText;
     assert.equal(pointerAfter, pointerBefore, `${targetMonth}: pointer changed after corrupt candidate rejection`);
     return {
       value: null,
       evidence: {
-        corruptions: [
-          { kind: "one_official_record_removed", structural_gate_rejected: true },
-          { kind: "shape_valid_official_value_altered", structural_gate_passed: true, independent_raw_cell_audit_rejected: true, audit_error_count: alteredAudit.errors.length, record_key: recordKey(altered) },
-        ],
+        corruptions,
+        exception_case_count: corruptions.length,
         validation_failed_before_upload: true,
         pointer_sha256_before: digest(pointerBefore),
         pointer_sha256_after: digest(pointerAfter),

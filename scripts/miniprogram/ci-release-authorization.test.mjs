@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { sha256 } from './remote-data-lib.mjs'
 import { validateCiReleaseAuthorization } from './ci-release-authorization.mjs'
+import { COMPLETE_REMOTE_SCHEMA_VERSION, completeCoverageStart } from './complete-remote-data.mjs'
 
 const datasetVersion = '2026-07-0123456789ab'
 const cloudEnvId = 'cloud1-d3gpdx70w5d05c68c'
@@ -165,7 +166,7 @@ test('accepts only an attested generic historical correction workflow', () => {
 test('accepts only the dedicated complete-history workflow with a 180-month snapshot attestation', () => {
   const completeGate = {
     status: 'passed', gate_type: 'complete_history_release', dataset_version: datasetVersion, source_dataset_version: '2026-06-222222222222', cloud_env_id: cloudEnvId,
-    commit_sha: validEnv.CI_COMMIT_SHA, github_run_id: validEnv.GITHUB_RUN_ID, remote_schema_version: '2.0.0', coverage_start: '2011-07', month_count: 180, complete_snapshot_sha256: 'c'.repeat(64),
+    commit_sha: validEnv.CI_COMMIT_SHA, github_run_id: validEnv.GITHUB_RUN_ID, remote_schema_version: COMPLETE_REMOTE_SCHEMA_VERSION, dataset_as_of: '2026-07', coverage_start: completeCoverageStart('2026-07'), month_count: 180, complete_snapshot_sha256: 'c'.repeat(64),
   }
   const text = `${JSON.stringify(completeGate)}\n`
   const env = { ...validEnv, GITHUB_EVENT_NAME: 'workflow_dispatch', GITHUB_WORKFLOW: 'complete-history-data-publish', GITHUB_WORKFLOW_REF: 'owner/repo/.github/workflows/complete-history-data-publish.yml@refs/heads/main', CI_GATE_REPORT_SHA256: sha256(text), CI_COMPLETE_SNAPSHOT_SHA256: completeGate.complete_snapshot_sha256 }

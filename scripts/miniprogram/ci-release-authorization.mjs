@@ -4,6 +4,7 @@ import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { sha256 } from './remote-data-lib.mjs'
+import { COMPLETE_REMOTE_MONTHS, COMPLETE_REMOTE_SCHEMA_VERSION, completeCoverageStart } from './complete-remote-data.mjs'
 
 const execFileAsync = promisify(execFile)
 
@@ -85,9 +86,9 @@ export function validateCiReleaseAuthorization({ env, datasetVersion, cloudEnvId
   } else if (completeHistory) {
     requireEqual(gate.gate_type, 'complete_history_release', 'complete history gate type')
     requireEqual(gate.github_run_id, env.GITHUB_RUN_ID, 'complete history release run ID')
-    requireEqual(gate.remote_schema_version, '2.0.0', 'complete history remote schema')
-    requireEqual(gate.coverage_start, '2011-07', 'complete history coverage start')
-    requireEqual(String(gate.month_count), '180', 'complete history month count')
+    requireEqual(gate.remote_schema_version, COMPLETE_REMOTE_SCHEMA_VERSION, 'complete history remote schema')
+    requireEqual(gate.coverage_start, completeCoverageStart(gate.dataset_as_of), 'complete history rolling coverage start')
+    requireEqual(String(gate.month_count), String(COMPLETE_REMOTE_MONTHS), 'complete history month count')
     requireEqual(gate.complete_snapshot_sha256, env.CI_COMPLETE_SNAPSHOT_SHA256, 'complete history snapshot SHA-256')
   } else {
     requireEqual(String(gate.discovery_run_id), env.CI_DISCOVERY_RUN_ID, 'discovery run ID')

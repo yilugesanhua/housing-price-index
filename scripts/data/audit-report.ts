@@ -45,7 +45,9 @@ export function currentRepositoryCommitSha(root = process.cwd()): string {
 export function currentAuditCodeSha256(root = process.cwd()): string {
   return digest(AUDIT_CODE_PATHS.map((path) => ({
     path,
-    sha256: createHash("sha256").update(readFileSync(resolve(root, path))).digest("hex"),
+    // Git attributes enforce LF, but normalize again so Windows checkout policy
+    // cannot invalidate an otherwise identical audit candidate.
+    sha256: createHash("sha256").update(readFileSync(resolve(root, path)).toString("utf8").replace(/\r\n/g, "\n"), "utf8").digest("hex"),
   })));
 }
 

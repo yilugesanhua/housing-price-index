@@ -148,6 +148,14 @@ function bundledSupersedesRemoteManifest(manifest, bundled, control, config = da
     && Date.parse(bundled.generatedAt) > Date.parse(manifest.generated_at)
 }
 
+function completeCoverageStart(datasetAsOf, monthCount) {
+  assert(/^20\d{2}-(0[1-9]|1[0-2])$/.test(datasetAsOf || ''), 'complete remote dataset month is invalid')
+  assert(Number.isInteger(monthCount) && monthCount > 0, 'complete remote month count is invalid')
+  const date = new Date(`${datasetAsOf}-01T00:00:00Z`)
+  date.setUTCMonth(date.getUTCMonth() - (monthCount - 1))
+  return date.toISOString().slice(0, 7)
+}
+
 function validateCurrent(current, config, options = {}) {
   return validateControlPointer(current, { config, ...options })
 }
@@ -253,7 +261,7 @@ function validateManifest(manifest, current, config, expectedCityIds = bundledSn
     const root = remoteReleaseRoot(config, current.dataset_version)
     assert(manifest.release_type === 'monthly_update', 'complete remote release type is invalid')
     assert(manifest.source_dataset_version === current.source_dataset_version, 'complete remote source version is inconsistent')
-    assert(manifest.coverage_start === config.completeRemoteCoverageStart, 'complete remote coverage start is invalid')
+    assert(manifest.coverage_start === completeCoverageStart(manifest.dataset_as_of, config.completeRemoteMonthCount), 'complete remote coverage start is invalid')
     assert(manifest.month_count === config.completeRemoteMonthCount, 'complete remote month count is invalid')
     assert(manifest.complete_snapshot_file_id === `${root}complete-snapshot.json`, 'complete remote snapshot path is invalid')
     assert(SHA_PATTERN.test(manifest.complete_snapshot_sha256 || '') && Number.isInteger(manifest.complete_snapshot_bytes) && manifest.complete_snapshot_bytes > 0, 'complete remote snapshot metadata is invalid')
@@ -799,7 +807,7 @@ function createDataRuntime({ wxApi = typeof wx === 'undefined' ? null : wx, bund
         cityIds: bundled.cityIds,
         featuredCityIds: bundled.featuredCityIds,
         expectedMonthCount: config.completeRemoteMonthCount,
-        expectedCoverageStart: config.completeRemoteCoverageStart,
+        expectedCoverageStart: completeCoverageStart(manifest.dataset_as_of, config.completeRemoteMonthCount),
       })
       validateCompleteSourceEvidence(manifest, completeSnapshot)
       assert(completeSnapshot.datasetVersion === manifest.dataset_version && completeSnapshot.sourceDatasetVersion === manifest.source_dataset_version && completeSnapshot.datasetAsOf === manifest.dataset_as_of, 'cached complete snapshot identity is invalid')
@@ -1338,7 +1346,7 @@ function createDataRuntime({ wxApi = typeof wx === 'undefined' ? null : wx, bund
           cityIds: bundled.cityIds,
           featuredCityIds: bundled.featuredCityIds,
           expectedMonthCount: config.completeRemoteMonthCount,
-          expectedCoverageStart: config.completeRemoteCoverageStart,
+          expectedCoverageStart: completeCoverageStart(manifest.dataset_as_of, config.completeRemoteMonthCount),
         })
         validateCompleteSourceEvidence(manifest, completeSnapshotDownload.data)
         assert(completeSnapshotDownload.data.datasetVersion === manifest.dataset_version

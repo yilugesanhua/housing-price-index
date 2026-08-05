@@ -3,7 +3,6 @@ import { byteLength, sha256, stableJson } from './remote-data-lib.mjs'
 export const COMPLETE_REMOTE_SCHEMA_VERSION = '2.1.0'
 export const COMPLETE_REMOTE_FORMAT = 'housing-miniprogram-data'
 export const COMPLETE_REMOTE_MONTHS = 180
-export const COMPLETE_REMOTE_START = '2011-07'
 const COMPLETE_AUDIT_VERSION = 'full-record-audit-v7'
 
 const SERIES_CODES = ['n_a', 'n_s', 'n_m', 'n_l', 'r_a', 'r_s', 'r_m', 'r_l']
@@ -15,6 +14,13 @@ function assert(condition, message) {
 function nextMonth(month) {
   const date = new Date(`${month}-01T00:00:00Z`)
   date.setUTCMonth(date.getUTCMonth() + 1)
+  return date.toISOString().slice(0, 7)
+}
+
+export function completeCoverageStart(datasetAsOf) {
+  assert(/^20\d{2}-(?:0[1-9]|1[0-2])$/.test(datasetAsOf || ''), 'complete remote dataset month is invalid')
+  const date = new Date(`${datasetAsOf}-01T00:00:00Z`)
+  date.setUTCMonth(date.getUTCMonth() - (COMPLETE_REMOTE_MONTHS - 1))
   return date.toISOString().slice(0, 7)
 }
 
@@ -85,9 +91,10 @@ export function validateCompleteRemoteSnapshot(snapshot) {
   assert(/^20\d{2}-(0[1-9]|1[0-2])-[a-f0-9]{12}$/.test(snapshot.datasetVersion || ''), 'complete remote dataset version is invalid')
   assert(/^20\d{2}-(0[1-9]|1[0-2])-[a-f0-9]{12}$/.test(snapshot.sourceDatasetVersion || ''), 'complete remote source version is invalid')
   assert(snapshot.datasetVersion.startsWith(`${snapshot.datasetAsOf}-`) && snapshot.sourceDatasetVersion.startsWith(`${snapshot.datasetAsOf}-`), 'complete remote version month is invalid')
-  assert(snapshot.coverageStart === COMPLETE_REMOTE_START && snapshot.sourceCoverageStart === COMPLETE_REMOTE_START, 'complete remote coverage start is invalid')
+  const expectedCoverageStart = completeCoverageStart(snapshot.datasetAsOf)
+  assert(snapshot.coverageStart === expectedCoverageStart && snapshot.sourceCoverageStart === expectedCoverageStart, 'complete remote coverage start is invalid')
   assert(Array.isArray(snapshot.months) && snapshot.months.length === COMPLETE_REMOTE_MONTHS, 'complete remote month count is invalid')
-  assert(snapshot.months[0] === COMPLETE_REMOTE_START && snapshot.months.at(-1) === snapshot.datasetAsOf, 'complete remote month bounds are invalid')
+  assert(snapshot.months[0] === expectedCoverageStart && snapshot.months.at(-1) === snapshot.datasetAsOf, 'complete remote month bounds are invalid')
   for (let index = 1; index < snapshot.months.length; index += 1) assert(snapshot.months[index] === nextMonth(snapshot.months[index - 1]), 'complete remote months are not continuous')
   assert(Array.isArray(snapshot.releaseDates) && snapshot.releaseDates.length === COMPLETE_REMOTE_MONTHS, 'complete remote release dates are invalid')
   assert(snapshot.releaseDates.every(isIsoDate), 'complete remote release date is invalid')
@@ -157,7 +164,7 @@ export function buildCompleteRemoteRelease(snapshot, { cloudEnvId, storageBucket
     complete_snapshot_sha256: sha256(completeSnapshotText),
     complete_snapshot_bytes: byteLength(completeSnapshotText),
     snapshot_content_sha256: sourceSnapshotSha256,
-    coverage_start: COMPLETE_REMOTE_START,
+    coverage_start: snapshot.coverageStart,
     month_count: COMPLETE_REMOTE_MONTHS,
     minimum_app_version: minimumAppVersion,
     validation_status: 'passed',
@@ -193,7 +200,7 @@ export function verifyCompleteRemoteRelease(snapshot, release) {
   try { validateCompleteRemoteSnapshot(snapshot) } catch (error) { errors.push(error.message) }
   try { validateCompleteRemoteSnapshot(release.completeSnapshot) } catch (error) { errors.push(error.message) }
   check(release.manifest?.remote_schema_version === COMPLETE_REMOTE_SCHEMA_VERSION, 'complete manifest schema is invalid')
-  check(release.manifest?.coverage_start === COMPLETE_REMOTE_START && release.manifest?.month_count === COMPLETE_REMOTE_MONTHS, 'complete manifest coverage is invalid')
+  check(release.manifest?.coverage_start === completeCoverageStart(snapshot.datasetAsOf) && release.manifest?.month_count === COMPLETE_REMOTE_MONTHS, 'complete manifest coverage is invalid')
   check(release.manifest?.complete_snapshot_sha256 === sha256(release.completeSnapshotText), 'complete snapshot SHA-256 mismatch')
   check(release.manifest?.complete_snapshot_bytes === byteLength(release.completeSnapshotText), 'complete snapshot byte size mismatch')
   check(release.manifest?.snapshot_content_sha256 === snapshotContentSha256(snapshot), 'complete source snapshot identity mismatch')

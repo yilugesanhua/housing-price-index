@@ -1,4 +1,12 @@
 # Hash-bound migration evidence must retain repository LF bytes on every platform.
+/packages/core/src/index.ts text eol=lf
+/scripts/data/audit-batches.ts text eol=lf
+/scripts/data/audit-report.ts text eol=lf
+/scripts/data/audit-source-association.ts text eol=lf
+/scripts/data/official-parser.ts text eol=lf
+/scripts/data/raw-archive.ts text eol=lf
+/scripts/data/types.ts text eol=lf
+/scripts/data/validate.ts text eol=lf
 /scripts/miniprogram/fixtures/legacy-control-2026-06-e9788d0bddf3.evidence.json text eol=lf
 /data/releases/2026-06-e9788d0bddf3.json text eol=lf
 /data/releases/2026-06-679ea146d4e2.correction.json text eol=lf
