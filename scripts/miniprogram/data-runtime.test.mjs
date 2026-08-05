@@ -19,7 +19,7 @@ const require = createRequire(import.meta.url)
 const bundled = require(resolve(root, 'apps/miniprogram/data/snapshot.js'))
 const config = require(resolve(root, 'apps/miniprogram/config/data.js'))
 const versionConfig = require(resolve(root, 'apps/miniprogram/config/version.js'))
-const { sha256, utf8Bytes } = require(resolve(root, 'apps/miniprogram/utils/sha256.js'))
+const { sha256, sha256Async, utf8Bytes } = require(resolve(root, 'apps/miniprogram/utils/sha256.js'))
 const { createDataRuntime, validateCurrent: validateRuntimeCurrent, STATE_KEY, CONTROL_TOMBSTONE_KEY, POINTER_KEY, CHECK_KEY, REVOKED_SOURCES_KEY } = require(resolve(root, 'apps/miniprogram/utils/data-runtime.js'))
 const { validateCurrent } = require(resolve(root, 'apps/miniprogram/cloudfunctions/getHousingDataManifest/validate-current.js'))
 const { buildValidationReceipt } = require(resolve(root, 'apps/miniprogram/cloudfunctions/getHousingDataManifest/validation-receipt.js'))
@@ -208,7 +208,7 @@ function createWxMock(release, options = {}) {
   const directories = options.directories || new Set(['/user', '/user/housing-data'])
   const storage = options.storage || new Map()
   const remote = options.remote || cloudFiles(release)
-  const stats = { functionCalls: 0, downloads: 0, writes: 0, reads: 0, renames: 0, removals: 0 }
+  const stats = { functionCalls: 0, downloads: 0, writes: 0, reads: 0, renames: 0, removals: 0, nextTicks: 0 }
   let activeCurrent = options.current || release.current
   let tempIndex = 0
 
@@ -276,10 +276,16 @@ function createWxMock(release, options = {}) {
         ...[...files.keys()].filter((path) => path.startsWith(prefix)).map((path) => path.slice(prefix.length).split('/')[0]),
       ].filter(Boolean))]
     },
+    access({ path, success, fail }) {
+      const exists = directories.has(path) || [...files.keys()].some((filePath) => filePath.startsWith(`${path}/`))
+      if (exists) success({})
+      else fail(new Error(`ENOENT: ${path}`))
+    },
     rmdirSync(dirPath) {
       removeTree(dirPath)
     },
     rmdir({ dirPath, success, fail }) {
+      if (options.failRmdir?.(dirPath)) return fail(new Error('rmdir:fail'))
       try {
         removeTree(dirPath)
         success({})
@@ -309,6 +315,10 @@ function createWxMock(release, options = {}) {
     wxApi: {
       env: { USER_DATA_PATH: '/user' },
       getFileSystemManager: () => fs,
+      nextTick(callback) {
+        stats.nextTicks += 1
+        callback()
+      },
       getStorageSync: (key) => {
         if (options.failGetStorage?.(key)) throw new Error(`storage read failure: ${key}`)
         return storage.get(key)
@@ -324,6 +334,7 @@ function createWxMock(release, options = {}) {
       cloud: {
         callFunction({ success, fail }) {
           stats.functionCalls += 1
+          if (options.functionPromiseError) return Promise.reject(options.functionPromiseError)
           if (options.functionError) return fail(options.functionError)
           const receiptNow = typeof options.receiptNow === 'function'
             ? options.receiptNow()
@@ -342,6 +353,7 @@ function createWxMock(release, options = {}) {
         },
         downloadFile({ fileID, success, fail }) {
           stats.downloads += 1
+          if (options.downloadPromiseError) return Promise.reject(options.downloadPromiseError)
           const value = remote.get(fileID)
           if (value === undefined) return fail(new Error(`remote file missing: ${fileID}`))
           const tempFilePath = `/temp/${tempIndex += 1}`
@@ -470,6 +482,17 @@ test('mini program SHA-256 matches standard UTF-8 vectors and staged bytes', () 
   assert.equal(sha256(utf8Bytes(release.bootstrapText)), release.manifest.bootstrap_sha256)
 })
 
+test('chunked SHA-256 matches the native digest and yields between large-data chunks', async () => {
+  const bytes = utf8Bytes('a'.repeat(300_000))
+  let yields = 0
+  const actual = await sha256Async(bytes, {
+    chunkBytes: 64 * 1024,
+    yieldFn: async () => { yields += 1 },
+  })
+  assert.equal(actual, createHash('sha256').update(bytes).digest('hex'))
+  assert.equal(yields, 4)
+})
+
 test('v2 complete remote package activates atomically without city shards and survives restart', async () => {
   const release = makeCompleteRelease()
   const mock = createWxMock(release)
@@ -480,6 +503,7 @@ test('v2 complete remote package activates atomically without city shards and su
   assert.equal(runtime.getSnapshot().months.length, 180)
   assert.equal(runtime.getSnapshot().coverageStart, '2011-07')
   assert.equal(mock.stats.downloads, 3)
+  assert.ok(mock.stats.nextTicks > 30, 'large complete-package cache verification should yield to AppService')
   assert.ok(mock.files.has(`/user/housing-data/${release.current.dataset_version}/complete-snapshot.json`))
   assert.equal(await runtime.ensureCities(['haikou']), true)
   assert.equal(mock.stats.downloads, 3)
@@ -487,6 +511,63 @@ test('v2 complete remote package activates atomically without city shards and su
   const restarted = createDataRuntime({ wxApi: mock.wxApi })
   assert.equal(restarted.getSource(), 'remote')
   assert.equal(restarted.getSnapshot().months.length, 180)
+})
+
+test('preview diagnostics identify every complete-package update stage without exposing file IDs', async () => {
+  const release = makeCompleteRelease()
+  const mock = createWxMock(release)
+  const entries = []
+  const originalInfo = console.info
+  console.info = (...args) => entries.push(args)
+  try {
+    const runtime = createDataRuntime({ wxApi: mock.wxApi, config: { ...config, previewMode: true } })
+    assert.equal((await runtime.refresh({ force: true })).updated, true)
+  } finally {
+    console.info = originalInfo
+  }
+  const diagnostics = entries
+    .filter(([prefix]) => prefix === '[data:update:diag]')
+    .map(([, payload]) => JSON.parse(payload))
+  const stages = diagnostics.map((entry) => entry.stage)
+  for (const stage of ['refresh-start', 'manifest-function-start', 'manifest-function-ok', 'control-start', 'registry-download-start', 'registry-ok', 'manifest-download-start', 'manifest-ok', 'complete-download-start', 'complete-received', 'complete-validated', 'cache-start', 'cache-ok', 'activated-remote']) {
+    assert.ok(stages.includes(stage), `missing diagnostic stage: ${stage}`)
+  }
+  assert.equal(diagnostics.some((entry) => Object.values(entry).some((value) => typeof value === 'string' && value.includes('cloud://'))), false)
+})
+
+test('preview diagnostics identify the exact cache step when iOS rmdir fails', async () => {
+  const release = makeCompleteRelease()
+  const entries = []
+  const originalInfo = console.info
+  console.info = (...args) => entries.push(args)
+  try {
+    const directories = new Set(['/user', '/user/housing-data', `/user/housing-data/.tmp-${release.current.dataset_version}`])
+    const mock = createWxMock(release, { directories, failRmdir: (path) => path.endsWith(`.tmp-${release.current.dataset_version}`) })
+    const runtime = createDataRuntime({ wxApi: mock.wxApi, config: { ...config, previewMode: true } })
+    const result = await runtime.refresh({ force: true })
+    assert.equal(result.reason, 'failed')
+    assert.equal(runtime.getSource(), 'bundled')
+  } finally {
+    console.info = originalInfo
+  }
+  const diagnostics = entries
+    .filter(([prefix]) => prefix === '[data:update:diag]')
+    .map(([, payload]) => JSON.parse(payload))
+  assert.ok(diagnostics.some((entry) => entry.stage === 'cache-step-failed'
+    && entry.step === 'remove-temporary-directory'
+    && entry.error === 'rmdir:fail'))
+  assert.ok(diagnostics.some((entry) => entry.stage === 'refresh-failed'
+    && entry.failedStage === 'cache-start'))
+})
+
+test('missing temporary cache directory does not call iOS rmdir and still activates the verified package', async () => {
+  const release = makeCompleteRelease()
+  const mock = createWxMock(release, { failRmdir: (path) => path.endsWith(`.tmp-${release.current.dataset_version}`) })
+  const runtime = createDataRuntime({ wxApi: mock.wxApi, config: { ...config, previewMode: true } })
+  const result = await runtime.refresh({ force: true })
+  assert.equal(result.updated, true)
+  assert.equal(runtime.getSource(), 'remote')
+  assert.equal(runtime.getSnapshot().months.length, 180)
 })
 
 test('preview controls are accepted only by the preview root', () => {
@@ -527,6 +608,26 @@ test('v2 complete package corruption never replaces the bundled snapshot', async
   assert.equal(runtime.getSource(), 'bundled')
   assert.equal(runtime.getSnapshot().months.length, 120)
   assert.equal(mock.files.has(`/user/housing-data/${release.current.dataset_version}/complete-snapshot.json`), false)
+})
+
+test('native cloud Promise rejections are handled and retain bundled data', async () => {
+  const release = makeCompleteRelease()
+  const mock = createWxMock(release, { functionPromiseError: new Error('SystemError timeout') })
+  const runtime = createDataRuntime({ wxApi: mock.wxApi })
+  const result = await runtime.refresh({ force: true })
+  assert.equal(result.reason, 'failed')
+  assert.equal(runtime.getSource(), 'bundled')
+  assert.equal(runtime.getSnapshot().months.length, 120)
+})
+
+test('native download Promise rejections are handled and retain bundled data', async () => {
+  const release = makeCompleteRelease()
+  const mock = createWxMock(release, { downloadPromiseError: new Error('SystemError timeout') })
+  const runtime = createDataRuntime({ wxApi: mock.wxApi })
+  const result = await runtime.refresh({ force: true })
+  assert.equal(result.reason, 'failed')
+  assert.equal(runtime.getSource(), 'bundled')
+  assert.equal(runtime.getSnapshot().months.length, 120)
 })
 
 test('first online launch atomically activates remote data and valid cache hydrates synchronously', async () => {

@@ -37,47 +37,99 @@ function toHex(value) {
   return (value >>> 0).toString(16).padStart(8, '0')
 }
 
-function sha256(value) {
-  const source = inputBytes(value)
-  const paddedLength = Math.ceil((source.length + 9) / 64) * 64
-  const bytes = new Uint8Array(paddedLength)
-  bytes.set(source)
-  bytes[source.length] = 0x80
-  const bitLength = source.length * 8
-  const view = new DataView(bytes.buffer)
-  view.setUint32(paddedLength - 8, Math.floor(bitLength / 0x100000000), false)
-  view.setUint32(paddedLength - 4, bitLength >>> 0, false)
-  const hash = [0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19]
-  const words = new Uint32Array(64)
-  for (let offset = 0; offset < bytes.length; offset += 64) {
-    for (let index = 0; index < 16; index += 1) words[index] = view.getUint32(offset + index * 4, false)
-    for (let index = 16; index < 64; index += 1) {
-      const left = words[index - 15]
-      const right = words[index - 2]
-      const small0 = rotateRight(left, 7) ^ rotateRight(left, 18) ^ left >>> 3
-      const small1 = rotateRight(right, 17) ^ rotateRight(right, 19) ^ right >>> 10
-      words[index] = words[index - 16] + small0 + words[index - 7] + small1 >>> 0
-    }
-    let [a, b, c, d, e, f, g, h] = hash
-    for (let index = 0; index < 64; index += 1) {
-      const big1 = rotateRight(e, 6) ^ rotateRight(e, 11) ^ rotateRight(e, 25)
-      const choice = e & f ^ ~e & g
-      const first = h + big1 + choice + K[index] + words[index] >>> 0
-      const big0 = rotateRight(a, 2) ^ rotateRight(a, 13) ^ rotateRight(a, 22)
-      const majority = a & b ^ a & c ^ b & c
-      const second = big0 + majority >>> 0
-      h = g; g = f; f = e; e = d + first >>> 0; d = c; c = b; b = a; a = first + second >>> 0
-    }
-    hash[0] = hash[0] + a >>> 0
-    hash[1] = hash[1] + b >>> 0
-    hash[2] = hash[2] + c >>> 0
-    hash[3] = hash[3] + d >>> 0
-    hash[4] = hash[4] + e >>> 0
-    hash[5] = hash[5] + f >>> 0
-    hash[6] = hash[6] + g >>> 0
-    hash[7] = hash[7] + h >>> 0
+function processBlock(bytes, offset, hash, words) {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  for (let index = 0; index < 16; index += 1) words[index] = view.getUint32(offset + index * 4, false)
+  for (let index = 16; index < 64; index += 1) {
+    const left = words[index - 15]
+    const right = words[index - 2]
+    const small0 = rotateRight(left, 7) ^ rotateRight(left, 18) ^ left >>> 3
+    const small1 = rotateRight(right, 17) ^ rotateRight(right, 19) ^ right >>> 10
+    words[index] = words[index - 16] + small0 + words[index - 7] + small1 >>> 0
   }
-  return hash.map(toHex).join('')
+  let [a, b, c, d, e, f, g, h] = hash
+  for (let index = 0; index < 64; index += 1) {
+    const big1 = rotateRight(e, 6) ^ rotateRight(e, 11) ^ rotateRight(e, 25)
+    const choice = e & f ^ ~e & g
+    const first = h + big1 + choice + K[index] + words[index] >>> 0
+    const big0 = rotateRight(a, 2) ^ rotateRight(a, 13) ^ rotateRight(a, 22)
+    const majority = a & b ^ a & c ^ b & c
+    const second = big0 + majority >>> 0
+    h = g; g = f; f = e; e = d + first >>> 0; d = c; c = b; b = a; a = first + second >>> 0
+  }
+  hash[0] = hash[0] + a >>> 0
+  hash[1] = hash[1] + b >>> 0
+  hash[2] = hash[2] + c >>> 0
+  hash[3] = hash[3] + d >>> 0
+  hash[4] = hash[4] + e >>> 0
+  hash[5] = hash[5] + f >>> 0
+  hash[6] = hash[6] + g >>> 0
+  hash[7] = hash[7] + h >>> 0
 }
 
-module.exports = { sha256, utf8Bytes }
+function createSha256() {
+  const hash = [0x6a09e667, 0xbb67ae85, 0x3c6ef372, 0xa54ff53a, 0x510e527f, 0x9b05688c, 0x1f83d9ab, 0x5be0cd19]
+  const words = new Uint32Array(64)
+  const tail = new Uint8Array(64)
+  let tailLength = 0
+  let totalLength = 0
+
+  function update(value) {
+    const source = inputBytes(value)
+    totalLength += source.length
+    let offset = 0
+    if (tailLength) {
+      const copied = Math.min(64 - tailLength, source.length)
+      tail.set(source.subarray(0, copied), tailLength)
+      tailLength += copied
+      offset += copied
+      if (tailLength === 64) {
+        processBlock(tail, 0, hash, words)
+        tailLength = 0
+      }
+    }
+    while (offset + 64 <= source.length) {
+      processBlock(source, offset, hash, words)
+      offset += 64
+    }
+    if (offset < source.length) {
+      tail.set(source.subarray(offset), 0)
+      tailLength = source.length - offset
+    }
+    return api
+  }
+
+  function digest() {
+    const paddedLength = tailLength < 56 ? 64 : 128
+    const finalBytes = new Uint8Array(paddedLength)
+    finalBytes.set(tail.subarray(0, tailLength))
+    finalBytes[tailLength] = 0x80
+    const bitLength = totalLength * 8
+    const view = new DataView(finalBytes.buffer)
+    view.setUint32(paddedLength - 8, Math.floor(bitLength / 0x100000000), false)
+    view.setUint32(paddedLength - 4, bitLength >>> 0, false)
+    for (let offset = 0; offset < finalBytes.length; offset += 64) processBlock(finalBytes, offset, hash, words)
+    return hash.map(toHex).join('')
+  }
+
+  const api = Object.freeze({ update, digest })
+  return api
+}
+
+function sha256(value) {
+  return createSha256().update(value).digest()
+}
+
+async function sha256Async(value, { chunkBytes = 64 * 1024, yieldFn = () => new Promise((resolve) => setTimeout(resolve, 0)) } = {}) {
+  if (!Number.isInteger(chunkBytes) || chunkBytes < 64) throw new TypeError('sha256Async chunkBytes must be an integer of at least 64')
+  if (typeof yieldFn !== 'function') throw new TypeError('sha256Async yieldFn must be a function')
+  const source = inputBytes(value)
+  const hash = createSha256()
+  for (let offset = 0; offset < source.length; offset += chunkBytes) {
+    hash.update(source.subarray(offset, Math.min(offset + chunkBytes, source.length)))
+    if (offset + chunkBytes < source.length) await yieldFn()
+  }
+  return hash.digest()
+}
+
+module.exports = { sha256, sha256Async, utf8Bytes }

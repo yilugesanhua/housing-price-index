@@ -1,7 +1,7 @@
 const bundledSnapshot = require('../data/snapshot.js')
 const dataConfig = require('../config/data.js')
 const versionConfig = require('../config/version.js')
-const { sha256, utf8Bytes } = require('./sha256.js')
+const { sha256, sha256Async, utf8Bytes } = require('./sha256.js')
 const {
   AUDITED_LEGACY_MIGRATIONS,
   CONTROL_VALIDATOR_ID,
@@ -405,6 +405,21 @@ function validateCityShard(shard, manifest, cityId, config) {
 }
 
 function createDataRuntime({ wxApi = typeof wx === 'undefined' ? null : wx, bundled = bundledSnapshot, config = dataConfig, now = () => Date.now() } = {}) {
+  const diagnosticEnabled = config.previewMode === true
+
+  function diagnostic(stage, details = {}) {
+    if (!diagnosticEnabled) return
+    try {
+      console.info('[data:update:diag]', JSON.stringify({ stage, ...details }))
+    } catch (_) {}
+  }
+
+  function diagnosticError(error) {
+    return String(error?.errMsg || error?.message || error || 'unknown-error')
+      .replace(/cloud:\/\/\S+/g, 'cloud://[redacted]')
+      .slice(0, 160)
+  }
+
   let bundledValidationError = null
   try {
     validateBundledSnapshot(bundled, {
@@ -839,6 +854,48 @@ function createDataRuntime({ wxApi = typeof wx === 'undefined' ? null : wx, bund
     return { snapshot: bootstrap, manifest, revisionManifest, cachedCityIds: [...bootstrap.cityIds] }
   }
 
+  // The first validation after downloading a complete package must yield to
+  // iOS AppService while reading and hashing the roughly 2 MB snapshot.
+  async function readCompleteReleaseAtRootAsync(root, pointer, control = localState.control) {
+    assert(controlWasVerified(control), 'cached data has no previously verified control state')
+    assert(pointer && DATASET_PATTERN.test(pointer.datasetVersion || ''), 'cached pointer is invalid')
+    assert(!control.revokedDatasetVersions.includes(pointer.datasetVersion), 'cached dataset has been revoked')
+    const manifestText = await readFile(`${root}/manifest.json`, 'utf8')
+    assert(fileHash(manifestText) === pointer.manifestSha256, 'cached manifest hash mismatch')
+    const current = validateCurrent(pointer.current, config, { allowLegacy: false })
+    const isCurrentPointer = control.fingerprint === fingerprint(current)
+    const rollbackAuthorized = isCurrentPointer && persistedRollbackAuthorized(current, control)
+    if (isCurrentPointer && !rollbackAuthorized) validateRemoteMonth(current, bundled)
+    const manifest = validateManifest(safeParse(manifestText), current, config, bundled.cityIds)
+    assert(!control.revokedSourceDatasetVersions.includes(manifest.source_dataset_version), 'cached source has been revoked')
+    assert(isCompleteRemoteManifest(manifest), 'cached release is not a complete remote release')
+    assert(manifest.release_type === 'monthly_update', 'cached complete remote release type is invalid')
+    const snapshotText = await readFile(`${root}/complete-snapshot.json`, 'utf8')
+    const snapshotBytes = utf8Bytes(snapshotText)
+    diagnostic('cache-validation-snapshot-read', { bytes: snapshotBytes.byteLength })
+    assert(snapshotBytes.byteLength === manifest.complete_snapshot_bytes, 'cached complete snapshot size mismatch')
+    await yieldToAppService()
+    const snapshotHash = await sha256Async(snapshotBytes, { yieldFn: yieldToAppService })
+    assert(snapshotHash === manifest.complete_snapshot_sha256, 'cached complete snapshot hash mismatch')
+    diagnostic('cache-validation-hash-ok', { bytes: snapshotBytes.byteLength })
+    await yieldToAppService()
+    const completeSnapshot = safeParse(snapshotText)
+    diagnostic('cache-validation-parse-ok', { monthCount: completeSnapshot.months?.length })
+    validateCompleteSnapshot(completeSnapshot, {
+      cityIds: bundled.cityIds,
+      featuredCityIds: bundled.featuredCityIds,
+      expectedMonthCount: config.completeRemoteMonthCount,
+      expectedCoverageStart: completeCoverageStart(manifest.dataset_as_of, config.completeRemoteMonthCount),
+    })
+    validateCompleteSourceEvidence(manifest, completeSnapshot)
+    diagnostic('cache-validation-data-ok', { cityCount: completeSnapshot.cityIds?.length })
+    assert(completeSnapshot.datasetVersion === manifest.dataset_version
+      && completeSnapshot.sourceDatasetVersion === manifest.source_dataset_version
+      && completeSnapshot.datasetAsOf === manifest.dataset_as_of, 'cached complete snapshot identity is invalid')
+    if (isCurrentPointer) validateCurrent(current, config, { allowLegacy: false, requireContext: true, manifest, registry: storedRegistry(control) })
+    return { snapshot: completeSnapshot, manifest, revisionManifest: null, cachedCityIds: [...completeSnapshot.cityIds] }
+  }
+
   function readCachedPointer(pointer, control = localState.control) {
     return readReleaseAtRoot(versionRoot(pointer.datasetVersion), pointer, control)
   }
@@ -940,12 +997,46 @@ function createDataRuntime({ wxApi = typeof wx === 'undefined' ? null : wx, bund
     return Math.min(parsed, now() + config.maximumCheckDelayMs)
   }
 
-  function callFunction(name) {
-    return new Promise((resolve, reject) => wxApi.cloud.callFunction({ name, data: {}, success: resolve, fail: reject }))
+  function settleWxRequest(invoke, request) {
+    diagnostic('request-start', { request })
+    return new Promise((resolve, reject) => {
+      let settled = false
+      const succeed = (value) => {
+        if (settled) return
+        settled = true
+        diagnostic('request-success', { request })
+        resolve(value)
+      }
+      const fail = (error) => {
+        if (settled) return
+        settled = true
+        diagnostic('request-fail', { request, error: diagnosticError(error) })
+        reject(error instanceof Error ? error : new Error(String(error?.errMsg || error || 'WeChat request failed')))
+      }
+      try {
+        const request = invoke(succeed, fail)
+        // Recent WeChat clients return a Promise even when callbacks are supplied.
+        // Consume it so an iOS timeout reaches refresh() instead of becoming unhandled.
+        if (request && typeof request.then === 'function') request.then(succeed, fail)
+      } catch (error) {
+        fail(error)
+      }
+    })
   }
 
-  function download(fileID) {
-    return new Promise((resolve, reject) => wxApi.cloud.downloadFile({ fileID, success: resolve, fail: reject }))
+  function callFunction(name) {
+    return settleWxRequest((success, fail) => wxApi.cloud.callFunction({ name, data: {}, success, fail }), 'manifest-function')
+  }
+
+  function download(fileID, fileKind) {
+    return settleWxRequest((success, fail) => wxApi.cloud.downloadFile({ fileID, success, fail }), `download:${fileKind}`)
+  }
+
+  function yieldToAppService() {
+    return new Promise((resolve) => {
+      if (typeof wxApi?.nextTick === 'function') return wxApi.nextTick(resolve)
+      setTimeout(resolve, 0)
+    })
   }
 
   function readFile(path, encoding) {
@@ -960,8 +1051,21 @@ function createDataRuntime({ wxApi = typeof wx === 'undefined' ? null : wx, bund
     return new Promise((resolve, reject) => fs.mkdir({ dirPath: path, recursive: true, success: resolve, fail: (error) => /exist/i.test(error?.errMsg || '') ? resolve() : reject(error) }))
   }
 
-  function removeDirectory(path) {
-    if (typeof fs.rmdir !== 'function') return Promise.resolve(removeDirectorySync(path))
+  function directoryExists(path) {
+    if (typeof fs.access !== 'function') return Promise.resolve(null)
+    return new Promise((resolve) => fs.access({
+      path,
+      success: () => resolve(true),
+      // WeChat iOS may return only `access:fail` for an absent path. In either
+      // case, the directory is not safe to remove and can be recreated below.
+      fail: () => resolve(false),
+    }))
+  }
+
+  async function removeDirectory(path) {
+    const exists = await directoryExists(path)
+    if (exists === false) return false
+    if (typeof fs.rmdir !== 'function') return removeDirectorySync(path)
     return new Promise((resolve, reject) => fs.rmdir({
       dirPath: path,
       recursive: true,
@@ -974,14 +1078,20 @@ function createDataRuntime({ wxApi = typeof wx === 'undefined' ? null : wx, bund
     return new Promise((resolve, reject) => fs.rename({ oldPath, newPath, success: resolve, fail: reject }))
   }
 
-  async function downloadJson(fileID, expectedHash, expectedBytes) {
-    const response = await download(fileID)
+  async function downloadJson(fileID, expectedHash, expectedBytes, fileKind = 'remote-file') {
+    diagnostic('download-start', { file: fileKind })
+    const response = await download(fileID, fileKind)
     const text = await readFile(response.tempFilePath, 'utf8')
     const bytes = utf8Bytes(text)
     const size = bytes.byteLength
+    diagnostic('download-received', { file: fileKind, bytes: size })
     if (Number.isInteger(expectedBytes)) assert(size === expectedBytes, `remote file size mismatch: ${fileID}`)
-    assert(sha256(bytes) === expectedHash, `remote file hash mismatch: ${fileID}`)
-    return { text, data: safeParse(text) }
+    const actualHash = size >= 128 * 1024
+      ? await sha256Async(bytes, { yieldFn: yieldToAppService })
+      : sha256(bytes)
+    assert(actualHash === expectedHash, `remote file hash mismatch: ${fileID}`)
+    diagnostic('download-hash-ok', { file: fileKind, bytes: size })
+    return { text, data: safeParse(text), bytes: size }
   }
 
   function cityFileId(manifest, cityId) {
@@ -1061,18 +1171,44 @@ function createDataRuntime({ wxApi = typeof wx === 'undefined' ? null : wx, bund
     }
     const previousState = localState
     let renamed = false
+    let cacheStep = 'remove-temporary-directory'
     try {
+      diagnostic('cache-step-start', { step: cacheStep })
       await removeDirectory(tempRoot)
+      diagnostic('cache-step-ok', { step: cacheStep })
+      cacheStep = 'create-temporary-directory'
+      diagnostic('cache-step-start', { step: cacheStep })
       await mkdir(tempRoot)
+      diagnostic('cache-step-ok', { step: cacheStep })
+      cacheStep = 'write-manifest'
+      diagnostic('cache-step-start', { step: cacheStep })
       await writeFile(`${tempRoot}/manifest.json`, manifestDownload.text)
+      diagnostic('cache-step-ok', { step: cacheStep })
+      cacheStep = 'write-complete-snapshot'
+      diagnostic('cache-step-start', { step: cacheStep })
       await writeFile(`${tempRoot}/complete-snapshot.json`, completeSnapshotDownload.text)
-      readReleaseAtRoot(tempRoot, pointer, localState.control)
+      diagnostic('cache-step-ok', { step: cacheStep })
+      cacheStep = 'validate-temporary-release'
+      diagnostic('cache-step-start', { step: cacheStep })
+      await readCompleteReleaseAtRootAsync(tempRoot, pointer, localState.control)
+      diagnostic('cache-step-ok', { step: cacheStep })
 
+      cacheStep = 'remove-old-release-directory'
+      diagnostic('cache-step-start', { step: cacheStep })
       await removeDirectory(root)
+      diagnostic('cache-step-ok', { step: cacheStep })
+      cacheStep = 'rename-temporary-directory'
+      diagnostic('cache-step-start', { step: cacheStep })
       await renameDirectory(tempRoot, root)
       renamed = true
-      readReleaseAtRoot(root, pointer, localState.control)
+      diagnostic('cache-step-ok', { step: cacheStep })
+      cacheStep = 'validate-active-release'
+      diagnostic('cache-step-start', { step: cacheStep })
+      await readCompleteReleaseAtRootAsync(root, pointer, localState.control)
+      diagnostic('cache-step-ok', { step: cacheStep })
 
+      cacheStep = 'persist-active-pointer'
+      diagnostic('cache-step-start', { step: cacheStep })
       let fallback = null
       for (const candidate of [previousState.active, previousState.fallback]) {
         if (!candidate
@@ -1086,8 +1222,10 @@ function createDataRuntime({ wxApi = typeof wx === 'undefined' ? null : wx, bund
         } catch (_) {}
       }
       persistState({ ...localState, status: 'active', active: pointer, fallback, pendingRollback: null })
+      diagnostic('cache-step-ok', { step: cacheStep })
       cleanupOrphanCaches()
     } catch (error) {
+      diagnostic('cache-step-failed', { step: cacheStep, error: diagnosticError(error) })
       await removeDirectory(tempRoot).catch(() => {})
       if (renamed && previousState.active?.datasetVersion !== current.dataset_version && previousState.fallback?.datasetVersion !== current.dataset_version) {
         await removeDirectory(root).catch(() => {})
@@ -1120,8 +1258,10 @@ function createDataRuntime({ wxApi = typeof wx === 'undefined' ? null : wx, bund
   async function applyRemoteControl(current, validationReceipt) {
     assert(currentHasControl(current), 'legacy remote control is not trusted')
     const receipt = validateValidationReceipt(validationReceipt, current, now())
-    const registryDownload = await downloadJson(current.revocations_file_id, current.revocations_sha256, undefined)
+    diagnostic('registry-download-start', { datasetVersion: current.dataset_version })
+    const registryDownload = await downloadJson(current.revocations_file_id, current.revocations_sha256, undefined, 'revocations-registry')
     const validated = validateRevocationsRegistry(registryDownload.data, current)
+    diagnostic('registry-ok', { generation: current.revocations_generation })
     const previousControl = localState.control
     const incomingFingerprint = fingerprint(current)
     assert(current.control_generation >= previousControl.generation, 'remote control generation moved backwards')
@@ -1283,15 +1423,23 @@ function createDataRuntime({ wxApi = typeof wx === 'undefined' ? null : wx, bund
     const sourceBefore = activeSource
     const snapshotBefore = activeSnapshot
     let activeWasRevoked = false
+    let stage = 'refresh-start'
+    diagnostic(stage, { force: Boolean(force), requiredCityCount: requiredCityIds.length, source: sourceBefore })
     try {
       const activeDatasetAsOfBeforeControl = localState.active?.datasetVersion?.slice(0, 7)
         || localState.pendingRollback?.fromDatasetVersion?.slice(0, 7)
         || activeSnapshot.datasetAsOf
       const activeSourceVersionBeforeControl = activeManifest?.source_dataset_version || bundled.sourceDatasetVersion
+      stage = 'manifest-function-start'
+      diagnostic(stage)
       const response = await callFunction(config.manifestFunctionName)
       const current = validateCurrent(response?.result?.current, config, { allowLegacy: false })
+      diagnostic('manifest-function-ok', { datasetVersion: current.dataset_version, datasetAsOf: current.dataset_as_of })
+      stage = 'control-start'
+      diagnostic(stage, { datasetVersion: current.dataset_version })
       const control = await applyRemoteControl(current, response?.result?.validation_receipt)
       activeWasRevoked = control.activeWasRevoked
+      diagnostic('control-ok', { activationAuthorized: control.activationAuthorized, activeWasRevoked })
       if (current.transition_type === 'rollback') assert(control.authorizedRollback, 'remote rollback target is not authorized')
       saveControlCheck(now() + (config.controlCheckIntervalMs || 15 * 60 * 1000))
       const remoteUnchanged = activeSource === 'remote'
@@ -1313,16 +1461,22 @@ function createDataRuntime({ wxApi = typeof wx === 'undefined' ? null : wx, bund
       if (current.dataset_as_of < activeDatasetAsOfBeforeControl) {
         assert(control.authorizedRollback, 'remote data is older than the active snapshot without an authorized rollback')
       }
-      const manifestDownload = await downloadJson(current.manifest_file_id, current.manifest_sha256, undefined)
+      stage = 'manifest-download-start'
+      diagnostic(stage, { datasetVersion: current.dataset_version })
+      const manifestDownload = await downloadJson(current.manifest_file_id, current.manifest_sha256, undefined, 'manifest')
       const manifest = validateManifest(manifestDownload.data, current, config, bundled.cityIds)
+      diagnostic('manifest-ok', { releaseType: manifest.release_type, monthCount: manifest.month_count })
       if (currentHasControl(current)) assert(manifest.source_dataset_version === current.source_dataset_version, 'remote current source differs from its manifest')
       assert(!getRevokedDatasets().includes(manifest.dataset_version), 'remote dataset has been revoked')
       assert(!getRevokedSources().includes(manifest.source_dataset_version), 'remote source has been revoked')
       let revisionDownload = null
       let revisionManifest = null
       if (manifest.release_type === 'historical_correction') {
-        revisionDownload = await downloadJson(manifest.revision_manifest_file_id, manifest.revision_manifest_sha256, manifest.revision_manifest_bytes)
+        stage = 'revision-download-start'
+        diagnostic(stage)
+        revisionDownload = await downloadJson(manifest.revision_manifest_file_id, manifest.revision_manifest_sha256, manifest.revision_manifest_bytes, 'revision-manifest')
         revisionManifest = validateRevisionManifest(revisionDownload.data, manifest)
+        diagnostic('revision-ok')
       }
       validateCurrent(current, config, {
         allowLegacy: false,
@@ -1337,11 +1491,15 @@ function createDataRuntime({ wxApi = typeof wx === 'undefined' ? null : wx, bund
         validateRemoteSource(current, manifest, bundled, revisionManifest, activeSourceVersionBeforeControl, activeDatasetAsOfBeforeControl)
       }
       if (isCompleteRemoteManifest(manifest)) {
+        stage = 'complete-download-start'
+        diagnostic(stage, { expectedBytes: manifest.complete_snapshot_bytes, expectedMonthCount: manifest.month_count })
         const completeSnapshotDownload = await downloadJson(
           manifest.complete_snapshot_file_id,
           manifest.complete_snapshot_sha256,
           manifest.complete_snapshot_bytes,
+          'complete-snapshot',
         )
+        diagnostic('complete-received', { bytes: completeSnapshotDownload.bytes })
         validateCompleteSnapshot(completeSnapshotDownload.data, {
           cityIds: bundled.cityIds,
           featuredCityIds: bundled.featuredCityIds,
@@ -1352,12 +1510,17 @@ function createDataRuntime({ wxApi = typeof wx === 'undefined' ? null : wx, bund
         assert(completeSnapshotDownload.data.datasetVersion === manifest.dataset_version
           && completeSnapshotDownload.data.sourceDatasetVersion === manifest.source_dataset_version
           && completeSnapshotDownload.data.datasetAsOf === manifest.dataset_as_of, 'complete remote snapshot identity is invalid')
+        diagnostic('complete-validated', { monthCount: completeSnapshotDownload.data.months.length, cityCount: completeSnapshotDownload.data.cityIds.length })
+        stage = 'cache-start'
+        diagnostic(stage, { datasetVersion: current.dataset_version })
         await cacheCompleteRelease(current, manifestDownload, completeSnapshotDownload)
+        diagnostic('cache-ok', { datasetVersion: current.dataset_version })
         activeSnapshot = completeSnapshotDownload.data
         activeSource = 'remote'
         activeManifest = manifest
         activeRevisionManifest = null
         cachedCityIds = [...activeSnapshot.cityIds]
+        diagnostic('activated-remote', { datasetVersion: activeSnapshot.datasetVersion, monthCount: activeSnapshot.months.length })
         return { updated: true, source: activeSource, datasetVersion: activeSnapshot.datasetVersion }
       }
       const bootstrapDownload = await downloadJson(manifest.bootstrap_file_id, manifest.bootstrap_sha256, manifest.bootstrap_bytes)
@@ -1383,6 +1546,7 @@ function createDataRuntime({ wxApi = typeof wx === 'undefined' ? null : wx, bund
       cachedCityIds = [...bootstrap.cityIds]
       return { updated: true, source: activeSource, datasetVersion: activeSnapshot.datasetVersion }
     } catch (error) {
+      diagnostic('refresh-failed', { failedStage: stage, error: diagnosticError(error) })
       console.error('[data:update] refresh failed', error)
       saveSchedule(now() + config.failureRetryMs, String(error?.message || 'remote-update-failed').slice(0, 120))
       saveControlCheck(now() + Math.min(config.failureRetryMs, config.controlCheckIntervalMs || 15 * 60 * 1000), String(error?.message || 'remote-control-failed').slice(0, 120))

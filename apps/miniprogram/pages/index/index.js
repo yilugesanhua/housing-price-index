@@ -624,8 +624,16 @@ Page({
   async performRemoteRefresh({ force = false } = {}) {
     const requiredCityIds = [...new Set([...(this.data.state?.cities || []), this.data.state?.focusCity].filter(Boolean))]
     // The isolated development preview must retry immediately after a repaired cloud package.
+    if (dataConfig.previewMode) console.info('[data:update:diag]', JSON.stringify({ stage: 'page-refresh-start', requiredCityCount: requiredCityIds.length }))
     const result = await dataRuntime.refresh({ requiredCityIds, force: force || dataConfig.previewMode })
     snapshot = dataRuntime.getSnapshot()
+    if (dataConfig.previewMode) console.info('[data:update:diag]', JSON.stringify({
+      stage: 'page-refresh-result',
+      updated: Boolean(result.updated),
+      source: result.source,
+      reason: result.reason,
+      monthCount: snapshot.months.length,
+    }))
     if (!hasUsableSnapshot()) {
       this.enterUnavailableState()
       return result

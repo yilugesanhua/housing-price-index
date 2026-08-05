@@ -1,5 +1,6 @@
 const locationConfig = require('./config/location.js')
 const versionConfig = require('./config/version.js')
+const { installReleaseUpdatePrompt } = require('./utils/app-update.js')
 
 App({
   onLaunch() {
@@ -7,6 +8,7 @@ App({
     if (locationConfig.cloudEnvId && wx.cloud) {
       wx.cloud.init({ env: locationConfig.cloudEnvId, traceUser: false })
     }
+    installReleaseUpdatePrompt(wx)
   },
   globalData: {
     dataMode: "bundled-with-remote-updates",
