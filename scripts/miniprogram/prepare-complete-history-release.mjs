@@ -1,9 +1,13 @@
 import { mkdir, readFile, writeFile } from 'node:fs/promises'
+import { createRequire } from 'node:module'
 import { resolve } from 'node:path'
-import { sha256 } from './remote-data-lib.mjs'
+import { loadValidatedAuditEvidence } from './audit-evidence.mjs'
+import { sha256, stableJson } from './remote-data-lib.mjs'
 import { COMPLETE_REMOTE_SCHEMA_VERSION, COMPLETE_REMOTE_MONTHS, COMPLETE_REMOTE_START } from './complete-remote-data.mjs'
 
 const root = resolve(import.meta.dirname, '../..')
+const require = createRequire(import.meta.url)
+const versionConfig = require(resolve(root, 'apps/miniprogram/config/version.js'))
 const argument = (name) => process.argv.find((value) => value.startsWith(`--${name}=`))?.slice(name.length + 3)
 const commitSha = argument('commit') || process.env.GITHUB_SHA
 const runId = argument('run-id') || process.env.GITHUB_RUN_ID
@@ -17,15 +21,25 @@ assert(/^\d+$/.test(runId || ''), 'GitHub run ID is invalid')
 const report = JSON.parse(await readFile(resolve(candidateRoot, 'release-report.json'), 'utf8'))
 const manifestText = await readFile(resolve(candidateRoot, 'manifest.json'), 'utf8')
 const snapshotText = await readFile(resolve(candidateRoot, 'complete-snapshot.json'), 'utf8')
+const sourceSnapshot = JSON.parse(await readFile(resolve(root, 'work/miniprogram-data-input/complete-snapshot.json'), 'utf8'))
 const manifest = JSON.parse(manifestText)
-const audit = JSON.parse(await readFile(resolve(root, 'data/audit-report.json'), 'utf8'))
+const publishedManifest = JSON.parse(await readFile(resolve(root, 'apps/web/public/data/manifest.json'), 'utf8'))
+const { report: audit, reportText: auditText, identity: auditIdentity } = await loadValidatedAuditEvidence(root, {
+  expectedCommitSha: commitSha,
+  expectedParserVersion: publishedManifest.parser_version,
+  expectedCoverageEnd: manifest.dataset_as_of,
+})
 assert(report.status === 'staged_not_uploaded' && report.dataset_version === datasetVersion, 'staged report is invalid')
 assert(manifest.remote_schema_version === COMPLETE_REMOTE_SCHEMA_VERSION, 'remote schema is invalid')
 assert(manifest.coverage_start === COMPLETE_REMOTE_START && manifest.month_count === COMPLETE_REMOTE_MONTHS, 'coverage is invalid')
+assert(report.app_version === versionConfig.version && manifest.minimum_app_version === versionConfig.version, 'candidate minimum app version is stale')
+assert(Array.isArray(manifest.source_batch_ids) && manifest.source_batch_ids.length === COMPLETE_REMOTE_MONTHS && new Set(manifest.source_batch_ids).size === COMPLETE_REMOTE_MONTHS, 'candidate source batches are incomplete')
+assert(manifest.snapshot_content_sha256 === sha256(stableJson(sourceSnapshot)), 'source snapshot identity is invalid')
 assert(report.complete_snapshot_sha256 === sha256(snapshotText) && manifest.complete_snapshot_sha256 === sha256(snapshotText), 'snapshot hash is invalid')
 assert(report.manifest_sha256 === sha256(manifestText), 'manifest hash is invalid')
-assert(audit.result === 'passed' && audit.audit_version === 'full-record-audit-v6', 'full record audit did not pass')
 assert(audit.batch_count === 180 && audit.record_count === 100800 && audit.coverage_start === COMPLETE_REMOTE_START && audit.coverage_end === manifest.dataset_as_of, 'full record audit coverage is incomplete')
+assert(manifest.audit_version === auditIdentity.auditVersion && manifest.audit_method === auditIdentity.auditMethod && manifest.audit_repository_commit_sha === auditIdentity.repositoryCommitSha && manifest.audit_code_sha256 === auditIdentity.auditCodeSha256 && manifest.audit_report_sha256 === auditIdentity.reportSha256, 'candidate audit identity differs from the verified report')
+assert(JSON.stringify(manifest.parser_versions) === JSON.stringify(auditIdentity.parserVersions) && manifest.source_records_sha256 === auditIdentity.recordsSha256 && manifest.source_index_sha256 === auditIdentity.sourceIndexSha256, 'candidate source identity differs from the verified report')
 const gate = {
   status: 'passed', gate_type: 'complete_history_release', dataset_version: datasetVersion,
   source_dataset_version: manifest.source_dataset_version, cloud_env_id: cloudEnvId,
@@ -33,7 +47,7 @@ const gate = {
   coverage_start: COMPLETE_REMOTE_START, month_count: COMPLETE_REMOTE_MONTHS,
   complete_snapshot_sha256: sha256(snapshotText), complete_snapshot_bytes: Buffer.byteLength(snapshotText),
   manifest_sha256: sha256(manifestText), audit_version: audit.audit_version,
-  audit_sha256: sha256(await readFile(resolve(root, 'data/audit-report.json'))), generated_at: new Date().toISOString(),
+  audit_sha256: sha256(auditText), generated_at: new Date().toISOString(),
 }
 const outputRoot = resolve(root, 'work/complete-history-release')
 await mkdir(outputRoot, { recursive: true })

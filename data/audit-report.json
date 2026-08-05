@@ -1,8 +1,13 @@
 {
   "schema_version": 2,
-  "audit_version": "full-record-audit-v6",
-  "verified_at": "2026-08-04T12:33:16.335Z",
-  "verification_method": "automated-full-record-audit-v6: sha256+official-url+metadata+four-table-whitelist+property-type+size-band+locator+raw-cell+schema+record-hash-binding",
+  "audit_version": "full-record-audit-v7",
+  "verified_at": "2026-08-04T18:31:37.780Z",
+  "verification_method": "automated-full-record-audit-v7: sha256+official-url+metadata+four-table-whitelist+property-type+size-band+locator+raw-cell+schema+numeric-invariants+record-hash-binding+code-and-report-identity",
+  "repository_commit_sha": "d745f6c2eae3a3a90b07519ffbe4989d5c075969",
+  "audit_code_sha256": "8236227a59883fc309e8578b76039dbff10eaea46267618c7404a3ddfab2af29",
+  "parser_versions": [
+    "official-html-v9-product-housing-only-strict-release-date"
+  ],
   "batch_count": 180,
   "record_count": 100800,
   "records_sha256": "283028e67b0a07edf0c9e5d733ad7c6090b865a9bb8da4c8a8584f87bba3a229",
@@ -15,13 +20,19 @@
     "title month",
     "release date",
     "record schema",
+    "numeric range and one-decimal precision",
+    "null/change/ytd invariants",
     "complete city/property/size-band keys",
     "independent source table type",
     "all-size versus size-band table",
     "source locator resolution",
     "raw source cell equality",
     "audited record SHA-256",
-    "source index SHA-256"
+    "source index SHA-256",
+    "parser version identity",
+    "audit code SHA-256",
+    "repository commit SHA",
+    "audit report SHA-256"
   ],
   "result": "passed",
   "batches": [
@@ -1465,5 +1476,6 @@
       "records_checked": 560,
       "result": "passed"
     }
-  ]
+  ],
+  "report_sha256": "dbee8dc4bd4f187167be0b7212fd246f47057d1e002375b2c8f4a3db66b64c59"
 }

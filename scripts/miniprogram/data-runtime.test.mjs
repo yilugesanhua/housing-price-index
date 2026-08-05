@@ -90,14 +90,38 @@ function completeFixture() {
   return snapshot
 }
 
-function makeCompleteRelease(minimumAppVersion = versionConfig.version) {
-  return attachControl(buildCompleteRemoteRelease(completeFixture(), {
+function completeSourceBatchIds(snapshot) {
+  return snapshot.months.map((month, index) => `official-html-${month}-${index.toString(16).padStart(12, '0')}`)
+}
+
+function completeAuditIdentity() {
+  return {
+    auditVersion: 'full-record-audit-v7',
+    auditMethod: 'automated-full-record-audit-v7: fixture',
+    repositoryCommitSha: 'a'.repeat(40),
+    auditCodeSha256: 'b'.repeat(64),
+    reportSha256: 'c'.repeat(64),
+    parserVersions: ['official-html-v9-product-housing-only-strict-release-date'],
+    recordsSha256: 'd'.repeat(64),
+    sourceIndexSha256: 'e'.repeat(64),
+  }
+}
+
+function completeReleaseOptions(snapshot, overrides = {}) {
+  return {
     cloudEnvId: config.cloudEnvId,
     storageBucket: config.storageBucket,
-    minimumAppVersion,
+    minimumAppVersion: versionConfig.version,
     nextCheckAt: '2026-08-17T01:40:00.000Z',
-    sourceBatchIds: ['official-html-test'],
-  }))
+    sourceBatchIds: completeSourceBatchIds(snapshot),
+    auditIdentity: completeAuditIdentity(),
+    ...overrides,
+  }
+}
+
+function makeCompleteRelease(minimumAppVersion = versionConfig.version) {
+  const snapshot = completeFixture()
+  return attachControl(buildCompleteRemoteRelease(snapshot, completeReleaseOptions(snapshot, { minimumAppVersion })))
 }
 
 function appendRollbackRevocations(registry, {
@@ -466,11 +490,8 @@ test('v2 complete remote package activates atomically without city shards and su
 })
 
 test('preview controls are accepted only by the preview root', () => {
-  const release = buildCompleteRemoteRelease(completeFixture(), {
-    cloudEnvId: config.cloudEnvId, storageBucket: config.storageBucket,
-    minimumAppVersion: versionConfig.version, nextCheckAt: '2026-08-17T01:40:00.000Z',
-    sourceBatchIds: ['official-html-test'], dataRoot: 'housing-data/preview',
-  })
+  const snapshot = completeFixture()
+  const release = buildCompleteRemoteRelease(snapshot, completeReleaseOptions(snapshot, { dataRoot: 'housing-data/preview' }))
   const registry = createRevocationRegistry({ generatedAt: '2026-07-20T00:00:00.000Z' })
   const artifact = buildRevocationRegistryArtifact(registry, { cloudEnvId: config.cloudEnvId, storageBucket: config.storageBucket, dataRoot: 'housing-data/preview' })
   const current = {
@@ -483,6 +504,16 @@ test('preview controls are accepted only by the preview root', () => {
   }
   assert.equal(validateCurrent(current, { config: { ...config, remoteDataRoot: 'housing-data/preview' }, allowLegacy: false, requireContext: true, manifest: release.manifest, registry }), current)
   assert.throws(() => validateCurrent(current, { config, allowLegacy: false }), /manifest file ID is invalid/)
+
+  release.current = current
+  release.revocationArtifact = artifact
+  const mock = createWxMock(release)
+  const runtime = createDataRuntime({ wxApi: mock.wxApi, config: { ...config, remoteDataRoot: 'housing-data/preview' } })
+  return runtime.refresh({ force: true }).then((result) => {
+    assert.equal(result.updated, true)
+    assert.equal(runtime.getSource(), 'remote')
+    assert.equal(runtime.getSnapshot().months.length, 180)
+  })
 })
 
 test('v2 complete package corruption never replaces the bundled snapshot', async () => {

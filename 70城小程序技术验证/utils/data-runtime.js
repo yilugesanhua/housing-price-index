@@ -236,6 +236,12 @@ function exactStringSet(actual, expected, label) {
   assert(left.length === right.length && left.every((value, index) => value === right[index]), label)
 }
 
+function remoteReleaseRoot(config, datasetVersion) {
+  const dataRoot = config.remoteDataRoot || 'housing-data'
+  assert(['housing-data', 'housing-data/preview'].includes(dataRoot), 'remote data root is invalid')
+  return `cloud://${config.cloudEnvId}.${config.storageBucket}/${dataRoot}/releases/${datasetVersion}/`
+}
+
 function validateManifest(manifest, current, config, expectedCityIds = bundledSnapshot.cityIds) {
   assert(manifest?.format === config.remoteFormat, 'remote manifest format is invalid')
   const schemaMajor = major(manifest.remote_schema_version)
@@ -244,20 +250,25 @@ function validateManifest(manifest, current, config, expectedCityIds = bundledSn
   assert(manifest.dataset_version === current.dataset_version && manifest.dataset_as_of === current.dataset_as_of, 'remote manifest version is inconsistent')
   assert(manifest.validation_status === 'passed', 'remote manifest has not passed validation')
   if (schemaMajor === 2) {
-    const root = `cloud://${config.cloudEnvId}.${config.storageBucket}/housing-data/releases/${current.dataset_version}/`
+    const root = remoteReleaseRoot(config, current.dataset_version)
     assert(manifest.release_type === 'monthly_update', 'complete remote release type is invalid')
     assert(manifest.source_dataset_version === current.source_dataset_version, 'complete remote source version is inconsistent')
     assert(manifest.coverage_start === config.completeRemoteCoverageStart, 'complete remote coverage start is invalid')
     assert(manifest.month_count === config.completeRemoteMonthCount, 'complete remote month count is invalid')
     assert(manifest.complete_snapshot_file_id === `${root}complete-snapshot.json`, 'complete remote snapshot path is invalid')
     assert(SHA_PATTERN.test(manifest.complete_snapshot_sha256 || '') && Number.isInteger(manifest.complete_snapshot_bytes) && manifest.complete_snapshot_bytes > 0, 'complete remote snapshot metadata is invalid')
+    assert(SHA_PATTERN.test(manifest.snapshot_content_sha256 || ''), 'complete remote source snapshot identity is invalid')
+    assert(manifest.audit_version === 'full-record-audit-v7' && typeof manifest.audit_method === 'string' && manifest.audit_method.startsWith('automated-full-record-audit-v7:'), 'complete remote audit version is invalid')
+    assert(SHA_PATTERN.test(manifest.audit_report_sha256 || '') && SHA_PATTERN.test(manifest.audit_code_sha256 || '') && SHA_PATTERN.test(manifest.source_records_sha256 || '') && SHA_PATTERN.test(manifest.source_index_sha256 || '') && /^[a-f0-9]{40}$/.test(manifest.audit_repository_commit_sha || ''), 'complete remote audit identity is invalid')
+    assert(Array.isArray(manifest.parser_versions) && manifest.parser_versions.length > 0 && new Set(manifest.parser_versions).size === manifest.parser_versions.length && manifest.parser_versions.every((value) => typeof value === 'string' && value), 'complete remote parser identity is invalid')
+    assert(Array.isArray(manifest.source_batch_ids) && manifest.source_batch_ids.length === config.completeRemoteMonthCount && new Set(manifest.source_batch_ids).size === manifest.source_batch_ids.length && manifest.source_batch_ids.every((value) => /^official-html-20\d{2}-(?:0[1-9]|1[0-2])-[a-f0-9]{12}$/.test(value)), 'complete remote source batches are invalid')
     assert(compareVersions(versionConfig.version, manifest.minimum_app_version) >= 0, 'remote data requires a newer mini program version')
     return manifest
   }
   assert([undefined, 'monthly_update', 'historical_correction'].includes(manifest.release_type), 'remote release type is invalid')
   assert(compareVersions(versionConfig.version, manifest.minimum_app_version) >= 0, 'remote data requires a newer mini program version')
   assert(SHA_PATTERN.test(manifest.bootstrap_sha256 || '') && Number.isInteger(manifest.bootstrap_bytes), 'remote bootstrap metadata is invalid')
-  const root = `cloud://${config.cloudEnvId}.${config.storageBucket}/housing-data/releases/${current.dataset_version}/`
+  const root = remoteReleaseRoot(config, current.dataset_version)
   assert(manifest.bootstrap_file_id === `${root}bootstrap.json`, 'remote bootstrap path is invalid')
   assert(manifest.city_file_id_template === `${root}cities/{city_id}.json`, 'remote city path template is invalid')
   assert(manifest.city_files && Object.keys(manifest.city_files).length === 70, 'remote city manifest must contain 70 cities')
@@ -277,6 +288,11 @@ function validateManifest(manifest, current, config, expectedCityIds = bundledSn
 
 function isCompleteRemoteManifest(manifest) {
   return major(manifest?.remote_schema_version) === 2
+}
+
+function validateCompleteSourceEvidence(manifest, snapshot) {
+  const sourceMonths = manifest.source_batch_ids.map((value) => value.match(/^official-html-(20\d{2}-(?:0[1-9]|1[0-2]))-[a-f0-9]{12}$/)?.[1]).sort()
+  assert(sourceMonths.every(Boolean) && JSON.stringify(sourceMonths) === JSON.stringify(snapshot.months), 'complete remote source batches do not match snapshot months')
 }
 
 function validateRevisionManifest(revision, manifest) {
@@ -785,6 +801,7 @@ function createDataRuntime({ wxApi = typeof wx === 'undefined' ? null : wx, bund
         expectedMonthCount: config.completeRemoteMonthCount,
         expectedCoverageStart: config.completeRemoteCoverageStart,
       })
+      validateCompleteSourceEvidence(manifest, completeSnapshot)
       assert(completeSnapshot.datasetVersion === manifest.dataset_version && completeSnapshot.sourceDatasetVersion === manifest.source_dataset_version && completeSnapshot.datasetAsOf === manifest.dataset_as_of, 'cached complete snapshot identity is invalid')
       if (isCurrentPointer) validateCurrent(current, config, { allowLegacy: false, requireContext: true, manifest, registry: storedRegistry(control) })
       return { snapshot: completeSnapshot, manifest, revisionManifest: null, cachedCityIds: [...completeSnapshot.cityIds] }
@@ -1323,6 +1340,7 @@ function createDataRuntime({ wxApi = typeof wx === 'undefined' ? null : wx, bund
           expectedMonthCount: config.completeRemoteMonthCount,
           expectedCoverageStart: config.completeRemoteCoverageStart,
         })
+        validateCompleteSourceEvidence(manifest, completeSnapshotDownload.data)
         assert(completeSnapshotDownload.data.datasetVersion === manifest.dataset_version
           && completeSnapshotDownload.data.sourceDatasetVersion === manifest.source_dataset_version
           && completeSnapshotDownload.data.datasetAsOf === manifest.dataset_as_of, 'complete remote snapshot identity is invalid')

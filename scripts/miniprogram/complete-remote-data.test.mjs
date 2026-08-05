@@ -36,15 +36,39 @@ function fixture() {
   return snapshot
 }
 
-test('complete remote release is one verified 180-month business data file', () => {
-  const snapshot = fixture()
-  const release = buildCompleteRemoteRelease(snapshot, {
+function sourceBatchIds(snapshot) {
+  return snapshot.months.map((month, index) => `official-html-${month}-${index.toString(16).padStart(12, '0')}`)
+}
+
+function auditIdentity(overrides = {}) {
+  return {
+    auditVersion: 'full-record-audit-v7',
+    auditMethod: 'automated-full-record-audit-v7: fixture',
+    repositoryCommitSha: 'a'.repeat(40),
+    auditCodeSha256: 'b'.repeat(64),
+    reportSha256: 'c'.repeat(64),
+    parserVersions: ['official-html-v9-product-housing-only-strict-release-date'],
+    recordsSha256: 'd'.repeat(64),
+    sourceIndexSha256: 'e'.repeat(64),
+    ...overrides,
+  }
+}
+
+function buildOptions(snapshot, overrides = {}) {
+  return {
     cloudEnvId: 'cloud1-d3gpdx70w5d05c68c',
     storageBucket: '636c-cloud1-d3gpdx70w5d05c68c-1456861154',
-    minimumAppVersion: 'v2.5.0',
+    minimumAppVersion: 'v2.5.6',
     nextCheckAt: '2026-08-17T01:40:00.000Z',
-    sourceBatchIds: ['official-html-test'],
-  })
+    sourceBatchIds: sourceBatchIds(snapshot),
+    auditIdentity: auditIdentity(),
+    ...overrides,
+  }
+}
+
+test('complete remote release is one verified 180-month business data file', () => {
+  const snapshot = fixture()
+  const release = buildCompleteRemoteRelease(snapshot, buildOptions(snapshot))
   assert.equal(release.manifest.month_count, 180)
   assert.equal(release.manifest.coverage_start, '2011-07')
   assert.ok(release.manifest.complete_snapshot_file_id.endsWith('/complete-snapshot.json'))
@@ -53,23 +77,44 @@ test('complete remote release is one verified 180-month business data file', () 
 
 test('complete remote release rejects any data-file tampering', () => {
   const snapshot = fixture()
-  const release = buildCompleteRemoteRelease(snapshot, {
-    cloudEnvId: 'cloud1-d3gpdx70w5d05c68c', storageBucket: '636c-cloud1-d3gpdx70w5d05c68c-1456861154',
-    minimumAppVersion: 'v2.5.0', nextCheckAt: '2026-08-17T01:40:00.000Z', sourceBatchIds: ['official-html-test'],
-  })
+  const release = buildCompleteRemoteRelease(snapshot, buildOptions(snapshot))
   release.completeSnapshotText += ' '
   assert.match(verifyCompleteRemoteRelease(snapshot, release).join('\n'), /SHA-256 mismatch/)
 })
 
 test('complete remote preview package has no production release file IDs', () => {
-  const release = buildCompleteRemoteRelease(fixture(), {
-    cloudEnvId: 'cloud1-d3gpdx70w5d05c68c', storageBucket: '636c-cloud1-d3gpdx70w5d05c68c-1456861154',
-    minimumAppVersion: 'v2.5.1', nextCheckAt: '2026-08-17T01:40:00.000Z', sourceBatchIds: ['official-html-test'], dataRoot: 'housing-data/preview',
-  })
+  const snapshot = fixture()
+  const release = buildCompleteRemoteRelease(snapshot, buildOptions(snapshot, { dataRoot: 'housing-data/preview' }))
   assert.match(release.manifest.complete_snapshot_file_id, /\/housing-data\/preview\/releases\//)
   assert.doesNotMatch(release.manifest.complete_snapshot_file_id, /\/housing-data\/releases\//)
-  assert.throws(() => buildCompleteRemoteRelease(fixture(), {
-    cloudEnvId: 'cloud1-d3gpdx70w5d05c68c', storageBucket: '636c-cloud1-d3gpdx70w5d05c68c-1456861154',
-    minimumAppVersion: 'v2.5.1', nextCheckAt: '2026-08-17T01:40:00.000Z', dataRoot: 'housing-data/other',
-  }), /data root is invalid/)
+  assert.throws(() => buildCompleteRemoteRelease(snapshot, buildOptions(snapshot, { dataRoot: 'housing-data/other' })), /data root is invalid/)
+})
+
+test('complete remote identity changes with the minimum compatible app version', () => {
+  const snapshot = fixture()
+  const shared = buildOptions(snapshot)
+  const older = buildCompleteRemoteRelease(snapshot, { ...shared, minimumAppVersion: 'v2.5.1' })
+  const current = buildCompleteRemoteRelease(snapshot, { ...shared, minimumAppVersion: 'v2.5.6' })
+  assert.notEqual(older.manifest.dataset_version, current.manifest.dataset_version)
+  assert.notEqual(older.current.manifest_file_id, current.current.manifest_file_id)
+})
+
+test('complete remote identity changes with the full-record audit evidence', () => {
+  const snapshot = fixture()
+  const original = buildCompleteRemoteRelease(snapshot, buildOptions(snapshot))
+  const reaudited = buildCompleteRemoteRelease(snapshot, buildOptions(snapshot, {
+    auditIdentity: auditIdentity({ reportSha256: 'f'.repeat(64) }),
+  }))
+  assert.notEqual(original.manifest.dataset_version, reaudited.manifest.dataset_version)
+  assert.notEqual(original.manifest.audit_report_sha256, reaudited.manifest.audit_report_sha256)
+})
+
+test('complete remote release rejects invalid values and incomplete source evidence', () => {
+  const snapshot = fixture()
+  snapshot.series[snapshot.cityIds[0]].n_a[0] = 100.12
+  snapshot.series[snapshot.cityIds[0]].n_a[2] = 0.1
+  assert.throws(() => buildCompleteRemoteRelease(snapshot, buildOptions(snapshot)), /index is invalid/)
+
+  const complete = fixture()
+  assert.throws(() => buildCompleteRemoteRelease(complete, buildOptions(complete, { sourceBatchIds: sourceBatchIds(complete).slice(1) })), /source batch count is invalid/)
 })

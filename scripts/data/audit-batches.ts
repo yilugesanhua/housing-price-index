@@ -4,7 +4,7 @@ import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import * as cheerio from "cheerio";
 import { detectOfficialMetadata, normalizeCityName, recordKey } from "./official-parser";
-import { FULL_RECORD_AUDIT_METHOD, FULL_RECORD_AUDIT_VERSION, recordsSha256, sourceIndexSha256, type AuditReport } from "./audit-report";
+import { auditReportSha256, currentAuditCodeSha256, currentRepositoryCommitSha, FULL_RECORD_AUDIT_METHOD, FULL_RECORD_AUDIT_VERSION, recordsSha256, sourceIndexSha256, type AuditReport } from "./audit-report";
 import { TARGET_CITIES, type ParsedBatch, type StandardRecord } from "./types";
 import { validateRecords } from "./validate";
 import { readRawArchiveSync } from "./raw-archive";
@@ -161,16 +161,19 @@ function auditBatch(path: string): AuditedBatch {
   }
 }
 
-const AUDIT_CHECKS = ["raw SHA-256", "official URL allowlist", "title month", "release date", "record schema", "complete city/property/size-band keys", "independent source table type", "all-size versus size-band table", "source locator resolution", "raw source cell equality", "audited record SHA-256", "source index SHA-256"];
+const AUDIT_CHECKS = ["raw SHA-256", "official URL allowlist", "title month", "release date", "record schema", "numeric range and one-decimal precision", "null/change/ytd invariants", "complete city/property/size-band keys", "independent source table type", "all-size versus size-band table", "source locator resolution", "raw source cell equality", "audited record SHA-256", "source index SHA-256", "parser version identity", "audit code SHA-256", "repository commit SHA", "audit report SHA-256"];
 
 function buildAuditReport(batches: ParsedBatch[], verifiedAt: string): AuditReport {
   const months = batches.map(({ source_batch }) => source_batch.stat_month).sort();
   const records = batches.flatMap((batch) => batch.records);
-  return {
+  const report: Omit<AuditReport, "report_sha256"> = {
     schema_version: 2,
     audit_version: FULL_RECORD_AUDIT_VERSION,
     verified_at: verifiedAt,
     verification_method: FULL_RECORD_AUDIT_METHOD,
+    repository_commit_sha: currentRepositoryCommitSha(),
+    audit_code_sha256: currentAuditCodeSha256(),
+    parser_versions: [...new Set(batches.map((batch) => batch.source_batch.parser_version))].sort(),
     batch_count: batches.length,
     record_count: records.length,
     records_sha256: recordsSha256(records),
@@ -188,6 +191,8 @@ function buildAuditReport(batches: ParsedBatch[], verifiedAt: string): AuditRepo
       result: "passed",
     })),
   };
+  if (!/^[a-f0-9]{40}$/.test(report.repository_commit_sha)) throw new Error("Cannot build audit report without an exact repository commit");
+  return { ...report, report_sha256: auditReportSha256(report) };
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href) {

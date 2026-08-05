@@ -9,7 +9,7 @@
     "parser_version": "official-html-v9-product-housing-only-strict-release-date",
     "schema_version": "1.0.0",
     "verification_status": "verified",
-    "verification_method": "automated-full-record-audit-v6: sha256+official-url+metadata+four-table-whitelist+property-type+size-band+locator+raw-cell+schema+record-hash-binding",
+    "verification_method": "automated-full-record-audit-v7: sha256+official-url+metadata+four-table-whitelist+property-type+size-band+locator+raw-cell+schema+numeric-invariants+record-hash-binding+code-and-report-identity",
     "http_status": 200,
     "final_url": "https://www.stats.gov.cn/sj/zxfb/202403/t20240322_1948125.html",
     "redirect_chain": [],

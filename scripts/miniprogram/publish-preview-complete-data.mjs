@@ -1,6 +1,7 @@
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { resolve } from 'node:path'
+import { loadValidatedAuditEvidence } from './audit-evidence.mjs'
 import { buildCompleteRemoteRelease, verifyCompleteRemoteRelease } from './complete-remote-data.mjs'
 import { buildControlValidUntil, buildRevocationRegistryArtifact, createRevocationRegistry, validateControlPointer } from './control-plane.mjs'
 import { clientNextCheckAt, sha256, stableJson } from './remote-data-lib.mjs'
@@ -19,15 +20,21 @@ const dryRun = process.argv.includes('--dry-run')
 if (!dryRun && process.env.GITHUB_ACTIONS !== 'true') throw new Error('Preview upload is allowed only in GitHub Actions')
 const completeSnapshot = JSON.parse(await readFile(resolve(root, 'work/miniprogram-data-input/complete-snapshot.json'), 'utf8'))
 const publishedData = JSON.parse(await readFile(resolve(root, 'apps/web/public/data/data.json'), 'utf8'))
+const publishedManifest = JSON.parse(await readFile(resolve(root, 'apps/web/public/data/manifest.json'), 'utf8'))
 const calendarPath = argument('calendar') || resolve(root, 'work/monthly-data-check/release-calendar.json')
 const calendar = JSON.parse(await readFile(resolve(calendarPath), 'utf8'))
 const sourceBatchIds = [...new Set(publishedData.records.filter((record) => record.stat_month >= completeSnapshot.coverageStart).map((record) => record.source_batch_id).filter(Boolean))].sort()
+const { identity: auditIdentity } = await loadValidatedAuditEvidence(root, {
+  expectedParserVersion: publishedManifest.parser_version,
+  expectedCoverageEnd: completeSnapshot.datasetAsOf,
+})
 const release = buildCompleteRemoteRelease(completeSnapshot, {
   cloudEnvId,
   storageBucket: dataConfig.storageBucket,
   minimumAppVersion: versionConfig.version,
   nextCheckAt: clientNextCheckAt(calendar, completeSnapshot.datasetAsOf),
   sourceBatchIds,
+  auditIdentity,
   dataRoot,
 })
 const errors = verifyCompleteRemoteRelease(completeSnapshot, release)
@@ -59,7 +66,7 @@ await rm(output, { recursive: true, force: true }); await mkdir(output, { recurs
 for (const [name, content] of [['complete-snapshot.json', release.completeSnapshotText], ['manifest.json', release.manifestText], ['current.json', currentText], ['revocations.json', registryArtifact.text]]) {
   await writeFile(resolve(output, name), content, 'utf8')
 }
-const report = { status: dryRun ? 'dry_run_passed' : 'uploaded', data_root: dataRoot, dataset_version: current.dataset_version, complete_snapshot_sha256: sha256(release.completeSnapshotText), complete_snapshot_bytes: release.manifest.complete_snapshot_bytes, manifest_sha256: current.manifest_sha256, current_sha256: sha256(currentText), production_pointer_untouched: true, production_release_prefix_untouched: true }
+const report = { status: dryRun ? 'dry_run_passed' : 'uploaded', data_root: dataRoot, dataset_version: current.dataset_version, complete_snapshot_sha256: sha256(release.completeSnapshotText), complete_snapshot_bytes: release.manifest.complete_snapshot_bytes, manifest_sha256: current.manifest_sha256, current_sha256: sha256(currentText), audit_version: release.manifest.audit_version, audit_report_sha256: release.manifest.audit_report_sha256, audit_repository_commit_sha: release.manifest.audit_repository_commit_sha, production_pointer_untouched: true, production_release_prefix_untouched: true }
 if (!dryRun) {
   const cloud = createTencentCloudClient({ cloudEnvId })
   const uploadExact = async (key, body) => {

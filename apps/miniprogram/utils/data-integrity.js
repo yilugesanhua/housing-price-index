@@ -1,6 +1,7 @@
 const SERIES_CODES = ['n_a', 'n_s', 'n_m', 'n_l', 'r_a', 'r_s', 'r_m', 'r_l']
 const DATASET_PATTERN = /^20\d{2}-(0[1-9]|1[0-2])-[a-f0-9]{12}$/
 const MONTH_PATTERN = /^20\d{2}-(0[1-9]|1[0-2])$/
+const MAX_INDEX_VALUE = 1000
 const TIER_LABELS = Object.freeze({
   first: '一线城市',
   second: '二线城市',
@@ -69,6 +70,10 @@ function derivedChange(index) {
   return Number((index - 100).toFixed(1))
 }
 
+function hasAtMostOneDecimal(value) {
+  return Math.abs(value * 10 - Math.round(value * 10)) < Number.EPSILON * 100
+}
+
 function validateSeries(values, monthCount, label) {
   assert(Array.isArray(values) && values.length === monthCount * 4, `${label} has an invalid length`)
   for (let monthIndex = 0; monthIndex < monthCount; monthIndex += 1) {
@@ -78,7 +83,11 @@ function validateSeries(values, monthCount, label) {
       const index = values[offset + indexOffset]
       const change = values[offset + changeOffset]
       assert((index === null) === (change === null), `${label}/${metric} index and change nullability differ`)
-      if (index !== null) assert(change === derivedChange(index), `${label}/${metric} change differs from its index`)
+      if (index !== null) {
+        assert(index > 0 && index <= MAX_INDEX_VALUE && hasAtMostOneDecimal(index), `${label}/${metric} index is outside the allowed range or precision`)
+        assert(hasAtMostOneDecimal(change), `${label}/${metric} change has invalid precision`)
+        assert(change === derivedChange(index), `${label}/${metric} change differs from its index`)
+      }
     }
   }
 }

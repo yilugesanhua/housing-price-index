@@ -38,6 +38,8 @@ jobs:
       - run: npm ci
       - name: Rebuild the local 15-year preview candidate
         run: |
+          npm run data:audit
+          npm run validate:data
           npm run miniprogram:data:complete
           npm run data:release-calendar
           npm run test:miniprogram

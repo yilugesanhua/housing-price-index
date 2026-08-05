@@ -1,4 +1,5 @@
 const dataRuntime = require('../../utils/data-runtime.js')
+const dataConfig = require('../../config/data.js')
 let snapshot = dataRuntime.getSnapshot()
 const versionConfig = require('../../config/version.js')
 const locationConfig = require('../../config/location.js')
@@ -622,7 +623,8 @@ Page({
 
   async performRemoteRefresh({ force = false } = {}) {
     const requiredCityIds = [...new Set([...(this.data.state?.cities || []), this.data.state?.focusCity].filter(Boolean))]
-    const result = await dataRuntime.refresh({ requiredCityIds, force })
+    // The isolated development preview must retry immediately after a repaired cloud package.
+    const result = await dataRuntime.refresh({ requiredCityIds, force: force || dataConfig.previewMode })
     snapshot = dataRuntime.getSnapshot()
     if (!hasUsableSnapshot()) {
       this.enterUnavailableState()

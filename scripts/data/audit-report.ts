@@ -1,8 +1,22 @@
 import { createHash } from "node:crypto";
+import { execFileSync } from "node:child_process";
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import type { ParsedBatch } from "./types";
 
-export const FULL_RECORD_AUDIT_METHOD = "automated-full-record-audit-v6: sha256+official-url+metadata+four-table-whitelist+property-type+size-band+locator+raw-cell+schema+record-hash-binding";
-export const FULL_RECORD_AUDIT_VERSION = "full-record-audit-v6";
+export const FULL_RECORD_AUDIT_METHOD = "automated-full-record-audit-v7: sha256+official-url+metadata+four-table-whitelist+property-type+size-band+locator+raw-cell+schema+numeric-invariants+record-hash-binding+code-and-report-identity";
+export const FULL_RECORD_AUDIT_VERSION = "full-record-audit-v7";
+
+export const AUDIT_CODE_PATHS = [
+  "packages/core/src/index.ts",
+  "scripts/data/audit-batches.ts",
+  "scripts/data/audit-report.ts",
+  "scripts/data/audit-source-association.ts",
+  "scripts/data/official-parser.ts",
+  "scripts/data/raw-archive.ts",
+  "scripts/data/types.ts",
+  "scripts/data/validate.ts",
+] as const;
 
 function canonicalize(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonicalize);
@@ -18,6 +32,21 @@ function canonicalize(value: unknown): unknown {
 
 function digest(value: unknown): string {
   return createHash("sha256").update(JSON.stringify(canonicalize(value))).digest("hex");
+}
+
+export function currentRepositoryCommitSha(root = process.cwd()): string {
+  try {
+    return execFileSync("git", ["rev-parse", "HEAD"], { cwd: root, encoding: "utf8" }).trim();
+  } catch {
+    return "";
+  }
+}
+
+export function currentAuditCodeSha256(root = process.cwd()): string {
+  return digest(AUDIT_CODE_PATHS.map((path) => ({
+    path,
+    sha256: createHash("sha256").update(readFileSync(resolve(root, path))).digest("hex"),
+  })));
 }
 
 function recordKey(record: ParsedBatch["records"][number]): string {
@@ -46,6 +75,9 @@ export interface AuditReport {
   audit_version: string;
   verified_at: string;
   verification_method: string;
+  repository_commit_sha: string;
+  audit_code_sha256: string;
+  parser_versions: string[];
   batch_count: number;
   record_count: number;
   records_sha256: string;
@@ -62,6 +94,11 @@ export interface AuditReport {
     records_checked: number;
     result: string;
   }>;
+  report_sha256: string;
+}
+
+export function auditReportSha256(report: Omit<AuditReport, "report_sha256">): string {
+  return digest(report);
 }
 
 export function validateAuditReport(report: AuditReport | null, batches: ParsedBatch[]): string[] {
@@ -70,9 +107,15 @@ export function validateAuditReport(report: AuditReport | null, batches: ParsedB
   const recordCount = batches.reduce((sum, batch) => sum + batch.records.length, 0);
   const allRecords = batches.flatMap((batch) => batch.records);
   const months = batches.map((batch) => batch.source_batch.stat_month).sort();
+  const parserVersions = [...new Set(batches.map((batch) => batch.source_batch.parser_version))].sort();
+  const { report_sha256: reportSha256, ...reportContent } = report;
   if (report.schema_version !== 2 || report.audit_version !== FULL_RECORD_AUDIT_VERSION || report.result !== "passed") errors.push("full-record audit report has not passed");
   if (report.verification_method !== FULL_RECORD_AUDIT_METHOD) errors.push("full-record audit method is unsupported");
   if (!Number.isFinite(Date.parse(report.verified_at))) errors.push("full-record audit verified_at is invalid");
+  if (!/^[a-f0-9]{40}$/.test(report.repository_commit_sha) || report.repository_commit_sha !== currentRepositoryCommitSha()) errors.push("full-record audit repository commit does not match the current checkout");
+  if (!/^[a-f0-9]{64}$/.test(report.audit_code_sha256) || report.audit_code_sha256 !== currentAuditCodeSha256()) errors.push("full-record audit code hash does not match the current verifier");
+  if (JSON.stringify(report.parser_versions) !== JSON.stringify(parserVersions)) errors.push("full-record audit parser versions do not match source batches");
+  if (!/^[a-f0-9]{64}$/.test(reportSha256) || reportSha256 !== auditReportSha256(reportContent)) errors.push("full-record audit report hash is invalid");
   if (report.batch_count !== batches.length || report.batches.length !== batches.length) errors.push("full-record audit batch count does not match source batches");
   if (report.record_count !== recordCount) errors.push("full-record audit record count does not match source records");
   if (report.records_sha256 !== recordsSha256(allRecords)) errors.push("full-record audit records hash does not match source records");
