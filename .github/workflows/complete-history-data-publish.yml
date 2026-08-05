@@ -69,6 +69,7 @@ jobs:
           npm run test:miniprogram
       - name: Rebuild and verify the immutable complete package
         run: |
+          npm run data:release-calendar
           npm run miniprogram:data:complete
           npm run miniprogram:data:stage-complete -- --env=cloud1-d3gpdx70w5d05c68c
           npm run miniprogram:data:verify-complete
