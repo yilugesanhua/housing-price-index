@@ -641,7 +641,11 @@ for (const [index, targetMonth] of targetMonths.entries()) {
     const alteredAudit = auditParsedBatch(archive.path, { source_batch: archive.source_batch, records: wrongValue }, Buffer.from(archive.html));
     assert(alteredAudit.errors.some((error) => /mom_index|mom_change/.test(error)), `${targetMonth}: altered official value was not rejected by raw-cell audit`);
     const shiftedArea = structuredClone(archive.records);
-    shiftedArea[0].size_band = shiftedArea[1].size_band;
+    const conflictingAreaRecord = shiftedArea.find((record) => record.city_id === shiftedArea[0].city_id
+      && record.property_type === shiftedArea[0].property_type
+      && record.size_band !== shiftedArea[0].size_band);
+    assert(conflictingAreaRecord, `${targetMonth}: missing a second official area band for exception injection`);
+    shiftedArea[0].size_band = conflictingAreaRecord.size_band;
     const truncatedHtml = archive.html.slice(0, Math.floor(archive.html.length / 2));
     const complete = structuredClone(packaged.release);
     const controlled = buildControlledRelease(complete, {
