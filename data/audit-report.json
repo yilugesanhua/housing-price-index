@@ -1,9 +1,9 @@
 {
   "schema_version": 2,
   "audit_version": "full-record-audit-v7",
-  "verified_at": "2026-08-04T18:31:37.780Z",
+  "verified_at": "2026-08-05T01:45:39.342Z",
   "verification_method": "automated-full-record-audit-v7: sha256+official-url+metadata+four-table-whitelist+property-type+size-band+locator+raw-cell+schema+numeric-invariants+record-hash-binding+code-and-report-identity",
-  "repository_commit_sha": "d745f6c2eae3a3a90b07519ffbe4989d5c075969",
+  "repository_commit_sha": "1c32244d55fd1e7efd2d04ac84b7ad6896e3271c",
   "audit_code_sha256": "8236227a59883fc309e8578b76039dbff10eaea46267618c7404a3ddfab2af29",
   "parser_versions": [
     "official-html-v9-product-housing-only-strict-release-date"
@@ -1477,5 +1477,5 @@
       "result": "passed"
     }
   ],
-  "report_sha256": "dbee8dc4bd4f187167be0b7212fd246f47057d1e002375b2c8f4a3db66b64c59"
+  "report_sha256": "3d576bf61277c0f6e662d76b4d192cd392e0abe1cc8e3c953a5673b3692f1e17"
 }
