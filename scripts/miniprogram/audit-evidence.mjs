@@ -48,7 +48,7 @@ export function auditReportSha256(report) {
 export async function auditCodeSha256(root) {
   const files = []
   for (const path of AUDIT_CODE_PATHS) {
-    const content = await readFile(resolve(root, path))
+    const content = (await readFile(resolve(root, path), 'utf8')).replace(/\r\n/g, '\n')
     files.push({ path, sha256: createHash('sha256').update(content).digest('hex') })
   }
   return digest(files)
