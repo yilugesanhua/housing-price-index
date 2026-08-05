@@ -18,6 +18,7 @@ test('isolated write rehearsal accepts only its own run prefix', () => {
 test('complete bootstrap transfers get a longer SDK-enforced timeout', () => {
   assert.equal(cosTimeoutForKey('housing-data/releases/test/bootstrap.json'), LARGE_TRANSFER_COS_TIMEOUT_MS)
   assert.equal(cosTimeoutForKey('housing-data/rehearsals/123/bootstrap.json'), LARGE_TRANSFER_COS_TIMEOUT_MS)
+  assert.equal(cosTimeoutForKey('housing-data/releases/test/complete-snapshot.json'), LARGE_TRANSFER_COS_TIMEOUT_MS)
   assert.equal(cosTimeoutForKey('housing-data/releases/test/manifest.json'), DEFAULT_COS_TIMEOUT_MS)
   assert.equal(cosTimeoutForKey('housing-data/releases/test/cities/beijing.json'), DEFAULT_COS_TIMEOUT_MS)
 })

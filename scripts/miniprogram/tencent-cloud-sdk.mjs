@@ -30,7 +30,7 @@ export function assertRehearsalKey(key, runId) {
 }
 
 export function cosTimeoutForKey(key) {
-  return /(?:^|\/)bootstrap\.json$/.test(key) ? LARGE_TRANSFER_COS_TIMEOUT_MS : DEFAULT_COS_TIMEOUT_MS
+  return /(?:^|\/)(?:bootstrap|complete-snapshot)\.json$/.test(key) ? LARGE_TRANSFER_COS_TIMEOUT_MS : DEFAULT_COS_TIMEOUT_MS
 }
 
 export function buildScfInvokeRequest(functionName, cloudEnvId, event) {
