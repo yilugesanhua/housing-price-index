@@ -1,0 +1,32 @@
+{
+  "status": "published",
+  "app_version": "v2.5.14",
+  "remote_schema_version": "2.1.0",
+  "dataset_version": "2026-06-f80465ae29a5",
+  "source_dataset_version": "2026-06-69fa180bd8db",
+  "coverage_start": "2011-07",
+  "dataset_as_of": "2026-06",
+  "month_count": 180,
+  "record_count": 100800,
+  "complete_snapshot_sha256": "d604cb1101cd5633578775f51cb060507b8c7a7a8d8349c0221a5032bc293fb2",
+  "complete_snapshot_bytes": 1998341,
+  "manifest_sha256": "ff6a6ca691f8569d6afb47fd7636e37bd2ccb578472df45a5e0d4f4cef2f39de",
+  "total_release_bytes": 2006820,
+  "source_batch_count": 180,
+  "audit_version": "full-record-audit-v7",
+  "audit_report_sha256": "b1833afb66c683c669a28a47a5b70cdc62375bf996b2eca004617eb5e75f3721",
+  "audit_code_sha256": "9cccb92bcacc8a5d58fa8a815c38f49eb95704107329d4cf827136945b0dd781",
+  "audit_repository_commit_sha": "2ad09b3dea05eeeb618512f1ae3f5184aef0c535",
+  "generated_at": "2026-08-05T13:28:17.566Z",
+  "published_at": "2026-08-05T13:32:21.331Z",
+  "previous_dataset_version": "2026-06-e9788d0bddf3",
+  "current_sha256": "d15b9ea0727f2e88b6aa936a3959396e8673ac32c60c873931ffac8934d0989c",
+  "github_run_id": "31010010550",
+  "github_run_attempt": "1",
+  "commit_sha": "2ad09b3dea05eeeb618512f1ae3f5184aef0c535",
+  "release_authorization": {
+    "repository_automatic_release_enabled": true,
+    "production_environment_authorized": true
+  },
+  "release_type": "complete_history"
+}
