@@ -3,7 +3,7 @@ import { readFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import test from 'node:test'
 
-import { validateMonitorReleaseAudit } from './monitor-release-audit.mjs'
+import { validateMonitoredManifestMetadata, validateMonitorReleaseAudit } from './monitor-release-audit.mjs'
 
 const root = resolve(import.meta.dirname, '../..')
 const cloudEnvId = 'cloud1-d3gpdx70w5d05c68c'
@@ -92,4 +92,57 @@ test('monitor requires exact modern cloud, storage, and execution bindings', () 
   assert.throws(() => validateModernAudit({ ...audit, github_run_id: '0' }), /GitHub run identity is invalid/)
   assert.throws(() => validateModernAudit({ ...audit, github_run_attempt: '' }), /GitHub run attempt is invalid/)
   assert.throws(() => validateModernAudit({ ...audit, commit_sha: 'c'.repeat(39) }), /commit identity is invalid/)
+})
+
+test('the exact legacy audit accepts a unique source batch list with its recorded count', async () => {
+  const audit = JSON.parse(await readFile(legacyPath, 'utf8'))
+  const sourceBatchIds = Array.from({ length: audit.source_batch_count }, (_, index) => `batch-${index}`)
+  const manifest = {
+    dataset_version: audit.dataset_version,
+    source_dataset_version: audit.source_dataset_version,
+    dataset_as_of: audit.dataset_as_of,
+    source_batch_ids: sourceBatchIds,
+  }
+
+  assert.doesNotThrow(() => validateMonitoredManifestMetadata({
+    manifest,
+    audit,
+    usedLegacyBinding: true,
+  }))
+  assert.throws(() => validateMonitoredManifestMetadata({
+    manifest: { ...manifest, source_batch_ids: sourceBatchIds.slice(1) },
+    audit,
+    usedLegacyBinding: true,
+  }), /source batch count differs/)
+  assert.throws(() => validateMonitoredManifestMetadata({
+    manifest: { ...manifest, source_batch_ids: [...sourceBatchIds.slice(0, -1), sourceBatchIds[0]] },
+    audit,
+    usedLegacyBinding: true,
+  }), /source batch IDs contain duplicates/)
+})
+
+test('modern audits still require the immutable source batch ID list', () => {
+  const audit = {
+    dataset_version: '2026-07-0123456789ab',
+    source_dataset_version: '2026-07-abcdefabcdef',
+    dataset_as_of: '2026-07',
+    source_batch_ids: ['batch-a', 'batch-b'],
+  }
+  const manifest = {
+    dataset_version: audit.dataset_version,
+    source_dataset_version: audit.source_dataset_version,
+    dataset_as_of: audit.dataset_as_of,
+    source_batch_ids: ['batch-b', 'batch-a'],
+  }
+
+  assert.doesNotThrow(() => validateMonitoredManifestMetadata({ manifest, audit, usedLegacyBinding: false }))
+  const missingIds = { ...audit }
+  delete missingIds.source_batch_ids
+  assert.throws(() => validateMonitoredManifestMetadata({ manifest, audit: missingIds, usedLegacyBinding: false }),
+    /source batch IDs are missing/)
+  assert.throws(() => validateMonitoredManifestMetadata({
+    manifest: { ...manifest, source_batch_ids: ['batch-a', 'batch-c'] },
+    audit,
+    usedLegacyBinding: false,
+  }), /source batch IDs differ/)
 })

@@ -17,7 +17,7 @@ import {
   loadExplicitMigrationAudit,
   mergeMigrationAuditEntries,
 } from './monitor-audit-chain.mjs'
-import { validateMonitorReleaseAudit } from './monitor-release-audit.mjs'
+import { validateMonitoredManifestMetadata, validateMonitorReleaseAudit } from './monitor-release-audit.mjs'
 import { validateManualRollbackAudit } from './ci-rollback-authorization.mjs'
 import { COMPLETE_REMOTE_MONTHS, COMPLETE_REMOTE_SCHEMA_VERSION, completeCoverageStart, validateCompleteRemoteSnapshot } from './complete-remote-data.mjs'
 
@@ -52,7 +52,7 @@ const downloadObject = async (key, destination) => {
 const auditFileName = `${datasetVersion}.json`
 const auditText = await readFile(resolve(root, 'data/releases', auditFileName), 'utf8')
 const audit = JSON.parse(auditText)
-validateMonitorReleaseAudit({
+const monitorAudit = validateMonitorReleaseAudit({
   audit,
   auditText,
   datasetVersion,
@@ -150,10 +150,14 @@ const manifestText = await readFile(resolve(outputRoot, 'manifest.json'), 'utf8'
 if (sha256(manifestText) !== current.manifest_sha256) throw new Error('Monitored manifest hash mismatch')
 const manifest = JSON.parse(manifestText)
 const isCompleteHistory = manifest.remote_schema_version === COMPLETE_REMOTE_SCHEMA_VERSION
+validateMonitoredManifestMetadata({
+  manifest,
+  audit,
+  usedLegacyBinding: monitorAudit.usedLegacyBinding,
+})
 if (manifest.dataset_version !== audit.dataset_version
   || manifest.source_dataset_version !== audit.source_dataset_version
   || manifest.dataset_as_of !== audit.dataset_as_of
-  || JSON.stringify([...(manifest.source_batch_ids || [])].sort()) !== JSON.stringify([...(audit.source_batch_ids || [])].sort())
   || (isCompleteHistory
     ? manifest.complete_snapshot_sha256 !== audit.complete_snapshot_sha256
       || manifest.complete_snapshot_bytes !== audit.complete_snapshot_bytes

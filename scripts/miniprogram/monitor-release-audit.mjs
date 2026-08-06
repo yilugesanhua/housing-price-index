@@ -43,6 +43,35 @@ function isBoundLegacyCompleteHistoryAudit(audit, auditText, datasetVersion) {
     && audit.release_authorization?.production_environment_authorized === true
 }
 
+function sortedUniqueSourceBatchIds(value, label) {
+  assert(Array.isArray(value), `${label} source batch IDs are missing`)
+  assert(value.every((id) => typeof id === 'string' && id.length > 0), `${label} source batch IDs are invalid`)
+  assert(new Set(value).size === value.length, `${label} source batch IDs contain duplicates`)
+  return [...value].sort()
+}
+
+export function validateMonitoredManifestMetadata({ manifest, audit, usedLegacyBinding }) {
+  assert(manifest && typeof manifest === 'object' && !Array.isArray(manifest), 'monitored manifest is not a JSON object')
+  assert(audit && typeof audit === 'object' && !Array.isArray(audit), 'monitor release audit is not a JSON object')
+  assert(typeof usedLegacyBinding === 'boolean', 'monitor release audit binding mode is invalid')
+  assert(manifest.dataset_version === audit.dataset_version, 'monitored manifest dataset identity differs')
+  assert(manifest.source_dataset_version === audit.source_dataset_version, 'monitored manifest source dataset identity differs')
+  assert(manifest.dataset_as_of === audit.dataset_as_of, 'monitored manifest month differs')
+
+  const manifestSourceBatchIds = sortedUniqueSourceBatchIds(manifest.source_batch_ids, 'monitored manifest')
+  if (usedLegacyBinding) {
+    assert(Number.isInteger(audit.source_batch_count) && audit.source_batch_count >= 0,
+      'trusted legacy audit source batch count is invalid')
+    assert(manifestSourceBatchIds.length === audit.source_batch_count,
+      'monitored manifest source batch count differs from the trusted legacy audit')
+    return
+  }
+
+  const auditSourceBatchIds = sortedUniqueSourceBatchIds(audit.source_batch_ids, 'monitor release audit')
+  assert(JSON.stringify(manifestSourceBatchIds) === JSON.stringify(auditSourceBatchIds),
+    'monitored manifest source batch IDs differ from the immutable publish audit')
+}
+
 export function validateMonitorReleaseAudit({
   audit,
   auditText,
