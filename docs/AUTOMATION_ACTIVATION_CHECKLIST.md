@@ -15,7 +15,7 @@
 - COS/SCF 官方 SDK 联调、完整 70 城隔离上传/回读及有限指针/回滚演练已有历史通过记录；生产开关必须保持关闭，直到R02、D01-D16、I01-I03、I09、I12、候选绑定的开发者工具检查和双真机、平台证据回读及正式数据链路复核全部完成。维护人确认已发布不单独满足自动更新门槛。
 - 普通月度远程更新与 `v2.4.0` 起引入、由当前 `v2.4.1` 继续修复的受审计历史修订协议不是同一能力；完成下列当前版本验收并核验平台版本前，不得宣称线上用户已获得该能力。
 - 当前运行模式是 `automation_disabled`，不是有人监督或无人值守自动化。R02、D01-D16及I01-I03、I09、I12全部关闭后，生产开关才可由维护人另行确认；D19尚未关闭时即使启用也只能标记为 `supervised_automation`。
-- 唯一旧生产控制指针迁移当前状态为 `migration_status=not_run`、`migration_verification_status=not_verified`。仓库中存在规范、本地候选或待验证工作流，不等于生产迁移、严格云函数部署或生产指针修改已经完成；没有受保护运行和生产回读前，依赖现行控制协议的线上客户端切换及普通自动发布均被阻断。
+- 唯一旧生产控制指针迁移已完成并通过验证：不可变审计 `data/releases/legacy-control-migration-2026-08-02T08-30-08-467Z.json` 绑定迁移 ID `legacy-control-2026-06-e9788d0bddf3`，最终收尾 GitHub Actions 运行 `30750265475` 的 `prepare`、`migrate`、`audit` 均通过。审计已记录迁移前后原字节回读、两次完整70城重建、严格云函数回执及 `AUTOMATIC_RELEASE_ENABLED=false`、`PRODUCTION_RELEASE_AUTHORIZED=false`。这只解除旧控制指针兼容阻断；普通自动发布仍因其余清单项目未关闭而保持阻断。
 
 D01-D20与I01-I14的当前状态和关闭证据见 [实施状态登记](IMPLEMENTATION_STATUS.md)。本清单不得用“规范已更新”把任何实现或验证状态改为通过。
 
