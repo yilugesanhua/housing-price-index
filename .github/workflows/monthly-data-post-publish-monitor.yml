@@ -114,7 +114,7 @@ jobs:
             const auditRunAttempt = audit.github_run_attempt === undefined
               ? ''
               : String(audit.github_run_attempt)
-            if (auditRunAttempt && !/^[1-9]\d*$/.test(auditRunAttempt)) throw new Error('Selected control event origin attempt is invalid')
+            if (!/^[1-9]\d*$/.test(auditRunAttempt)) throw new Error('Selected control event origin attempt is invalid')
             if (audit.commit_sha !== process.env.EXPECTED_CONTROL_EVENT_COMMIT_SHA
               || String(audit.github_run_id || '') !== process.env.EXPECTED_CONTROL_EVENT_RUN_ID
               || auditRunAttempt !== process.env.EXPECTED_CONTROL_EVENT_RUN_ATTEMPT) {

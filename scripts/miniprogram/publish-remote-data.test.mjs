@@ -35,3 +35,12 @@ test('candidate and automatic rollback writes verify their expected exact pointe
   assert.ok(candidateCheck >= 0 && rollbackCheck >= 0)
   assert.ok(upload > candidateCheck && upload > rollbackCheck)
 })
+
+test('published, failed, and automatic rollback audits record the exact GitHub run attempt', () => {
+  assert.match(source, /idempotentAudit[\s\S]*github_run_attempt: ciMode \? process\.env\.GITHUB_RUN_ATTEMPT : null/)
+  assert.match(source, /rollbackAudit[\s\S]*github_run_attempt: ciMode \? process\.env\.GITHUB_RUN_ATTEMPT : null/)
+  assert.match(source, /failureAudit[\s\S]*github_run_attempt: ciMode \? process\.env\.GITHUB_RUN_ATTEMPT : null/)
+  assert.match(source, /const audit = \{[\s\S]*github_run_attempt: ciMode \? process\.env\.GITHUB_RUN_ATTEMPT : null/)
+  assert.match(source, /rollbackAudit[\s\S]*storage_bucket: cloud\.bucket/)
+  assert.match(source, /failureAudit[\s\S]*storage_bucket: cloud\.bucket/)
+})

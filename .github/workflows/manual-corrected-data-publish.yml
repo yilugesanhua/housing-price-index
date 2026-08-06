@@ -161,6 +161,7 @@ jobs:
         env:
           EXPECTED_COMMIT_SHA: ${{ needs.prepare.outputs.commit_sha }}
           EXPECTED_GITHUB_RUN_ID: ${{ github.run_id }}
+          EXPECTED_GITHUB_RUN_ATTEMPT: ${{ github.run_attempt }}
         run: node scripts/miniprogram/register-monitor-control-event.mjs
       - name: Persist the automatic rollback monitor event without cloud credentials
         if: failure() && steps.rollback_monitor_event.outputs.registered == 'true'

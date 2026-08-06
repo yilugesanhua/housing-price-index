@@ -17,6 +17,7 @@ import {
   loadExplicitMigrationAudit,
   mergeMigrationAuditEntries,
 } from './monitor-audit-chain.mjs'
+import { validateMonitorReleaseAudit } from './monitor-release-audit.mjs'
 import { validateManualRollbackAudit } from './ci-rollback-authorization.mjs'
 import { COMPLETE_REMOTE_MONTHS, COMPLETE_REMOTE_SCHEMA_VERSION, completeCoverageStart, validateCompleteRemoteSnapshot } from './complete-remote-data.mjs'
 
@@ -48,8 +49,17 @@ const downloadObject = async (key, destination) => {
   const result = await cosCall('getObject', key)
   await writeFile(destination, result.Body)
 }
-const audit = JSON.parse(await readFile(resolve(root, 'data/releases', `${datasetVersion}.json`), 'utf8'))
-if (audit.status !== 'published' || audit.cloud_env_id !== cloudEnvId) throw new Error('Monitor target lacks a matching publish audit')
+const auditFileName = `${datasetVersion}.json`
+const auditText = await readFile(resolve(root, 'data/releases', auditFileName), 'utf8')
+const audit = JSON.parse(auditText)
+validateMonitorReleaseAudit({
+  audit,
+  auditText,
+  datasetVersion,
+  expectedCloudEnvId: cloudEnvId,
+  expectedStorageBucket: storageBucketId,
+  fileName: auditFileName,
+})
 const releaseAuditDir = resolve(root, 'data/releases')
 const repairFiles = (await readdir(releaseAuditDir)).filter((name) => name.startsWith('current-pointer-repair-') && name.endsWith('.json')).sort()
 const repairs = await Promise.all(repairFiles.map(async (fileName) => ({

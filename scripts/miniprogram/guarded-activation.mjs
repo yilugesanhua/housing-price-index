@@ -19,10 +19,33 @@ export async function activatePointerWithRollback({
   guardCandidate,
   guardRollback,
   prepareRollback,
+  verifyRollbackTarget,
   recordRollback = async () => {},
   recordFailure = async () => {},
   now = () => new Date().toISOString(),
 }) {
+  const rollbackAvailable = rollbackEligible === true
+    && previous
+    && typeof prepareRollback === 'function'
+    && typeof guardRollback === 'function'
+    && typeof verifyRollbackTarget === 'function'
+  if (!rollbackAvailable) {
+    const cause = new Error('verified automatic rollback target is unavailable before candidate activation')
+    throw new GuardedActivationError('Candidate pointer was not activated because a verified automatic rollback target is required', {
+      cause,
+      rollbackStatus: 'not-available',
+    })
+  }
+
+  try {
+    await verifyRollbackTarget(previous)
+  } catch (error) {
+    throw new GuardedActivationError('Candidate pointer was not activated because the verified automatic rollback target preflight failed', {
+      cause: error,
+      rollbackStatus: 'not-available',
+    })
+  }
+
   try {
     await writePointer(candidateText, 'candidate')
     if (await readPointerText('candidate') !== candidateText) throw new Error('candidate pointer round-trip mismatch')

@@ -3,7 +3,11 @@ import { appendFile, readFile, readdir } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
+import { validateMonitorReleaseAudit } from './monitor-release-audit.mjs'
+
 const DATASET_PATTERN = /^20\d{2}-(0[1-9]|1[0-2])-[a-f0-9]{12}$/
+const RUN_ATTEMPT_PATTERN = /^[1-9]\d*$/
+const DEFAULT_STORAGE_BUCKET = '636c-cloud1-d3gpdx70w5d05c68c-1456861154'
 
 function assert(condition, message) {
   if (!condition) throw new Error(`Monitor control event registration rejected: ${message}`)
@@ -30,17 +34,22 @@ function canonicalTime(value, label) {
 export function selectAutomaticRollbackRegistration(records, {
   expectedCommitSha,
   expectedGithubRunId,
+  expectedGithubRunAttempt,
   expectedCloudEnvId = 'cloud1-d3gpdx70w5d05c68c',
+  expectedStorageBucket = DEFAULT_STORAGE_BUCKET,
 } = {}) {
   assert(Array.isArray(records), 'audit record list is invalid')
   assert(/^[a-f0-9]{40}$/.test(expectedCommitSha || ''), 'expected commit identity is invalid')
   assert(/^\d+$/.test(String(expectedGithubRunId || '')), 'expected GitHub run identity is invalid')
+  assert(RUN_ATTEMPT_PATTERN.test(String(expectedGithubRunAttempt || '')), 'expected GitHub run attempt is invalid')
+  assert(typeof expectedStorageBucket === 'string' && expectedStorageBucket.length > 0, 'expected storage bucket is invalid')
   const parsed = records.map(parseRecord)
   const matchingEvents = parsed.filter(({ fileName, audit }) => (
     fileName.startsWith('rollback-')
     && fileName.endsWith('.json')
     && audit.status === 'automatically_rolled_back'
     && String(audit.github_run_id || '') === String(expectedGithubRunId)
+    && String(audit.github_run_attempt || '') === String(expectedGithubRunAttempt)
   ))
   if (!matchingEvents.length) return { registered: false }
   assert(matchingEvents.length === 1, 'publishing run produced multiple automatic rollback events')
@@ -50,6 +59,7 @@ export function selectAutomaticRollbackRegistration(records, {
   canonicalTime(audit.rolled_back_at, `${event.fileName} rolled_back_at`)
   assert(event.fileName === `rollback-${audit.rolled_back_at.replace(/[:.]/g, '-')}.json`, 'automatic rollback filename is not canonical')
   assert(audit.cloud_env_id === expectedCloudEnvId, 'automatic rollback cloud environment is invalid')
+  assert(audit.storage_bucket === expectedStorageBucket, 'automatic rollback storage bucket is invalid')
   assert(audit.commit_sha === expectedCommitSha, 'automatic rollback commit identity is invalid')
   assert(DATASET_PATTERN.test(audit.from_dataset_version || ''), 'automatic rollback source dataset is invalid')
   assert(DATASET_PATTERN.test(audit.to_dataset_version || ''), 'automatic rollback target dataset is invalid')
@@ -65,17 +75,27 @@ export function selectAutomaticRollbackRegistration(records, {
   assert(failure.dataset_version === audit.from_dataset_version, 'failure and rollback source datasets differ')
   assert(failure.previous_dataset_version === audit.to_dataset_version, 'failure and rollback target datasets differ')
   assert(failure.cloud_env_id === expectedCloudEnvId, 'failure cloud environment is invalid')
+  assert(failure.storage_bucket === expectedStorageBucket, 'failure storage bucket is invalid')
   assert(String(failure.github_run_id || '') === String(expectedGithubRunId), 'failure GitHub run identity is invalid')
+  assert(String(failure.github_run_attempt || '') === String(expectedGithubRunAttempt), 'failure GitHub run attempt is invalid')
   assert(failure.commit_sha === expectedCommitSha, 'failure commit identity is invalid')
   assert(failure.rollback_status === 'succeeded' && failure.rollback_error === null, 'failure audit does not prove a successful rollback')
 
   const releaseFileName = `${audit.to_dataset_version}.json`
   const releases = parsed.filter((record) => record.fileName === releaseFileName)
   assert(releases.length === 1, 'rollback target immutable publish audit is missing or duplicated')
-  assert(releases[0].audit.status === 'published'
-    && releases[0].audit.dataset_version === audit.to_dataset_version
-    && releases[0].audit.cloud_env_id === expectedCloudEnvId,
-  'rollback target immutable publish audit is invalid')
+  try {
+    validateMonitorReleaseAudit({
+      audit: releases[0].audit,
+      auditText: releases[0].text,
+      datasetVersion: audit.to_dataset_version,
+      expectedCloudEnvId,
+      expectedStorageBucket,
+      fileName: releaseFileName,
+    })
+  } catch (error) {
+    assert(false, error.message)
+  }
   assert(!parsed.some((record) => record.fileName === `${audit.to_dataset_version}.correction.json`),
     'rollback target is disabled by a correction audit')
 
@@ -105,6 +125,7 @@ async function main() {
   const result = selectAutomaticRollbackRegistration(await readRecords(directory), {
     expectedCommitSha: process.env.EXPECTED_COMMIT_SHA,
     expectedGithubRunId: process.env.EXPECTED_GITHUB_RUN_ID,
+    expectedGithubRunAttempt: process.env.EXPECTED_GITHUB_RUN_ATTEMPT,
   })
   assert(process.env.GITHUB_OUTPUT, 'GITHUB_OUTPUT is required')
   const output = [

@@ -1,0 +1,92 @@
+import { createHash } from 'node:crypto'
+
+const LEGACY_COMPLETE_HISTORY_MONITOR_BINDING = Object.freeze({
+  auditSha256: '8aad9b1e36e2c8e0644c2aa8d02399bdf819c9e3e788de7ff5f293741954964c',
+  cloudEnvId: 'cloud1-d3gpdx70w5d05c68c',
+  commitSha: '2ad09b3dea05eeeb618512f1ae3f5184aef0c535',
+  datasetVersion: '2026-06-f80465ae29a5',
+  manifestSha256: 'ff6a6ca691f8569d6afb47fd7636e37bd2ccb578472df45a5e0d4f4cef2f39de',
+  runId: '31010010550',
+  sourceDatasetVersion: '2026-06-69fa180bd8db',
+  storageBucket: '636c-cloud1-d3gpdx70w5d05c68c-1456861154',
+})
+
+const GITHUB_RUN_PATTERN = /^[1-9]\d*$/
+const COMMIT_SHA_PATTERN = /^[a-f0-9]{40}$/
+
+function assert(condition, message) {
+  if (!condition) throw new Error(`Monitor release audit rejected: ${message}`)
+}
+
+function sha256(text) {
+  return createHash('sha256').update(text).digest('hex')
+}
+
+function isBoundLegacyCompleteHistoryAudit(audit, auditText, datasetVersion) {
+  const binding = LEGACY_COMPLETE_HISTORY_MONITOR_BINDING
+  return datasetVersion === binding.datasetVersion
+    && sha256(auditText) === binding.auditSha256
+    && !Object.hasOwn(audit, 'cloud_env_id')
+    && !Object.hasOwn(audit, 'storage_bucket')
+    && audit.status === 'published'
+    && audit.dataset_version === binding.datasetVersion
+    && audit.source_dataset_version === binding.sourceDatasetVersion
+    && audit.release_type === 'complete_history'
+    && audit.remote_schema_version === '2.1.0'
+    && audit.month_count === 180
+    && audit.manifest_sha256 === binding.manifestSha256
+    && audit.github_run_id === binding.runId
+    && audit.github_run_attempt === '1'
+    && audit.commit_sha === binding.commitSha
+    && audit.audit_repository_commit_sha === binding.commitSha
+    && audit.release_authorization?.repository_automatic_release_enabled === true
+    && audit.release_authorization?.production_environment_authorized === true
+}
+
+export function validateMonitorReleaseAudit({
+  audit,
+  auditText,
+  datasetVersion,
+  expectedCloudEnvId,
+  expectedStorageBucket,
+  fileName,
+}) {
+  assert(audit && typeof audit === 'object' && !Array.isArray(audit), `${fileName} is not a JSON object`)
+  assert(typeof auditText === 'string', `${fileName} original bytes are missing`)
+  assert(audit.status === 'published', `${fileName} is not a successful publish audit`)
+  assert(audit.dataset_version === datasetVersion, `${fileName} dataset identity does not match its filename`)
+  assert(/^[a-f0-9]{64}$/.test(audit.manifest_sha256 || ''), `${fileName} manifest hash is invalid`)
+  assert(typeof expectedCloudEnvId === 'string' && expectedCloudEnvId.length > 0,
+    `${fileName} expected cloud environment is invalid`)
+  assert(typeof expectedStorageBucket === 'string' && expectedStorageBucket.length > 0,
+    `${fileName} expected storage bucket is invalid`)
+
+  const binding = LEGACY_COMPLETE_HISTORY_MONITOR_BINDING
+  if (datasetVersion === binding.datasetVersion) {
+    // The one pre-binding audit stays monitor-only and must remain byte-for-byte immutable.
+    assert(isBoundLegacyCompleteHistoryAudit(audit, auditText, datasetVersion),
+      `${fileName} is not the exact trusted legacy complete-history audit`)
+    assert(binding.cloudEnvId === expectedCloudEnvId, `${fileName} targets a different cloud environment`)
+    assert(binding.storageBucket === expectedStorageBucket, `${fileName} targets a different storage bucket`)
+    return {
+      auditSha256: sha256(auditText),
+      cloudEnvId: binding.cloudEnvId,
+      storageBucket: binding.storageBucket,
+      usedLegacyBinding: true,
+    }
+  }
+
+  assert(audit.cloud_env_id === expectedCloudEnvId, `${fileName} targets a different cloud environment`)
+  assert(Object.hasOwn(audit, 'storage_bucket'), `${fileName} storage bucket is missing`)
+  assert(audit.storage_bucket === expectedStorageBucket, `${fileName} targets a different storage bucket`)
+  assert(GITHUB_RUN_PATTERN.test(String(audit.github_run_id || '')), `${fileName} GitHub run identity is invalid`)
+  assert(GITHUB_RUN_PATTERN.test(String(audit.github_run_attempt || '')), `${fileName} GitHub run attempt is invalid`)
+  assert(COMMIT_SHA_PATTERN.test(audit.commit_sha || ''), `${fileName} commit identity is invalid`)
+
+  return {
+    auditSha256: sha256(auditText),
+    cloudEnvId: audit.cloud_env_id,
+    storageBucket: audit.storage_bucket,
+    usedLegacyBinding: false,
+  }
+}

@@ -7,6 +7,7 @@ import { COMPLETE_REMOTE_SCHEMA_VERSION, COMPLETE_REMOTE_MONTHS, completeCoverag
 
 const root = resolve(import.meta.dirname, '../..')
 const require = createRequire(import.meta.url)
+const dataConfig = require(resolve(root, 'apps/miniprogram/config/data.js'))
 const versionConfig = require(resolve(root, 'apps/miniprogram/config/version.js'))
 const argument = (name) => process.argv.find((value) => value.startsWith(`--${name}=`))?.slice(name.length + 3)
 const commitSha = argument('commit') || process.env.GITHUB_SHA
@@ -29,7 +30,9 @@ const { report: audit, reportText: auditText, identity: auditIdentity } = await 
   expectedParserVersion: publishedManifest.parser_version,
   expectedCoverageEnd: manifest.dataset_as_of,
 })
-assert(report.status === 'staged_not_uploaded' && report.dataset_version === datasetVersion, 'staged report is invalid')
+assert(report.status === 'staged_not_uploaded' && report.dataset_version === datasetVersion
+  && report.cloud_env_id === cloudEnvId && report.storage_bucket === dataConfig.storageBucket,
+'staged report is invalid')
 assert(manifest.remote_schema_version === COMPLETE_REMOTE_SCHEMA_VERSION, 'remote schema is invalid')
 const expectedCoverageStart = completeCoverageStart(manifest.dataset_as_of)
 assert(manifest.coverage_start === expectedCoverageStart && manifest.month_count === COMPLETE_REMOTE_MONTHS, 'coverage is invalid')

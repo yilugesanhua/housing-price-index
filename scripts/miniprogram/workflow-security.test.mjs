@@ -20,6 +20,8 @@ const pointerRepair = await readFile(resolve(root, 'scripts/miniprogram/repair-c
 const genericPublisher = await readFile(resolve(root, 'scripts/miniprogram/publish-remote-data.mjs'), 'utf8')
 const rollbackPublisher = await readFile(resolve(root, 'scripts/miniprogram/rollback-remote-data.mjs'), 'utf8')
 const monitorSelector = await readFile(resolve(root, 'scripts/miniprogram/select-monitor-target.mjs'), 'utf8')
+const monitorRemote = await readFile(resolve(root, 'scripts/miniprogram/monitor-remote-release.mjs'), 'utf8')
+const monitorReleaseAudit = await readFile(resolve(root, 'scripts/miniprogram/monitor-release-audit.mjs'), 'utf8')
 const monitorEventRegistration = await readFile(resolve(root, 'scripts/miniprogram/register-monitor-control-event.mjs'), 'utf8')
 const strictValidatorDeployment = await readFile(resolve(root, 'scripts/miniprogram/deploy-strict-validator.mjs'), 'utf8')
 const previewValidatorDeployment = await readFile(resolve(root, 'scripts/miniprogram/deploy-preview-validator.mjs'), 'utf8')
@@ -113,6 +115,11 @@ test('24-hour monitor uses a separate read-only identity and does not expose poi
   assert.match(monitorSelector, /now - latestTransition\.occurredAt/)
   assert.match(monitorSelector, /latestTransition\.type === 'automatic_rollback'/)
   assert.match(monitorSelector, /latestTransition\.audit\.github_run_id/)
+  assert.match(monitorSelector, /validateMonitorReleaseAudit/)
+  assert.match(monitorRemote, /validateMonitorReleaseAudit/)
+  assert.match(monitorRemote, /expectedStorageBucket: storageBucketId/)
+  assert.match(monitorReleaseAudit, /LEGACY_COMPLETE_HISTORY_MONITOR_BINDING/)
+  assert.match(monitorReleaseAudit, /storage bucket is missing/)
   assert.doesNotMatch(monitorSelector, /latest-auto-release/)
   assert.match(monitor, /TENCENTCLOUD_MONITOR_SECRET_ID/)
   assert.match(monitor, /monitor-remote-release\.mjs/)
@@ -137,17 +144,20 @@ test('successful automatic rollback is registered without cloud credentials in e
     assert.match(workflow, /Persist the automatic rollback monitor event without cloud credentials/)
     const registration = workflow.match(/- id: rollback_monitor_event[\s\S]*?git push origin "HEAD:\$\{DEFAULT_BRANCH\}"/)?.[0] || ''
     assert.match(registration, /if: failure\(\)/)
+    assert.match(registration, /EXPECTED_GITHUB_RUN_ATTEMPT: \$\{\{ github\.run_attempt \}\}/)
     assert.match(registration, /steps\.rollback_monitor_event\.outputs\.registered == 'true'/)
     assert.match(registration, /git add -- "\$EVENT_PATH" "\$FAILURE_PATH"/)
     assert.doesNotMatch(registration, /TENCENTCLOUD_(?:SECRET|MONITOR_SECRET)|PRODUCTION_RELEASE_AUTHORIZED/)
   }
   assert.match(monitorEventRegistration, /rollback_status === 'succeeded'/)
   assert.match(monitorEventRegistration, /failure\.commit_sha === expectedCommitSha/)
+  assert.match(monitorEventRegistration, /String\(failure\.github_run_attempt \|\| ''\) === String\(expectedGithubRunAttempt\)/)
+  assert.match(monitorEventRegistration, /storage_bucket === expectedStorageBucket/)
   assert.match(monitorEventRegistration, /eventSha256/)
 })
 
 test('remote monitor uses the official COS SDK with the read-only identity', async () => {
-  const script = await readFile(resolve(root, 'scripts/miniprogram/monitor-remote-release.mjs'), 'utf8')
+  const script = monitorRemote
   assert.match(script, /cosCall\('headObject', 'housing-data\/current\.json'\)/)
   assert.match(script, /TENCENTCLOUD_MONITOR_SECRET_ID/)
   assert.doesNotMatch(script, /\['storage', '(?:detail|download)'/)
@@ -155,7 +165,7 @@ test('remote monitor uses the official COS SDK with the read-only identity', asy
 })
 
 test('remote monitor invokes SCF directly without CloudBase CLI preflight permissions', async () => {
-  const script = await readFile(resolve(root, 'scripts/miniprogram/monitor-remote-release.mjs'), 'utf8')
+  const script = monitorRemote
   assert.match(script, /scf\.Invoke\(/)
   assert.match(script, /Namespace: cloudEnvId/)
   assert.doesNotMatch(script, /runTcb|\['fn', 'invoke'/)
@@ -163,7 +173,7 @@ test('remote monitor invokes SCF directly without CloudBase CLI preflight permis
 })
 
 test('remote monitor separates immutable release integrity from bundled snapshot freshness', async () => {
-  const script = await readFile(resolve(root, 'scripts/miniprogram/monitor-remote-release.mjs'), 'utf8')
+  const script = monitorRemote
   assert.match(script, /--integrity-only/)
   assert.match(script, /classifyRemoteFreshness/)
   assert.match(script, /integrityOnly \? null : require/)

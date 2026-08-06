@@ -69,6 +69,8 @@ const switchResult = await activatePointerWithRollback({
   readPointerText,
   guardCandidate: guardPointer,
   guardRollback: guardPointer,
+  prepareRollback: async () => ({ ...basePointer, previous_dataset_version: null }),
+  verifyRollbackTarget: guardPointer,
 })
 if (switchResult.status !== 'published') throw new Error('Isolated pointer switch did not publish')
 
@@ -85,6 +87,7 @@ try {
     guardCandidate: async () => { throw new Error('intentional isolated post-switch guard failure') },
     guardRollback: guardPointer,
     prepareRollback: async () => ({ ...successfulPointer, previous_dataset_version: null }),
+    verifyRollbackTarget: guardPointer,
     recordRollback: async () => { rollbackRecorded = true },
     recordFailure: async ({ rollbackStatus }) => { failureRecorded = rollbackStatus === 'succeeded' },
   })

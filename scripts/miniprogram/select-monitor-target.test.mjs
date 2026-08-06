@@ -1,12 +1,17 @@
 import assert from 'node:assert/strict'
+import { readFile } from 'node:fs/promises'
+import { resolve } from 'node:path'
 import test from 'node:test'
 
 import { selectMonitorTarget } from './select-monitor-target.mjs'
 
 const ENV_ID = 'cloud1-d3gpdx70w5d05c68c'
+const STORAGE_BUCKET = '636c-cloud1-d3gpdx70w5d05c68c-1456861154'
 const VERSION_A = '2026-06-111111111111'
 const VERSION_B = '2026-07-222222222222'
 const VERSION_C = '2026-07-333333333333'
+const LEGACY_COMPLETE_VERSION = '2026-06-f80465ae29a5'
+const root = resolve(import.meta.dirname, '../..')
 
 function record(fileName, audit) {
   return { fileName, text: `${JSON.stringify(audit, null, 2)}\n` }
@@ -16,11 +21,13 @@ function published(datasetVersion, sourceDatasetVersion, publishedAt, githubRunI
   return record(`${datasetVersion}.json`, {
     status: 'published',
     cloud_env_id: ENV_ID,
+    storage_bucket: STORAGE_BUCKET,
     dataset_version: datasetVersion,
     source_dataset_version: sourceDatasetVersion,
     manifest_sha256: hashCharacter.repeat(64),
     published_at: publishedAt,
     github_run_id: githubRunId,
+    github_run_attempt: '1',
     commit_sha: hashCharacter.repeat(40),
     ...extra,
   })
@@ -84,7 +91,7 @@ test('a successful no-publish run cannot reuse a recent release from another run
   assert.equal(result.reason, 'workflow_run_does_not_match_active_release')
 })
 
-test('workflow_run binds an explicit attempt while legacy audits remain run-id compatible', () => {
+test('workflow_run binds a release to its exact run attempt without a wildcard', () => {
   const retry = selectMonitorTarget([releaseA, releaseB], {
     eventName: 'workflow_run',
     now: Date.parse('2026-08-01T02:30:00.000Z'),
@@ -98,7 +105,7 @@ test('workflow_run binds an explicit attempt while legacy audits remain run-id c
   assert.equal(retry.active, false)
   assert.equal(retry.reason, 'workflow_run_does_not_match_active_release')
 
-  const legacyFirstAttempt = selectMonitorTarget([releaseA], {
+  const firstAttempt = selectMonitorTarget([releaseA], {
     eventName: 'workflow_run',
     now: Date.parse('2026-07-15T02:30:00.000Z'),
     defaultBranch: 'main',
@@ -108,10 +115,10 @@ test('workflow_run binds an explicit attempt while legacy audits remain run-id c
     triggerRunAttempt: '1',
     triggerWorkflowName: 'monthly-data-auto-publish',
   })
-  assert.equal(legacyFirstAttempt.active, true)
-  assert.equal(legacyFirstAttempt.controlEventRunAttempt, '')
+  assert.equal(firstAttempt.active, true)
+  assert.equal(firstAttempt.controlEventRunAttempt, '1')
 
-  assert.equal(selectMonitorTarget([releaseA], {
+  const wrongFirstAttempt = selectMonitorTarget([releaseA], {
     eventName: 'workflow_run',
     now: Date.parse('2026-07-15T02:30:00.000Z'),
     defaultBranch: 'main',
@@ -120,7 +127,66 @@ test('workflow_run binds an explicit attempt while legacy audits remain run-id c
     triggerRunId: '100',
     triggerRunAttempt: '2',
     triggerWorkflowName: 'monthly-data-auto-publish',
-  }).active, true)
+  })
+  assert.equal(wrongFirstAttempt.active, false)
+  assert.equal(wrongFirstAttempt.reason, 'workflow_run_does_not_match_active_release')
+})
+
+test('an expired unbound ledger record cannot block the exact legacy monitor target', async () => {
+  const legacyText = await readFile(resolve(root, 'data/releases', `${LEGACY_COMPLETE_VERSION}.json`), 'utf8')
+  const legacy = { fileName: `${LEGACY_COMPLETE_VERSION}.json`, text: legacyText }
+  const expiredUnbound = record('2026-05-123456789abc.json', {
+    status: 'published',
+    cloud_env_id: ENV_ID,
+    dataset_version: '2026-05-123456789abc',
+    source_dataset_version: '2026-05-abcdefabcdef',
+    manifest_sha256: 'd'.repeat(64),
+    published_at: '2026-07-01T01:30:00.000Z',
+  })
+  const result = selectMonitorTarget([expiredUnbound, legacy], {
+    eventName: 'schedule',
+    now: Date.parse('2026-08-05T14:00:00.000Z'),
+  })
+  assert.equal(result.active, true)
+  assert.equal(result.datasetVersion, LEGACY_COMPLETE_VERSION)
+})
+
+test('unbound historical ledgers fail closed when made relevant by time or a rollback target', () => {
+  const recentUnbound = record('2026-07-123456789abc.json', {
+    status: 'published',
+    cloud_env_id: ENV_ID,
+    dataset_version: '2026-07-123456789abc',
+    source_dataset_version: '2026-07-abcdefabcdef',
+    manifest_sha256: 'd'.repeat(64),
+    published_at: '2026-08-01T01:30:00.000Z',
+  })
+  assert.throws(() => selectMonitorTarget([recentUnbound], {
+    eventName: 'schedule',
+    now: Date.parse('2026-08-01T02:30:00.000Z'),
+  }), /storage bucket is missing/)
+
+  const expiredTarget = record('2026-05-123456789abc.json', {
+    status: 'published',
+    cloud_env_id: ENV_ID,
+    dataset_version: '2026-05-123456789abc',
+    source_dataset_version: '2026-05-abcdefabcdef',
+    manifest_sha256: 'd'.repeat(64),
+    published_at: '2026-07-01T01:30:00.000Z',
+  })
+  const rollback = record('rollback-2026-08-01T02-00-00-000Z.json', {
+    status: 'automatically_rolled_back',
+    rolled_back_at: '2026-08-01T02:00:00.000Z',
+    from_dataset_version: VERSION_B,
+    to_dataset_version: '2026-05-123456789abc',
+    cloud_env_id: ENV_ID,
+    github_run_attempt: '1',
+    github_run_id: '200',
+    commit_sha: 'b'.repeat(40),
+  })
+  assert.throws(() => selectMonitorTarget([releaseB, expiredTarget, rollback], {
+    eventName: 'schedule',
+    now: Date.parse('2026-08-01T02:30:00.000Z'),
+  }), /storage bucket is missing/)
 })
 
 test('historical supersession resolves to its replacement and rejects a missing replacement audit', () => {
@@ -157,6 +223,8 @@ test('a recovered manual rollback starts a fresh 24-hour window bound only to it
     from_dataset_version: VERSION_B,
     to_dataset_version: VERSION_A,
     cloud_env_id: ENV_ID,
+    storage_bucket: STORAGE_BUCKET,
+    github_run_attempt: '1',
     github_run_id: '250',
     commit_sha: 'd'.repeat(40),
     recovered_after_pointer_switch: true,
@@ -223,6 +291,8 @@ test('a successful automatic rollback is selected from its failed publishing wor
     from_dataset_version: VERSION_B,
     to_dataset_version: VERSION_A,
     cloud_env_id: ENV_ID,
+    storage_bucket: STORAGE_BUCKET,
+    github_run_attempt: '1',
     current_sha256: 'e'.repeat(64),
     github_run_id: '200',
     commit_sha: 'b'.repeat(40),
@@ -233,9 +303,11 @@ test('a successful automatic rollback is selected from its failed publishing wor
     dataset_version: VERSION_B,
     previous_dataset_version: VERSION_A,
     cloud_env_id: ENV_ID,
+    storage_bucket: STORAGE_BUCKET,
     rollback_status: 'succeeded',
     rollback_error: null,
     github_run_id: '200',
+    github_run_attempt: '1',
     commit_sha: 'b'.repeat(40),
   })
   const records = [releaseA, releaseB, rollback, failure]
@@ -267,6 +339,13 @@ test('a successful automatic rollback is selected from its failed publishing wor
     eventName: 'schedule',
     now: Date.parse('2026-08-01T02:01:00.000Z'),
   }), /failed-publish audit is missing or duplicated/)
+
+  const wrongFailureAttempt = JSON.parse(failure.text)
+  wrongFailureAttempt.github_run_attempt = '2'
+  assert.throws(() => selectMonitorTarget([releaseA, releaseB, rollback, record(failure.fileName, wrongFailureAttempt)], {
+    eventName: 'schedule',
+    now: Date.parse('2026-08-01T02:01:00.000Z'),
+  }), /failure GitHub run attempt is invalid/)
 })
 
 test('schedule stops after 24 hours while manual dispatch remains bound to the active release', () => {

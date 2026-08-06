@@ -766,8 +766,17 @@ for (const [index, targetMonth] of targetMonths.entries()) {
           assert.equal(actual.dataset_version, expected.dataset_version);
           assert.equal(actual.manifest_sha256, expected.manifest_sha256);
         },
-        guardRollback: async () => undefined,
+        guardRollback: async (expected: any) => {
+          const actual = JSON.parse((await retryCloud(`${targetMonth} guard isolated rollback pointer`, () => cloud.getObject(key("current.json")))).toString("utf8"));
+          assert.equal(actual.dataset_version, expected.dataset_version);
+          assert.equal(actual.manifest_sha256, expected.manifest_sha256);
+        },
         prepareRollback: async () => ({ ...previous, previous_dataset_version: null }),
+        verifyRollbackTarget: async (expected: any) => {
+          const actual = JSON.parse((await retryCloud(`${targetMonth} verify isolated rollback target`, () => cloud.getObject(key("current.json")))).toString("utf8"));
+          assert.equal(actual.dataset_version, expected.dataset_version);
+          assert.equal(actual.manifest_sha256, expected.manifest_sha256);
+        },
       });
       isolatedPointerText = (await retryCloud(`${targetMonth} final isolated pointer readback`, () => cloud.getObject(key("current.json")))).toString("utf8");
     } else {
@@ -785,11 +794,13 @@ for (const [index, targetMonth] of targetMonths.entries()) {
         candidate: release.current,
         candidateText: release.currentText,
         previous,
-        rollbackEligible: false,
+        rollbackEligible: true,
         writePointer: async (text: string) => { isolatedPointerText = text; },
         readPointerText: async () => isolatedPointerText,
         guardCandidate: async (expected: any) => assert.equal(isolatedPointerText, stableJson(expected)),
-        guardRollback: async () => undefined,
+        guardRollback: async (expected: any) => assert.equal(isolatedPointerText, stableJson(expected)),
+        prepareRollback: async () => ({ ...previous, previous_dataset_version: null }),
+        verifyRollbackTarget: async (expected: any) => assert.equal(isolatedPointerText, stableJson(expected)),
       });
     }
     assert.equal(isolatedPointerText, release.currentText);

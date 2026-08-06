@@ -1,6 +1,7 @@
 import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { createTencentCloudClient, isMissingObjectError } from './tencent-cloud-sdk.mjs'
+import { assertCompleteHistoryPublishAuditIdentity, buildCompleteHistoryPublishAudit } from './complete-history-publish-audit.mjs'
 import { sha256, stableJson } from './remote-data-lib.mjs'
 import { authorizeCiRelease } from './ci-release-authorization.mjs'
 import { activatePointerWithRollback } from './guarded-activation.mjs'
@@ -23,7 +24,8 @@ const manifestText = await readFile(resolve(localRoot, 'manifest.json'), 'utf8')
 const snapshotText = await readFile(resolve(localRoot, 'complete-snapshot.json'), 'utf8')
 const manifest = JSON.parse(manifestText)
 const snapshot = JSON.parse(snapshotText)
-assert(report.status === 'staged_not_uploaded' && report.dataset_version === datasetVersion, 'staged report does not match candidate')
+assert(report.status === 'staged_not_uploaded' && report.dataset_version === datasetVersion && report.cloud_env_id === cloudEnvId,
+  'staged report does not match candidate')
 assert(manifest.remote_schema_version === COMPLETE_REMOTE_SCHEMA_VERSION && manifest.coverage_start === completeCoverageStart(manifest.dataset_as_of) && manifest.month_count === COMPLETE_REMOTE_MONTHS, 'candidate is not the required rolling 180-month complete format')
 assert(report.manifest_sha256 === sha256(manifestText) && manifest.complete_snapshot_sha256 === sha256(snapshotText), 'candidate hash gate failed')
 validateCompleteRemoteSnapshot(snapshot)
@@ -37,6 +39,7 @@ if (dryRun) {
   process.exit(0)
 }
 const cloud = createTencentCloudClient({ cloudEnvId })
+assert(report.storage_bucket === cloud.bucket, 'staged report storage bucket does not match the publish target')
 const readObjectText = async (key) => (await cloud.getObject(key)).toString('utf8')
 const localCurrentCandidate = JSON.parse(await readFile(resolve(localRoot, 'current.candidate.json'), 'utf8'))
 let previous = null
@@ -44,10 +47,11 @@ let previousText = null
 try { previousText = await readObjectText('housing-data/current.json'); previous = JSON.parse(previousText) } catch (error) { if (!isMissingObjectError(error)) throw error }
 const previousState = assertProductionPointerBaseline(previous)
 let previousManifest = null
+let previousManifestText = null
 if (previous) {
-  const text = await readObjectText(`housing-data/releases/${previous.dataset_version}/manifest.json`)
-  assert(sha256(text) === previous.manifest_sha256, 'active manifest hash differs from current pointer')
-  previousManifest = JSON.parse(text)
+  previousManifestText = await readObjectText(`housing-data/releases/${previous.dataset_version}/manifest.json`)
+  assert(sha256(previousManifestText) === previous.manifest_sha256, 'active manifest hash differs from current pointer')
+  previousManifest = JSON.parse(previousManifestText)
 }
 async function loadRegistry() {
   if (previousState === 'absent') return createRevocationRegistry({ generatedAt: new Date().toISOString() })
@@ -59,6 +63,11 @@ async function loadRegistry() {
 let registry = await loadRegistry()
 let previousDatasetVersion = await rollbackVersionOrNull(root, previous?.dataset_version, cloudEnvId)
 let previousAudit = previousDatasetVersion ? await readRollbackEligibleAudit(root, previousDatasetVersion, cloudEnvId) : null
+if (previousAudit) {
+  assert(previous?.dataset_version === previousDatasetVersion && previousManifest, 'rollback audit does not have an active manifest')
+  assert(previousAudit.manifest_sha256 === previous.manifest_sha256, 'rollback audit manifest hash differs from the active pointer')
+  assert(previousAudit.source_dataset_version === previousManifest.source_dataset_version, 'rollback audit source dataset differs from the active manifest')
+}
 if (previous?.transition_type === 'rollback' && previous.rollback_from_dataset_version === datasetVersion) {
   assertRollbackClosure(registry, { failedDatasetVersion: datasetVersion, failedSourceDatasetVersion: manifest.source_dataset_version, targetDatasetVersion: previous.dataset_version, targetSourceDatasetVersion: previous.source_dataset_version, revisionId: buildRollbackRevisionId(datasetVersion) })
   throw new Error('candidate is already revoked by the active rollback')
@@ -79,13 +88,76 @@ async function verifyRemoteComplete() {
   validateCompleteRemoteSnapshot(JSON.parse(remoteSnapshotText))
   assert(JSON.parse(remoteManifestText).complete_snapshot_sha256 === sha256(remoteSnapshotText), 'remote complete snapshot hash mismatch')
 }
+
+async function verifyCompleteRollbackPackage(pointer) {
+  assert(pointer?.dataset_version === previous?.dataset_version, 'rollback target dataset differs from the active pointer')
+  assert(pointer.manifest_sha256 === previous.manifest_sha256, 'rollback target manifest hash differs from the active pointer')
+  const remoteManifestText = await readObjectText(`housing-data/releases/${pointer.dataset_version}/manifest.json`)
+  assert(remoteManifestText === previousManifestText, 'rollback target manifest changed after its first read')
+  const remoteManifest = JSON.parse(remoteManifestText)
+  assert(remoteManifest.remote_schema_version === COMPLETE_REMOTE_SCHEMA_VERSION, 'rollback target does not use the complete remote schema')
+  assert(remoteManifest.dataset_version === pointer.dataset_version, 'rollback target manifest dataset differs')
+  assert(remoteManifest.source_dataset_version === pointer.source_dataset_version, 'rollback target manifest source dataset differs')
+  assert(remoteManifest.coverage_start === completeCoverageStart(remoteManifest.dataset_as_of) && remoteManifest.month_count === COMPLETE_REMOTE_MONTHS,
+    'rollback target manifest coverage is invalid')
+  const remoteSnapshotText = await readObjectText(`housing-data/releases/${pointer.dataset_version}/complete-snapshot.json`)
+  assert(sha256(remoteSnapshotText) === remoteManifest.complete_snapshot_sha256,
+    'rollback target complete snapshot hash differs from its manifest')
+  assert(Buffer.byteLength(remoteSnapshotText) === remoteManifest.complete_snapshot_bytes,
+    'rollback target complete snapshot byte size differs from its manifest')
+  const remoteSnapshot = JSON.parse(remoteSnapshotText)
+  validateCompleteRemoteSnapshot(remoteSnapshot)
+  assert(remoteSnapshot.datasetVersion === pointer.dataset_version && remoteSnapshot.sourceDatasetVersion === pointer.source_dataset_version,
+    'rollback target complete snapshot identity differs from its pointer')
+  return remoteManifest
+}
+
+async function verifyRollbackTarget(pointer) {
+  assert(previousState === 'controlled', 'rollback target is not a controlled active pointer')
+  assert(previousDatasetVersion === pointer.dataset_version && previousAudit, 'rollback target has no verified publish audit')
+  assert(previousAudit.cloud_env_id === cloudEnvId && previousAudit.storage_bucket === cloud.bucket,
+    'rollback audit cloud target differs from the active storage target')
+  assert(previousAudit.manifest_sha256 === pointer.manifest_sha256,
+    'rollback audit manifest hash differs from the active pointer')
+  const remoteManifest = await verifyCompleteRollbackPackage(pointer)
+  assert(previousAudit.remote_schema_version === remoteManifest.remote_schema_version,
+    'rollback audit remote schema differs from the active manifest')
+  assert(previousAudit.complete_snapshot_sha256 === remoteManifest.complete_snapshot_sha256
+    && previousAudit.complete_snapshot_bytes === remoteManifest.complete_snapshot_bytes,
+  'rollback audit complete snapshot identity differs from the active manifest')
+  assertTargetNotRevoked(registry, {
+    datasetVersion: pointer.dataset_version,
+    sourceDatasetVersion: pointer.source_dataset_version,
+  })
+  validateControlPointer(pointer, {
+    allowLegacy: false,
+    requireContext: true,
+    manifest: remoteManifest,
+    registry,
+    cloudEnvId,
+    storageBucket: cloud.bucket,
+  })
+  validateManifestFunctionOutput(JSON.stringify(await cloud.invokeFunction('getHousingDataManifest')), pointer)
+}
 await verifyRemoteComplete()
 const auditDir = resolve(root, 'data/releases'); await mkdir(auditDir, { recursive: true })
-async function writeAudit(audit) { await writeFile(resolve(auditDir, `${datasetVersion}.json`), `${JSON.stringify(audit, null, 2)}\n`, { encoding: 'utf8', flag: 'wx' }).catch(async (error) => { if (error.code !== 'EEXIST') throw error; const existing = JSON.parse(await readFile(resolve(auditDir, `${datasetVersion}.json`), 'utf8')); assert(existing.manifest_sha256 === audit.manifest_sha256 && existing.status === 'published', 'existing publication audit differs') }) }
+async function writeAudit(audit) { await writeFile(resolve(auditDir, `${datasetVersion}.json`), `${JSON.stringify(audit, null, 2)}\n`, { encoding: 'utf8', flag: 'wx' }).catch(async (error) => { if (error.code !== 'EEXIST') throw error; const existing = JSON.parse(await readFile(resolve(auditDir, `${datasetVersion}.json`), 'utf8')); assertCompleteHistoryPublishAuditIdentity(existing, audit) }) }
+const buildPublishAudit = ({ publishedAt, previousDatasetVersion, currentSha256 }) => buildCompleteHistoryPublishAudit({
+  report,
+  cloudEnvId,
+  storageBucket: cloud.bucket,
+  publishedAt,
+  previousDatasetVersion,
+  currentSha256,
+  githubRunId: process.env.GITHUB_RUN_ID,
+  githubRunAttempt: process.env.GITHUB_RUN_ATTEMPT,
+  commitSha: process.env.CI_COMMIT_SHA,
+  releaseAuthorization: ciGate.release_authorization,
+})
 if (previous?.dataset_version === datasetVersion) {
   assert(previous.manifest_sha256 === sha256(manifestText), 'active dataset version points to different content')
   validateManifestFunctionOutput(JSON.stringify(await cloud.invokeFunction('getHousingDataManifest')), previous)
-  await verifyRemoteComplete(); await writeAudit({ ...report, status: 'published', published_at: previous.published_at, previous_dataset_version: previous.previous_dataset_version, current_sha256: sha256(previousText), github_run_id: process.env.GITHUB_RUN_ID, github_run_attempt: process.env.GITHUB_RUN_ATTEMPT, commit_sha: process.env.CI_COMMIT_SHA, release_authorization: ciGate.release_authorization, release_type: 'complete_history' })
+  await verifyRemoteComplete(); await writeAudit(buildPublishAudit({ publishedAt: previous.published_at, previousDatasetVersion: previous.previous_dataset_version, currentSha256: sha256(previousText) }))
   console.log(`Complete history dataset ${datasetVersion} is already active and verified`); process.exit(0)
 }
 const publishedAt = new Date().toISOString()
@@ -95,15 +167,17 @@ const current = { ...localCurrentCandidate, published_at: publishedAt, previous_
 validateControlPointer(current, { allowLegacy: false, requireContext: true, manifest, registry, previousPointer: previous || undefined, cloudEnvId, storageBucket: cloud.bucket })
 const currentText = stableJson(current)
 const readCurrent = async () => { try { return await readObjectText('housing-data/current.json') } catch (error) { if (isMissingObjectError(error)) return null; throw error } }
+let rollbackRegistry = null
 await activatePointerWithRollback({
-  candidate: current, candidateText: currentText, previous, rollbackEligible: Boolean(previous && previousDatasetVersion && previousAudit),
+  candidate: current, candidateText: currentText, previous, rollbackEligible: Boolean(previous && previousDatasetVersion && previousAudit && previousManifest),
   writePointer: async (text, label) => { const expected = label === 'candidate' ? previousText : currentText; assert(await readCurrent() === expected, `current pointer changed before ${label}`); const path = resolve(localRoot, `current.${label}.json`); await writeFile(path, text, 'utf8'); await cloud.uploadFile(path, 'housing-data/current.json') },
   readPointerText: async () => await readCurrent(),
   guardCandidate: async () => { validateManifestFunctionOutput(JSON.stringify(await cloud.invokeFunction('getHousingDataManifest')), current); await verifyRemoteComplete() },
-  guardRollback: async (pointer) => validateManifestFunctionOutput(JSON.stringify(await cloud.invokeFunction('getHousingDataManifest')), pointer),
-  prepareRollback: async ({ failedAt, guardError }) => { const rollbackRegistry = appendFailedReleaseRevocations(registry, { datasetVersion, sourceDatasetVersion: manifest.source_dataset_version, revokedAt: failedAt, replacementDatasetVersion: previous.dataset_version, replacementSourceDatasetVersion: previousManifest.source_dataset_version, revisionId: buildRollbackRevisionId(datasetVersion), reason: String(guardError?.message || guardError).slice(0, 400) }); const artifact = buildRevocationRegistryArtifact(rollbackRegistry, { cloudEnvId, storageBucket: cloud.bucket }); await cloud.putObject(artifact.cosKey, Buffer.from(artifact.text, 'utf8')); assert(await readObjectText(artifact.cosKey) === artifact.text, 'rollback revocation registry round-trip failed'); return buildAutomaticRollbackPointer(previous, datasetVersion, { rolledBackAt: failedAt, controlGeneration: current.control_generation + 1, registryArtifact: artifact, failedSourceDatasetVersion: manifest.source_dataset_version, rollbackRevisionId: buildRollbackRevisionId(datasetVersion), targetSourceDatasetVersion: previousManifest.source_dataset_version, targetManifest: previousManifest }) },
-  recordRollback: async ({ failedAt, rollbackPointer, rollbackText, guardError }) => writeFile(resolve(auditDir, `rollback-${failedAt.replace(/[:.]/g, '-')}.json`), `${JSON.stringify({ status: 'automatically_rolled_back', rolled_back_at: failedAt, from_dataset_version: datasetVersion, to_dataset_version: rollbackPointer.dataset_version, cloud_env_id: cloudEnvId, trigger_error: String(guardError?.message || guardError), current_sha256: sha256(rollbackText), github_run_id: process.env.GITHUB_RUN_ID, github_run_attempt: process.env.GITHUB_RUN_ATTEMPT, commit_sha: process.env.CI_COMMIT_SHA }, null, 2)}\n`, { flag: 'wx' }),
-  recordFailure: async ({ failedAt, guardError, rollbackStatus, rollbackError }) => writeFile(resolve(auditDir, `failed-publish-${failedAt.replace(/[:.]/g, '-')}.json`), `${JSON.stringify({ status: 'post_publish_guard_failed', failed_at: failedAt, dataset_version: datasetVersion, previous_dataset_version: previousDatasetVersion, cloud_env_id: cloudEnvId, guard_error: String(guardError?.message || guardError), rollback_status: rollbackStatus, rollback_error: rollbackError ? String(rollbackError) : null, github_run_id: process.env.GITHUB_RUN_ID, github_run_attempt: process.env.GITHUB_RUN_ATTEMPT, commit_sha: process.env.CI_COMMIT_SHA }, null, 2)}\n`, { flag: 'wx' }),
+  guardRollback: async (pointer) => { const remoteManifest = await verifyCompleteRollbackPackage(pointer); assert(rollbackRegistry, 'rollback registry was not prepared'); validateControlPointer(pointer, { allowLegacy: false, requireContext: true, manifest: remoteManifest, registry: rollbackRegistry, cloudEnvId, storageBucket: cloud.bucket }); validateManifestFunctionOutput(JSON.stringify(await cloud.invokeFunction('getHousingDataManifest')), pointer) },
+  prepareRollback: async ({ failedAt, guardError }) => { rollbackRegistry = appendFailedReleaseRevocations(registry, { datasetVersion, sourceDatasetVersion: manifest.source_dataset_version, revokedAt: failedAt, replacementDatasetVersion: previous.dataset_version, replacementSourceDatasetVersion: previousManifest.source_dataset_version, revisionId: buildRollbackRevisionId(datasetVersion), reason: String(guardError?.message || guardError).slice(0, 400) }); const artifact = buildRevocationRegistryArtifact(rollbackRegistry, { cloudEnvId, storageBucket: cloud.bucket }); await cloud.putObject(artifact.cosKey, Buffer.from(artifact.text, 'utf8')); assert(await readObjectText(artifact.cosKey) === artifact.text, 'rollback revocation registry round-trip failed'); return buildAutomaticRollbackPointer(previous, datasetVersion, { rolledBackAt: failedAt, controlGeneration: current.control_generation + 1, registryArtifact: artifact, failedSourceDatasetVersion: manifest.source_dataset_version, rollbackRevisionId: buildRollbackRevisionId(datasetVersion), targetSourceDatasetVersion: previousManifest.source_dataset_version, targetManifest: previousManifest }) },
+  verifyRollbackTarget,
+  recordRollback: async ({ failedAt, rollbackPointer, rollbackText, guardError }) => writeFile(resolve(auditDir, `rollback-${failedAt.replace(/[:.]/g, '-')}.json`), `${JSON.stringify({ status: 'automatically_rolled_back', rolled_back_at: failedAt, from_dataset_version: datasetVersion, to_dataset_version: rollbackPointer.dataset_version, cloud_env_id: cloudEnvId, storage_bucket: cloud.bucket, trigger_error: String(guardError?.message || guardError), current_sha256: sha256(rollbackText), github_run_id: process.env.GITHUB_RUN_ID, github_run_attempt: process.env.GITHUB_RUN_ATTEMPT, commit_sha: process.env.CI_COMMIT_SHA }, null, 2)}\n`, { flag: 'wx' }),
+  recordFailure: async ({ failedAt, guardError, rollbackStatus, rollbackError }) => writeFile(resolve(auditDir, `failed-publish-${failedAt.replace(/[:.]/g, '-')}.json`), `${JSON.stringify({ status: 'post_publish_guard_failed', failed_at: failedAt, dataset_version: datasetVersion, previous_dataset_version: previousDatasetVersion, cloud_env_id: cloudEnvId, storage_bucket: cloud.bucket, guard_error: String(guardError?.message || guardError), rollback_status: rollbackStatus, rollback_error: rollbackError ? String(rollbackError) : null, github_run_id: process.env.GITHUB_RUN_ID, github_run_attempt: process.env.GITHUB_RUN_ATTEMPT, commit_sha: process.env.CI_COMMIT_SHA }, null, 2)}\n`, { flag: 'wx' }),
 })
-await writeAudit({ ...report, status: 'published', published_at: publishedAt, previous_dataset_version: current.previous_dataset_version, current_sha256: sha256(currentText), github_run_id: process.env.GITHUB_RUN_ID, github_run_attempt: process.env.GITHUB_RUN_ATTEMPT, commit_sha: process.env.CI_COMMIT_SHA, release_authorization: ciGate.release_authorization, release_type: 'complete_history' })
+await writeAudit(buildPublishAudit({ publishedAt, previousDatasetVersion: current.previous_dataset_version, currentSha256: sha256(currentText) }))
 console.log(`Published complete 15-year dataset ${datasetVersion}; remote package and current pointer passed round-trip verification`)

@@ -3,12 +3,14 @@ import { appendFile, readFile, readdir } from 'node:fs/promises'
 import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 
+import { validateMonitorReleaseAudit } from './monitor-release-audit.mjs'
 import { selectAutomaticRollbackRegistration } from './register-monitor-control-event.mjs'
 
 const DATASET_PATTERN = /^20\d{2}-(0[1-9]|1[0-2])-[a-f0-9]{12}$/
 const RELEASE_FILE_PATTERN = /^(20\d{2}-(?:0[1-9]|1[0-2])-[a-f0-9]{12})\.json$/
 const CORRECTION_FILE_PATTERN = /^(20\d{2}-(?:0[1-9]|1[0-2])-[a-f0-9]{12})\.correction\.json$/
 const RUN_ATTEMPT_PATTERN = /^[1-9]\d*$/
+const DEFAULT_STORAGE_BUCKET = '636c-cloud1-d3gpdx70w5d05c68c-1456861154'
 const MANUAL_ROLLBACK_AUDIT_SCHEMA_VERSION = 'manual-data-rollback-audit-v4'
 const MONITORED_WORKFLOWS = new Set([
   'monthly-data-auto-publish',
@@ -52,12 +54,21 @@ function recordSha256(record) {
   return createHash('sha256').update(recordBytes(record)).digest('hex')
 }
 
-function validateRelease(record, datasetVersion, expectedCloudEnvId) {
+function validateRelease(record, datasetVersion, expectedCloudEnvId, expectedStorageBucket) {
   const { audit, fileName } = record
-  assert(audit.status === 'published', `${fileName} is not a successful publish audit`)
-  assert(audit.dataset_version === datasetVersion, `${fileName} dataset identity does not match its filename`)
-  assert(audit.cloud_env_id === expectedCloudEnvId, `${fileName} targets a different cloud environment`)
-  assert(/^[a-f0-9]{64}$/.test(audit.manifest_sha256 || ''), `${fileName} manifest hash is invalid`)
+  let monitorAudit
+  try {
+    monitorAudit = validateMonitorReleaseAudit({
+      audit,
+      auditText: record.text,
+      datasetVersion,
+      expectedCloudEnvId,
+      expectedStorageBucket,
+      fileName,
+    })
+  } catch (error) {
+    assert(false, error.message)
+  }
   if (audit.release_type === 'historical_correction') {
     assert(/^revision-[a-z0-9][a-z0-9-]{5,80}$/.test(audit.revision_id || ''), `${fileName} revision identity is invalid`)
   }
@@ -66,17 +77,18 @@ function validateRelease(record, datasetVersion, expectedCloudEnvId) {
     datasetVersion,
     fileName,
     publishedAt: canonicalTime(audit.published_at, `${fileName} published_at`),
-    releaseAuditSha256: recordSha256(record),
+    releaseAuditSha256: monitorAudit.auditSha256,
   }
 }
 
-function rollbackTransition(record, records, releases, expectedCloudEnvId) {
+function rollbackTransition(record, records, releases, expectedCloudEnvId, expectedStorageBucket) {
   const { audit, fileName } = record
   if (!['rolled_back', 'automatically_rolled_back'].includes(audit.status)) return null
   assert(DATASET_PATTERN.test(audit.to_dataset_version || ''), `${fileName} rollback target is invalid`)
   assert(DATASET_PATTERN.test(audit.from_dataset_version || ''), `${fileName} rollback source is invalid`)
   assert(audit.from_dataset_version !== audit.to_dataset_version, `${fileName} rollback is self-referential`)
   assert(audit.cloud_env_id === expectedCloudEnvId, `${fileName} targets a different cloud environment`)
+  assert(audit.storage_bucket === expectedStorageBucket, `${fileName} targets a different storage bucket`)
   assert(/^\d+$/.test(String(audit.github_run_id || '')), `${fileName} GitHub run identity is invalid`)
   assert(/^[a-f0-9]{40}$/.test(audit.commit_sha || ''), `${fileName} commit identity is invalid`)
   const isManualRollback = audit.status === 'rolled_back'
@@ -88,8 +100,7 @@ function rollbackTransition(record, records, releases, expectedCloudEnvId) {
   const controlEventRunAttempt = String(isManualRollback ? audit.finalizer_github_run_attempt : audit.github_run_attempt || '')
   const controlEventCommitSha = isManualRollback ? audit.finalizer_commit_sha : audit.commit_sha
   assert(/^\d+$/.test(controlEventRunId), `${fileName} finalizer run identity is invalid`)
-  assert(!isManualRollback || RUN_ATTEMPT_PATTERN.test(controlEventRunAttempt), `${fileName} finalizer run attempt identity is invalid`)
-  assert(isManualRollback || !controlEventRunAttempt || RUN_ATTEMPT_PATTERN.test(controlEventRunAttempt), `${fileName} origin run attempt identity is invalid`)
+  assert(RUN_ATTEMPT_PATTERN.test(controlEventRunAttempt), `${fileName} finalizer run attempt identity is invalid`)
   assert(/^[a-f0-9]{40}$/.test(controlEventCommitSha || ''), `${fileName} finalizer commit identity is invalid`)
   assert(releases.has(audit.to_dataset_version), `${fileName} rollback target has no immutable publish audit`)
   const occurredAt = canonicalTime(audit.rolled_back_at, `${fileName} rolled_back_at`)
@@ -102,7 +113,9 @@ function rollbackTransition(record, records, releases, expectedCloudEnvId) {
     const registration = selectAutomaticRollbackRegistration(records, {
       expectedCommitSha: audit.commit_sha,
       expectedGithubRunId: audit.github_run_id,
+      expectedGithubRunAttempt: audit.github_run_attempt,
       expectedCloudEnvId,
+      expectedStorageBucket,
     })
     assert(registration.registered && registration.eventFileName === fileName,
       `${fileName} lacks matching successful automatic rollback proof`)
@@ -130,6 +143,36 @@ function supersededDataset(record) {
   return match[1]
 }
 
+function optionalCanonicalTime(value) {
+  const time = Date.parse(value || '')
+  return Number.isFinite(time) && new Date(time).toISOString() === value ? time : null
+}
+
+function relevantReleaseDatasetVersions(records, {
+  now,
+  windowMs,
+  eventName,
+  manualDatasetVersion,
+}) {
+  const minimumTime = now - windowMs
+  const versions = new Set()
+  for (const record of records) {
+    const match = record.fileName.match(RELEASE_FILE_PATTERN)
+    if (match) {
+      const publishedAt = optionalCanonicalTime(record.audit?.published_at)
+      if (publishedAt !== null && publishedAt >= minimumTime) versions.add(match[1])
+      if (eventName === 'workflow_dispatch' && match[1] === manualDatasetVersion) versions.add(match[1])
+      continue
+    }
+    if (!['rolled_back', 'automatically_rolled_back'].includes(record.audit?.status)) continue
+    const rolledBackAt = optionalCanonicalTime(record.audit.rolled_back_at)
+    if (rolledBackAt !== null && rolledBackAt >= minimumTime && DATASET_PATTERN.test(record.audit.to_dataset_version || '')) {
+      versions.add(record.audit.to_dataset_version)
+    }
+  }
+  return versions
+}
+
 export function selectMonitorTarget(records, {
   now = Date.now(),
   windowMs = WINDOW_MS,
@@ -142,15 +185,22 @@ export function selectMonitorTarget(records, {
   triggerRunAttempt = '',
   triggerWorkflowName = '',
   expectedCloudEnvId = 'cloud1-d3gpdx70w5d05c68c',
+  expectedStorageBucket = DEFAULT_STORAGE_BUCKET,
 } = {}) {
   assert(Array.isArray(records) && Number.isFinite(now) && Number.isSafeInteger(windowMs) && windowMs > 0,
     'monitor target selection inputs are invalid')
   const parsedRecords = records.map(parseRecord)
+  const relevantDatasetVersions = relevantReleaseDatasetVersions(parsedRecords, {
+    now,
+    windowMs,
+    eventName,
+    manualDatasetVersion,
+  })
   const releases = new Map()
   for (const record of parsedRecords) {
     const match = record.fileName.match(RELEASE_FILE_PATTERN)
-    if (!match) continue
-    const release = validateRelease(record, match[1], expectedCloudEnvId)
+    if (!match || !relevantDatasetVersions.has(match[1])) continue
+    const release = validateRelease(record, match[1], expectedCloudEnvId, expectedStorageBucket)
     assert(!releases.has(release.datasetVersion), `duplicate publish audit for ${release.datasetVersion}`)
     releases.set(release.datasetVersion, release)
   }
@@ -165,7 +215,12 @@ export function selectMonitorTarget(records, {
     type: 'publish',
   }))
   for (const record of parsedRecords) {
-    const rollback = rollbackTransition(record, parsedRecords, releases, expectedCloudEnvId)
+    const rolledBackAt = optionalCanonicalTime(record.audit?.rolled_back_at)
+    if (!['rolled_back', 'automatically_rolled_back'].includes(record.audit?.status)
+      || rolledBackAt === null
+      || rolledBackAt < now - windowMs
+      || !releases.has(record.audit.to_dataset_version)) continue
+    const rollback = rollbackTransition(record, parsedRecords, releases, expectedCloudEnvId, expectedStorageBucket)
     if (rollback) transitions.push(rollback)
   }
   transitions.sort((left, right) => left.occurredAt - right.occurredAt || left.fileName.localeCompare(right.fileName, 'en'))
@@ -208,7 +263,7 @@ export function selectMonitorTarget(records, {
       && Boolean(defaultBranch)
       && triggerHeadBranch === defaultBranch
     const exactRun = String(latestTransition.controlEventRunId || latestTransition.audit.github_run_id || '') === String(triggerRunId || '')
-      && (!latestTransition.controlEventRunAttempt || latestTransition.controlEventRunAttempt === String(triggerRunAttempt || ''))
+      && latestTransition.controlEventRunAttempt === String(triggerRunAttempt || '')
     active = trustedTrigger && exactRun && withinWindow
     reason = active ? 'successful_publish_workflow' : 'workflow_run_does_not_match_active_release'
   } else if (eventName === 'workflow_dispatch') {

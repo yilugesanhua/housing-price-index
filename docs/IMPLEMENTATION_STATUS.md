@@ -83,7 +83,7 @@
 
 | ID | 当前问题 | 已批准目标 | 权威规范落点 | 实现状态 | 验证状态 | 当前阻断 |
 | --- | --- | --- | --- | --- | --- | --- |
-| D01 | 候选指针可能先切换，守卫失败且无安全回退目标时无法保证线上指针不变 | 全部正确性检查、远端回读和逐值重建在切指针前完成；无安全回退目标禁止切换；失败时原指针字节和哈希不变 | `MINIPROGRAM_DATA_UPDATE.md`“自动生成与发布”“受保护发布与回滚” | `partial` | `not_tested` | 阻断生产自动发布 |
+| D01 | 候选指针可能先切换，守卫失败且无安全回退目标时无法保证线上指针不变 | 全部正确性检查、远端回读和逐值重建在切指针前完成；无安全回退目标禁止切换；失败时原指针字节和哈希不变 | `MINIPROGRAM_DATA_UPDATE.md`“自动生成与发布”“受保护发布与回滚” | `implemented` | `passed_limited`（验证范围：本地 `npm run check`，含351项小程序测试；网页端到端39项通过、1项按配置跳过。证据身份：当前未提交工作区；复核：Codex；日期：2026-08-06。覆盖候选写入前的完整回退包预检、旧完整审计原字节绑定、云环境/存储桶/运行ID与重跑编号精确绑定） | 仍缺当前精确提交CI、真实受保护Environment、生产只读监测和真实云端故障/回滚证据；`AUTOMATIC_RELEASE_ENABLED` 与 `PRODUCTION_RELEASE_AUTHORIZED` 继续保持关闭 |
 | D02 | 历史修订激活后重跑时，新旧来源判断不唯一 | 建立 `old_active`、`candidate_active`、`conflict` 三态及每个中断点的幂等恢复规则 | `MINIPROGRAM_DATA_UPDATE.md`“受保护发布与回滚” | `partial` | `passed_limited`（本地三态和不完整身份冲突测试） | 仍缺真实云端全部中断点恢复证据，阻断历史修订发布 |
 | D03 | 独立审计未绑定即将发布的完整候选内容 | 审计报告和门禁绑定完整标准记录哈希、完整来源索引哈希及精确提交 SHA | `DATA_CONTRACT.md`“版本身份与独立审计” | `partial` | `not_tested` | 阻断生产自动发布 |
 | D04 | 未证明 `revisions.json` 只做了准确追加 | 校验旧账本前缀、前后哈希、本次新增集合和 `supersedes_revision_id` 连续性 | `DATA_CONTRACT.md`“修订记录” | `partial` | `not_tested` | 阻断历史修订发布 |

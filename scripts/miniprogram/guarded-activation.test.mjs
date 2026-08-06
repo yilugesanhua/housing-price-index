@@ -38,8 +38,12 @@ function harness(options = {}) {
         return remote
       },
       guardCandidate: async () => { events.push('guard:candidate'); if (options.failGuard) throw new Error('full remote guard failed') },
-      guardRollback: async () => { events.push('guard:rollback'); if (options.failRollbackGuard) throw new Error('rollback guard failed') },
-      prepareRollback: async () => { events.push('prepare:rollback'); return { ...previous, previous_dataset_version: null } },
+      guardRollback: options.omitGuardRollback ? undefined : async () => { events.push('guard:rollback'); if (options.failRollbackGuard) throw new Error('rollback guard failed') },
+      prepareRollback: options.omitPrepareRollback ? undefined : async () => { events.push('prepare:rollback'); return { ...previous, previous_dataset_version: null } },
+      verifyRollbackTarget: options.omitVerifyRollbackTarget ? undefined : async () => {
+        events.push('verify:rollback')
+        if (options.failRollbackPreflight) throw new Error('rollback target package is invalid')
+      },
       recordRollback: async () => events.push('audit:rollback'),
       recordFailure: async ({ rollbackStatus }) => events.push(`audit:failure:${rollbackStatus}`),
       now: () => '2026-08-17T02:00:00.000Z',
@@ -51,7 +55,7 @@ test('publishes only after pointer round-trip and full guard succeed', async () 
   const item = harness()
   assert.deepEqual(await activatePointerWithRollback(item.args), { status: 'published', rollback_status: 'not-needed' })
   assert.equal(item.remote, stableJson(candidate))
-  assert.deepEqual(item.events, ['write:candidate', 'read:candidate', 'guard:candidate'])
+  assert.deepEqual(item.events, ['verify:rollback', 'write:candidate', 'read:candidate', 'guard:candidate'])
 })
 
 test('pointer-switch interruption restores and verifies the previous pointer', async () => {
@@ -75,8 +79,37 @@ test('rollback failure is surfaced as a distinct alert condition', async () => {
   assert.ok(item.events.includes('audit:failure:failed'))
 })
 
-test('missing rollback eligibility fails closed without inventing a target', async () => {
-  const item = harness({ failGuard: true, rollbackEligible: false })
+test('missing rollback eligibility blocks before candidate activation', async () => {
+  const item = harness({ rollbackEligible: false })
   await assert.rejects(() => activatePointerWithRollback(item.args), (error) => error.rollbackStatus === 'not-available')
-  assert.ok(item.events.includes('audit:failure:not-available'))
+  assert.equal(item.remote, stableJson(previous))
+  assert.deepEqual(item.events, [])
+})
+
+test('missing rollback preparation blocks before candidate activation', async () => {
+  const item = harness({ omitPrepareRollback: true })
+  await assert.rejects(() => activatePointerWithRollback(item.args), (error) => error.rollbackStatus === 'not-available')
+  assert.equal(item.remote, stableJson(previous))
+  assert.deepEqual(item.events, [])
+})
+
+test('missing rollback guard blocks before candidate activation', async () => {
+  const item = harness({ omitGuardRollback: true })
+  await assert.rejects(() => activatePointerWithRollback(item.args), (error) => error.rollbackStatus === 'not-available')
+  assert.equal(item.remote, stableJson(previous))
+  assert.deepEqual(item.events, [])
+})
+
+test('rollback preflight failure blocks before candidate activation', async () => {
+  const item = harness({ failRollbackPreflight: true })
+  await assert.rejects(() => activatePointerWithRollback(item.args), (error) => error.rollbackStatus === 'not-available' && /preflight failed/.test(error.message))
+  assert.equal(item.remote, stableJson(previous))
+  assert.deepEqual(item.events, ['verify:rollback'])
+})
+
+test('missing rollback verification blocks before candidate activation', async () => {
+  const item = harness({ omitVerifyRollbackTarget: true })
+  await assert.rejects(() => activatePointerWithRollback(item.args), (error) => error.rollbackStatus === 'not-available')
+  assert.equal(item.remote, stableJson(previous))
+  assert.deepEqual(item.events, [])
 })

@@ -41,6 +41,8 @@ await writeFile(resolve(outputRoot, 'manifest.json'), release.manifestText, 'utf
 await writeFile(resolve(outputRoot, 'current.candidate.json'), release.currentText, 'utf8')
 const report = {
   status: 'staged_not_uploaded',
+  cloud_env_id: cloudEnvId,
+  storage_bucket: dataConfig.storageBucket,
   app_version: versionConfig.version,
   remote_schema_version: release.manifest.remote_schema_version,
   dataset_version: release.manifest.dataset_version,
