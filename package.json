@@ -59,6 +59,7 @@
     "miniprogram:data:publish": "node scripts/miniprogram/publish-remote-data.mjs",
     "miniprogram:data:rehearse-write": "node scripts/miniprogram/rehearse-cloud-write.mjs",
     "miniprogram:data:replay": "tsx scripts/miniprogram/replay-full-auto-update.ts",
+    "miniprogram:data:replay-historical": "node scripts/miniprogram/replay-historical-corrections.mjs",
     "miniprogram:candidate": "node scripts/miniprogram/deterministic-candidate.mjs",
     "miniprogram:data:rollback": "node scripts/miniprogram/rollback-remote-data.mjs",
     "miniprogram:data:repair-current": "node scripts/miniprogram/repair-current-pointer.mjs",
