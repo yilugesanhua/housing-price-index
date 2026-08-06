@@ -479,3 +479,10 @@ I02在当前本地候选已有共享验证器和有限故障测试，登记为 `
 - 本地验证结果：数据测试59/59、小程序测试325/325、`validate:data` 100,800条通过；2026-08-05在当前工作区串行执行 `npm run check` 全部通过（165.9秒），Web端到端测试电脑/手机共40项，其中39项通过、1项按项目配置跳过；当前完整候选验证器再次输出 `Verified 2026-06-d399211073dd: one complete 180-month data file`。
 - 当前仍为 `partial/passed_limited`：候选提交为 `1c32244d55fd1e7efd2d04ac84b7ad6896e3271c`，已上传到隔离预览前缀 `housing-data/preview/` 并完成上传脚本回读和独立下载回读；预览 `current.json` SHA-256 为 `341c2e23f40286bde2b72b661b69bd4298d69308cdf0cdad02d6b1be2a119a43`，完整包远端 SHA-256 与候选 `430520342fa26ca96b6142854045309759788fa300a272b466b1eeeece5e16ed` 一致。生产指针和生产发布前缀均未触碰。微信开发者工具实际编译、Android/iPhone真机、Wi-Fi/移动网络/弱网下载耗时、审核和正式发布仍未验证。
 - 本轮未写入正式`housing-data/current.json`或正式发布目录，未切换正式指针，未推送、审核或发布；已形成本地候选提交并保留用户未跟踪文件。近15年数据可以进入后续专项平台验收，但在上述外部证据补齐前仍禁止正式发布和生产自动更新。
+
+## 正式环境门槛证据补充（2026-08-06）
+
+- 唯一 legacy 控制迁移不是待办事项：不可变审计 `data/releases/legacy-control-migration-2026-08-02T08-30-08-467Z.json` 记录迁移 ID `legacy-control-2026-06-e9788d0bddf3`、最终收尾提交 `8c7f7577458820daaed24dde35970f8391214a8d` 及 GitHub Actions 运行 `30750265475`。该运行的 `prepare`、`migrate`、`audit` 均通过；审计记录的 `production_pointer_round_trip_verified`、`full_release_verified_before`、`full_release_verified_after`、`strict_validator_verified` 均为 `true`。
+- 隔离云端写入和自动回滚演练已由 GitHub Actions `31007828723` 完成。写入限定在 `housing-data/rehearsals/31007828723-1/`，完成上传、HEAD、下载和哈希回读，隔离指针的故意守卫失败后自动回滚成功；该演练明确证明 `production_pointer_untouched=true`、`production_release_prefix_untouched=true`。
+- 这些是 D11、I03 与 S10 的新增有限范围云端证据，三项仍为 `passed_limited`，不解除任何生产阻断。没有执行正式数据人工回滚，也不能为了补证据主动回滚正式数据。
+- `AUTOMATIC_RELEASE_ENABLED` 和 `PRODUCTION_RELEASE_AUTHORIZED` 在迁移审计中均为 `false`；本次未修改它们，继续保持关闭。仍需当前候选同提交CI、候选绑定的开发者工具和双真机原始记录，以及完整客户端远程包原子启用、失败回退、历史修订和通知闭环证据，才可再次讨论自动发布。

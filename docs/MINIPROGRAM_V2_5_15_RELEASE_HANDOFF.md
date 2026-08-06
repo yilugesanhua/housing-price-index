@@ -23,6 +23,11 @@
 - 候选生成器已从ZIP重新读取40个文件并校验完整文件清单；现场回读的ZIP SHA-256与候选清单一致。
 - 候选生成前发现压缩快照导出格式未被旧生成器识别；该问题由本候选源码中的受限JSON解析修复，解析器不执行快照代码。
 
+## 当前提交的持续检查
+
+- 2026-08-06，监测兼容修复提交 `b8615f1b8c7e1a1d709913aef68b9339075c4c56` 的 GitHub CI [#31101868365](https://github.com/yilugesanhua/housing-price-index/actions/runs/31101868365) 已通过，`verify` 用时4分14秒。
+- 此CI证明该次监测脚本改动可通过仓库检查；它不是候选源码提交 `b854f8e6911986b556e45b760f27108596c24845` 的同提交CI，不能替代候选构件身份验证。
+
 ## 平台与线上自检状态
 
 - 微信公众平台“线上版本”截图显示：版本号`2.5.15`，发布者“一路格桑花”，发布时间2026-08-06 09:16:40，项目备注“图标显示修复”。
@@ -30,15 +35,22 @@
 - 截图未显示构建号、审核通过时间，亦未建立这些平台字段与本页候选ID、精确提交和ZIP SHA-256的对应关系。
 - 上述证据能确认已上线版本，不推断正式远程数据已切换、近15年完整包已在线验证，或每月自动更新已经启用。
 
+## 正式远程数据只读核对
+
+- 2026-08-06，GitHub Actions [#31102773256](https://github.com/yilugesanhua/housing-price-index/actions/runs/31102773256) 对正式数据版本 `2026-06-f80465ae29a5` 完成只读监测，`inspect` 与 `monitor` 均通过。
+- 该次核对已验证云函数响应、`current.json`、完整70城历史包下载和重建、发布审计、70城数量及清单身份；结果为 `integrity_status=passed`、`full_release_reconstructed=true`、`cloud_function_verified=true`、`production_pointer_untouched=true`。
+- 这证明正式远程包可被服务器端完整下载、校验和重建，且本次核对没有改动线上数据或指针；它不替代 Android/iPhone 上的客户端缓存写入、原子启用、弱网/中断和旧版本回退实测。
+
 ## 真机记录边界
 
-- 维护人已报告Android和iPhone真机验收通过。
-- 该报告发生在当前不可变候选生成前，尚未填写设备型号、系统和微信版本、测试时间、开发者工具版本、测试项结果及本候选ID。因此不能把它登记为已绑定本候选的正式双真机放行证据。
-- 补齐上述字段后，Android与iPhone记录必须都引用本页的候选ID、精确提交和ZIP SHA-256。
+- 维护人确认Android和iPhone真机验收均已通过，并明确将该验收关联到本页 `v2.5.15` 候选：候选ID `v2.5.15+b854f8e6911986b556e45b760f27108596c24845+1bca26bf2255d85f9033337d5277f8f96cd7c7406e4bae55ff0ec4f56b9eaba4`，源码提交 `b854f8e6911986b556e45b760f27108596c24845`，ZIP SHA-256 `1bca26bf2255d85f9033337d5277f8f96cd7c7406e4bae55ff0ec4f56b9eaba4`。
+- 本交接记录的真机结论来源于维护人确认；尚未提供设备型号、系统和微信版本、测试时间、开发者工具版本、逐项结果、截图或录屏。因此可作为当前候选的维护交接事实，不能替代这些原始附件所能提供的独立复核证据。
 
 ## 仍未完成
 
 - `npm.cmd run test:e2e` 尚未完成：此前本机权限批准服务拒绝运行请求，未得到代码失败结果。
-- 同提交GitHub CI、候选绑定的微信开发者工具重新编译证据、平台构建号、审核通过时间、候选绑定和正式数据链路明细仍未补齐。
-- 正式线上完整70城数据下载、校验、原子启用、非常用城市切换与失败保留旧版本复核均未执行。
-- 腾讯云严格云函数部署、唯一legacy控制迁移、生产回滚演练和两个生产授权开关仍保持未完成/关闭状态。
+- 候选源码提交的同提交GitHub CI、候选绑定的微信开发者工具重新编译证据、平台构建号和审核通过时间仍未补齐。
+- 正式线上完整70城数据的服务器端下载、校验和重建已由只读监测完成；客户端原子启用、非常用城市切换与失败保留旧版本复核仍缺可复查的真机原始记录。
+- 唯一 legacy 控制迁移已经完成：不可变审计 `data/releases/legacy-control-migration-2026-08-02T08-30-08-467Z.json` 绑定迁移 ID `legacy-control-2026-06-e9788d0bddf3`；GitHub Actions 最终收尾运行 [#30750265475](https://github.com/yilugesanhua/housing-price-index/actions/runs/30750265475) 的 `prepare`、`migrate`、`audit` 均通过。审计记录已验证生产指针写后回读、两次70城完整包重建和严格云函数回执。
+- 隔离云端写入和自动回滚演练已经通过：GitHub Actions [#31007828723](https://github.com/yilugesanhua/housing-price-index/actions/runs/31007828723) 的写入只发生在 `housing-data/rehearsals/31007828723-1/`，完成上传、HEAD、下载与哈希回读，并验证隔离指针切换、故意失败和自动回滚；结果明确记录 `production_pointer_untouched=true`、`production_release_prefix_untouched=true`。
+- 未执行正式数据的人工回滚，也不应为了演练主动执行。当前仍缺候选绑定的客户端远程包原子启用、弱网/中断和旧版本回退原始记录；`AUTOMATIC_RELEASE_ENABLED=false`，`PRODUCTION_RELEASE_AUTHORIZED=false`，两项自动发布授权继续保持关闭。
