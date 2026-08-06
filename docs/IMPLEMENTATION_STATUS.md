@@ -395,6 +395,7 @@ I02在当前本地候选已有共享验证器和有限故障测试，登记为 `
 | 2026-08-06 | I10 | `partial` | `partial` | `passed_limited` | `passed_limited` | `v2.5.15_candidate_stage_boundary` | 候选只写入`work/miniprogram-release-candidates/`，未写入`release/miniprogram/`；候选清单与ZIP哈希现场回读一致。原字节晋级、`release-manifest.json`、跨环境复现和稳定归档仍未完成 | Codex本地复核 |
 | 2026-08-06 | R01 | `partial` | `partial` | `passed_limited` | `passed_limited` | `v2.5.15_user_confirmed_wechat_release_unbound` | 维护人确认该版本已于2026-08-05上传、审核通过并正式发布；未提供平台构建号、审核/发布时间、截图、正式线上数据回读或其与精确提交/ZIP候选ID的绑定，因此只登记用户确认的发布事实，不关闭候选绑定、远程数据、自动更新或稳定归档门禁 | 用户现场确认 |
 | 2026-08-06 | R01 | `partial` | `partial` | `passed_limited` | `passed_limited` | `v2.5.15_wechat_online_screenshot_unbound` | 微信公众平台“线上版本”截图直接确认版本`2.5.15`、发布者“一路格桑花”、发布时间2026-08-06 09:16:40和备注“图标显示修复”，更正前一条用户口头确认中的发布时间；维护人确认审核通过及首页、城市筛选、三张图表、分享、来源页和数据截至2026-06的正式线上自检已完成。截图未显示构建号、审核通过时间、候选绑定或正式数据链路明细，因此不关闭候选绑定、远程数据、自动更新或稳定归档门禁 | 微信公众平台截图与用户现场确认 |
+| 2026-08-07 | R02 | `partial` | `partial` | `passed_limited` | `passed_limited` | `local_v2.5.15_historical_correction_replay_12_rounds` | 精确提交`f829d52ab051ab4ce89ff0e3afb309815124a63d`上的本地内存回放连续12轮通过；每轮覆盖单条、多城市、多月份和最高150条修订，并拦截未批准差异、批准项缺失、旧值错误、来源定位错误、修订链断裂、冲突、已撤销版本恢复、切换前中断、切换后中断及无安全回退。报告为`work/historical-correction-replay/historical-v2-5-15-f829d52-20260807/report.json`，明确`automatic_release_enabled=false`且生产指针和正式发布前缀未触及；无GitHub运行、工作流哈希或测试云环境，不能关闭R02或开启自动发布 | Codex本地复核 |
 
 ## v2.4.2 候选切换登记（2026-08-02）
 
