@@ -1,6 +1,12 @@
 # 实施状态登记
 
-更新日期：2026-08-06
+更新日期：2026-08-07
+
+## 2026-08-07 自动更新启用记录
+
+- 当前源码版本为 `v2.5.15`，精确提交为 `60d3cb38f2bd47694aa1a7c78d674eeb1d1cfb79`。GitHub Actions `31137756505` 已成功完成唯一一组 36 个月普通月度隔离回放：`2023-07 -> 2026-06` 共 36/36 轮通过。工件报告位于 `work/evidence-download/31137756505/full-auto-update-replay-31137756505-1/31137756505-1/report.json`；报告记录生产指针与正式发布目录均未触碰，且回放时 `automatic_release_enabled=false`。
+- 独立的历史修订云端回放为 GitHub Actions `31137756549`，12 轮通过。普通月度与历史修订的两类证据分别保留，不互相替代。
+- 维护人授权后，GitHub CLI 已独立设置并回读仓库级 `AUTOMATIC_RELEASE_ENABLED=true` 和 `housing-data-production` Environment 级 `PRODUCTION_RELEASE_AUTHORIZED=true`。正常月度自动更新当前已启用；D19 未关闭前，运行模式为 `supervised_automation`，不宣称通知链路已完全无人值守。
 
 本文件记录权威规范与当前实现之间的差距，不另行定义产品、数据或发布规则。R01-R07、D01-D20、I01-I14与V01-V19涉及的目标要求以 `AGENTS.md`、`PRODUCT.md`、`DATA_CONTRACT.md`、`ACCEPTANCE.md`、`MINIPROGRAM_VERSIONING.md`、`RELEASE_READINESS.md` 和 `MINIPROGRAM_DATA_UPDATE.md` 的对应条款为准；项目全部权威规范及职责边界以 [文档索引](DOCUMENT_INDEX.md) 为准。
 

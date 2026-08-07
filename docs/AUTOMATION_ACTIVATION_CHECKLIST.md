@@ -6,6 +6,9 @@
 
 ## 当前结论
 
+- 2026-08-07：维护人已完成最终授权。当前源码版本为 `v2.5.15`，GitHub Actions `31137756505` 在精确提交 `60d3cb38f2bd47694aa1a7c78d674eeb1d1cfb79` 完成唯一一组 36 个月普通月度隔离回放（`2023-07 -> 2026-06`），36/36 通过。下载工件报告 `full-auto-update-replay-31137756505-1/31137756505-1/report.json` 记录 `status=passed`、`production_pointer_untouched=true`、`production_release_prefix_untouched=true` 和回放期间 `automatic_release_enabled=false`；每轮完成官方归档解析、候选失败关闭、隔离 COS 上传回读、隔离指针切换和小程序客户端激活。
+- 同日通过 GitHub CLI 分别设置并独立回读：仓库级 `AUTOMATIC_RELEASE_ENABLED=true`，`housing-data-production` Environment 级 `PRODUCTION_RELEASE_AUTHORIZED=true`。两个精确值均为 `true`，因此正常月度自动更新已启用；D19 未关闭时运行模式为 `supervised_automation`，不宣称无人值守通知闭环。
+
 - 自动发现、候选生成、数据门禁、受限发布、发布后守卫、回滚、待发布恢复、私有审计和24小时监测已有基础实现；D01-D16仍存在未关闭的正确性、重跑、审计、客户端状态和回滚差距，不能概括为完整安全闭环。
 - 既有 `npm run check`、`npm run test:e2e`、小程序/自动化故障测试和GitHub Actions检查只证明对应提交与已覆盖场景，不能替代D01-D20的关闭证据。
 - 公开仓库 `yilugesanhua/housing-price-index` 已创建，初始提交 `4e0713e` 已推送，GitHub Actions `ci / verify` 已通过；仓库当前同时跟踪官方页面 `.html.gz` 和对应批次复现文件，它们不进入Web或小程序生产包。
