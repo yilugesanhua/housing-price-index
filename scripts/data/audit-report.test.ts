@@ -1,5 +1,15 @@
 import { describe, expect, it } from "vitest";
-import { auditReportSha256, currentAuditCodeSha256, currentRepositoryCommitSha, FULL_RECORD_AUDIT_METHOD, FULL_RECORD_AUDIT_VERSION, recordsSha256, sourceIndexSha256, validateAuditReport, type AuditReport } from "./audit-report";
+import {
+  auditReportSha256,
+  currentAuditCodeSha256,
+  currentRepositoryCommitSha,
+  FULL_RECORD_AUDIT_METHOD,
+  FULL_RECORD_AUDIT_VERSION,
+  recordsSha256,
+  sourceIndexSha256,
+  validateAuditReport,
+  type AuditReport,
+} from "./audit-report";
 import type { ParsedBatch } from "./types";
 
 function fixture() {
@@ -42,9 +52,21 @@ function fixture() {
     coverage_end: "2026-06",
     checks: [],
     result: "passed",
-    batches: [{ source_batch_id: batch.source_batch.source_batch_id, stat_month: "2026-06", raw_content_sha256: "a".repeat(64), records_sha256: recordsSha256(batch.records), records_checked: 1, result: "passed" }],
+    batches: [
+      {
+        source_batch_id: batch.source_batch.source_batch_id,
+        stat_month: "2026-06",
+        raw_content_sha256: "a".repeat(64),
+        records_sha256: recordsSha256(batch.records),
+        records_checked: 1,
+        result: "passed",
+      },
+    ],
   };
-  const report: AuditReport = { ...reportContent, report_sha256: auditReportSha256(reportContent) };
+  const report: AuditReport = {
+    ...reportContent,
+    report_sha256: auditReportSha256(reportContent),
+  };
   return { batch, report };
 }
 
@@ -56,17 +78,27 @@ describe("production audit report gate", () => {
 
   it("rejects missing or mismatched audit evidence", () => {
     const { batch, report } = fixture();
-    expect(validateAuditReport(null, [batch])).toContain("production publish requires data/audit-report.json");
+    expect(validateAuditReport(null, [batch])).toContain(
+      "production publish requires data/audit-report.json",
+    );
     report.batches[0].raw_content_sha256 = "b".repeat(64);
-    expect(validateAuditReport(report, [batch])).toContain(`full-record audit evidence differs for batch ${batch.source_batch.source_batch_id}`);
-    expect(validateAuditReport(report, [batch])).toContain("full-record audit report hash is invalid");
+    expect(validateAuditReport(report, [batch])).toContain(
+      `full-record audit evidence differs for batch ${batch.source_batch.source_batch_id}`,
+    );
+    expect(validateAuditReport(report, [batch])).toContain(
+      "full-record audit report hash is invalid",
+    );
   });
 
   it("rejects records changed after the full audit", () => {
     const { batch, report } = fixture();
     batch.records[0] = { ...batch.records[0], city_name: "被修改" };
-    expect(validateAuditReport(report, [batch])).toContain(`source batch ${batch.source_batch.source_batch_id} is not bound to its audited records`);
-    expect(validateAuditReport(report, [batch])).toContain("full-record audit records hash does not match source records");
+    expect(validateAuditReport(report, [batch])).toContain(
+      `source batch ${batch.source_batch.source_batch_id} is not bound to its audited records`,
+    );
+    expect(validateAuditReport(report, [batch])).toContain(
+      "full-record audit records hash does not match source records",
+    );
   });
 
   it("rejects parser, code, commit, and report identity changes", () => {
@@ -74,11 +106,13 @@ describe("production audit report gate", () => {
     report.parser_versions = ["other-parser"];
     report.audit_code_sha256 = "b".repeat(64);
     report.repository_commit_sha = "c".repeat(40);
-    expect(validateAuditReport(report, [batch])).toEqual(expect.arrayContaining([
-      "full-record audit parser versions do not match source batches",
-      "full-record audit code hash does not match the current verifier",
-      "full-record audit repository commit is not an ancestor of the current checkout",
-      "full-record audit report hash is invalid",
-    ]));
+    expect(validateAuditReport(report, [batch])).toEqual(
+      expect.arrayContaining([
+        "full-record audit parser versions do not match source batches",
+        "full-record audit code hash does not match the current verifier",
+        "full-record audit repository commit is not an ancestor of the current checkout",
+        "full-record audit report hash is invalid",
+      ]),
+    );
   });
 });
