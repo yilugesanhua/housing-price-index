@@ -132,7 +132,7 @@ npm.cmd run test:miniprogram
 
 ### 只放在本次 GitHub Release 的补充材料
 
-- `小程序源码-v2.5.15.zip` 和 `candidate-manifest.json`：2026-08-06 候选的历史交接构件，不是新的稳定归档，也不证明当前线上版本。
+- `miniprogram-source-v2.5.15.zip` 和 `candidate-manifest.json`：2026-08-06 候选的历史交接构件，不是新的稳定归档，也不证明当前线上版本。
 - 自动更新回放证据包：绑定 GitHub Actions 运行 `31137756505` 和 `31137756549` 的历史报告。
 - `SHA256SUMS.txt`：本次 Release 附件的 SHA-256 校验值。
 

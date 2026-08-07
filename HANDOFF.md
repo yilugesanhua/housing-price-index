@@ -27,7 +27,7 @@
   - 远程数据：2026-08-06运行 `31102773256` 曾通过服务器端完整下载、校验和70城重建；本次未直接读取当前生产指针，当前实时数据状态未验证。
   - Web：正式访问入口和线上可用状态未知。
   - 自动更新：本次只读回查确认仓库变量 `AUTOMATIC_RELEASE_ENABLED` 和 `housing-data-production` Environment变量 `PRODUCTION_RELEASE_AUTHORIZED` 均为精确值 `true`；最新顶部登记将其称为 `supervised_automation`（有人监督自动化）。但同一套规则仍记录未关闭门槛和相反状态，当前启用状态是否满足仓库自己的硬门槛尚未闭环，生产写入前必须重新失败关闭核对。
-- GitHub备份状态：`main` 已推送到提交 `473909335ac50a2e9ee1e5cf518741c4f5b5fc3c`，CI运行 [`31159637366`](https://github.com/yilugesanhua/housing-price-index/actions/runs/31159637366) 成功。交接Release附件的最终存在性、大小和SHA-256必须以 [`project-handoff-2026-08-07`](https://github.com/yilugesanhua/housing-price-index/releases/tag/project-handoff-2026-08-07) 页面及下载回读为准，不能由本文链接推断。
+- GitHub备份状态：公开仓库 `main` 已包含本次交接资料和个人工作流备份。交接快照 Release [`project-handoff-2026-08-07`](https://github.com/yilugesanhua/housing-price-index/releases/tag/project-handoff-2026-08-07) 已于2026-08-07公开，标签精确指向提交 `7077b675a4e7e6e121908910213a35cc9427e95a`；该提交的CI运行 [`31160194384`](https://github.com/yilugesanhua/housing-price-index/actions/runs/31160194384) 成功。本次已从无需登录的公开HTTPS地址下载全部5个附件，4个交付附件均与 `SHA256SUMS.txt` 一致；源码ZIP与同一提交生成的带 `housing-price-index/` 根目录Git归档逐字节一致。
 - 最终验收结论：核心源码、数据和当前提交CI有通过证据，可以有条件交接；由于Web上线状态、微信平台候选绑定、真机原始附件、`v2.5.15`稳定归档和无人值守通知闭环未完成，不能写为“全部完成”或“完整正式验收闭环”。
 
 ## 3. 已完成工作
@@ -157,8 +157,8 @@ npm.cmd run build
   - 第一次从公开HTTPS地址克隆时连接被重置且没有生成目录；强制HTTP/1.1后克隆成功，得到精确提交、842个受控文件和干净工作区。
   - 该普通Windows克隆继承全局 `core.autocrlf=true`，把两份设计令牌文件检出为CRLF，导致 `design-tokens:check` 失败；字节检查确认原文件为LF，克隆文件全部为CRLF，忽略行尾后无其他差异。README和 `docs/PROJECT_TRANSFER.md` 已改为首次检出前使用 `git -c core.autocrlf=false clone`，并在仓库本地持久化设置。
   - 按修正命令再次从公开HTTPS地址全新克隆成功：精确提交一致、842个受控文件、工作区干净、仓库本地 `core.autocrlf=false`，两份令牌文件SHA-256与原仓库一致；`npm.cmd ci`、Playwright浏览器安装和 `npm.cmd run check` 全部成功，E2E为39项通过、1项跳过。E2E后 `docs/screenshots/city-picker-mobile.png` 被测试按现有逻辑重写，功能测试没有失败；接手说明已增加测试后检查和有条件恢复截图的步骤。
-  - 最终说明提交 `473909335ac50a2e9ee1e5cf518741c4f5b5fc3c` 已推送，GitHub CI运行 `31159637366` 成功完成全部步骤。
-  - 本文提交时GitHub Release附件尚待生成、上传和下载回读；任务结束后的实际结果必须查看上面的Release页面和附件校验回执。该交接Release不等于小程序稳定归档、微信重新发布或生产数据写入。
+  - Release生成前的交接说明阶段提交 `473909335ac50a2e9ee1e5cf518741c4f5b5fc3c` 已推送，GitHub CI运行 `31159637366` 成功完成全部步骤。
+  - GitHub交接Release已公开并完成下载回读：源码ZIP含842个文件，小程序历史候选ZIP含40个文件，自动化历史证据ZIP含3个JSON文件，均未发现不安全ZIP路径；4个交付附件的SHA-256与公开校验清单一致。该交接Release不等于小程序稳定归档、微信重新发布或生产数据写入。
 - 尚未执行的验证及原因：
   - 已完成自动化桌面和手机浏览器流程，但未另做本轮人工视觉验收或新截图；本次没有界面改动。
   - 未重新编译微信开发者工具、未重新连接Android/iPhone：本次没有小程序构件改动，也没有取得新的设备现场证据。
