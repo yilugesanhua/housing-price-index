@@ -1,0 +1,66 @@
+name: historical-correction-replay
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: housing-data-historical-correction-replay
+  cancel-in-progress: false
+
+jobs:
+  replay:
+    if: github.ref == format('refs/heads/{0}', github.event.repository.default_branch)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    environment: housing-data-production
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify exact default-branch identity before protected credentials are used
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "$GITHUB_SHA"
+          git fetch origin "$DEFAULT_BRANCH"
+          test "$(git rev-parse "origin/$DEFAULT_BRANCH")" = "$GITHUB_SHA"
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - name: Run 12-round isolated historical correction replay
+        env:
+          TENCENTCLOUD_SECRET_ID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
+          TENCENTCLOUD_SECRET_KEY: ${{ secrets.TENCENTCLOUD_SECRET_KEY }}
+        run: >-
+          npm run miniprogram:data:replay-historical-cloud --
+          --rounds=12
+          --env=cloud1-d3gpdx70w5d05c68c
+          --run-id=${{ github.run_id }}-${{ github.run_attempt }}
+      - name: Add report to task summary
+        if: always()
+        shell: bash
+        run: |
+          report="work/historical-correction-replay-cloud/${{ github.run_id }}-${{ github.run_attempt }}/report.json"
+          if [ -f "$report" ]; then
+            echo '```json' >> "$GITHUB_STEP_SUMMARY"
+            cat "$report" >> "$GITHUB_STEP_SUMMARY"
+            echo '```' >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "Historical correction replay failed before producing a report." >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        if: always()
+        with:
+          name: historical-correction-replay-${{ github.run_id }}-${{ github.run_attempt }}
+          path: work/historical-correction-replay-cloud/
+          if-no-files-found: warn
+          retention-days: 90

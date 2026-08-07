@@ -37,11 +37,16 @@ test('historical correction replay completes 12 sequential accepted and fail-clo
     const city = `city${String.fromCharCode(97 + Math.floor(index / 26))}${String.fromCharCode(97 + index % 26)}`
     records.push(record(`2026-${String(index % 12 + 1).padStart(2, '0')}`, city, 100))
   }
+  const observedRounds = []
   const report = await runHistoricalCorrectionReplay({
     records,
     auditVersion: 'full-record-audit-v7',
     commitSha: 'a'.repeat(40),
     rounds: 12,
+    onRound: async (round) => {
+      observedRounds.push(round)
+      return { isolated_cloud_round_trip_verified: true }
+    },
   })
   assert.equal(report.status, 'passed')
   assert.equal(report.replay_count, 12)
@@ -51,4 +56,9 @@ test('historical correction replay completes 12 sequential accepted and fail-clo
     && item.pointer.post_switch_failure_rollback_verified
     && item.pointer.unsafe_rollback_rejected))
   assert(report.replays.some((item) => item.changed_record_count >= 150))
+  assert.equal(observedRounds.length, 12)
+  assert(observedRounds.every((item) => item.request.approval_status === 'approved'
+    && item.candidate_dataset_version !== item.previous_dataset_version))
+  assert.equal(new Set(observedRounds.map((item) => item.registry.generation)).size, 12)
+  assert(report.replays.every((item) => item.cloud_evidence?.isolated_cloud_round_trip_verified === true))
 })

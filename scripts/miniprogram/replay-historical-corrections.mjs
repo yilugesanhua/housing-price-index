@@ -161,7 +161,7 @@ function verifyRunState(state, request) {
   throw new Error('conflict: candidate source dataset version is already bound to another revision')
 }
 
-export async function runHistoricalCorrectionReplay({ records, auditVersion, commitSha, rounds = 12 } = {}) {
+export async function runHistoricalCorrectionReplay({ records, auditVersion, commitSha, rounds = 12, onRound } = {}) {
   assert(Array.isArray(records) && records.length > 0, 'records are required')
   assert(/^[a-f0-9]{40}$/.test(commitSha || ''), 'commit SHA is invalid')
   assert(typeof auditVersion === 'string' && auditVersion.length > 0, 'audit version is required')
@@ -203,6 +203,16 @@ export async function runHistoricalCorrectionReplay({ records, auditVersion, com
     assertTargetNotRevoked(registry, { datasetVersion: candidateDatasetVersion, sourceDatasetVersion: candidateSourceVersion })
     const revokedPrevious = rejected('revoked_version_cannot_restore', () => assertTargetNotRevoked(registry, { datasetVersion: version(100 + round - 1), sourceDatasetVersion: previousData.dataset_version }))
     const pointer = await verifyGuardedPointer({ previousDatasetVersion: version(100 + round - 1), candidateDatasetVersion })
+    const cloudEvidence = onRound ? await onRound({
+      round,
+      request: clone(request),
+      registry: clone(registry),
+      previous_dataset_version: version(100 + round - 1),
+      previous_source_dataset_version: previousData.dataset_version,
+      candidate_dataset_version: candidateDatasetVersion,
+      candidate_source_dataset_version: candidateSourceVersion,
+      pointer: clone(pointer),
+    }) : null
     replays.push({
       round,
       status: 'passed',
@@ -214,6 +224,7 @@ export async function runHistoricalCorrectionReplay({ records, auditVersion, com
       failures: [...failures, revokedPrevious],
       registry_generation: registry.generation,
       pointer,
+      cloud_evidence: cloudEvidence,
       duration_ms: Math.round(performance.now() - startedAt),
     })
     previousData = currentData
