@@ -4,6 +4,24 @@
 
 当前实现基线为 `apps/web/` 和 `apps/miniprogram/`；小程序唯一机器可读源码版本来自 `apps/miniprogram/config/version.js`，截至2026-08-06的当前值为 `v2.5.15`。本行只是当前快照，不是独立版本源。微信开发者工具目录 `70城小程序技术验证/` 是同步副本，源码版本不代表微信平台已经审核或发布。文档入口及当前/历史状态见 [docs/DOCUMENT_INDEX.md](docs/DOCUMENT_INDEX.md)。
 
+## 同事或新电脑首次接手
+
+GitHub 仓库：[`yilugesanhua/housing-price-index`](https://github.com/yilugesanhua/housing-price-index)
+
+推荐用 Git 克隆后，在项目根目录依次运行：
+
+```powershell
+git clone https://github.com/yilugesanhua/housing-price-index.git
+Set-Location ".\housing-price-index"
+npm.cmd ci
+npx.cmd playwright install chromium webkit
+npm.cmd run check
+npm.cmd run test:e2e
+npm.cmd run dev
+```
+
+完整的文件清单、微信开发者工具导入步骤、账号权限移交、禁止上传内容、GitHub大文件风险和个人工作流安装方法见 [项目接手与 GitHub 备份说明](docs/PROJECT_TRANSFER.md)。当前真实完成状态、未验证项和生产风险见 [HANDOFF.md](HANDOFF.md)。
+
 ## 环境
 
 - Node.js 20或更高版本

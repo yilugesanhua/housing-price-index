@@ -1,8 +1,10 @@
 # 70城住宅价格指数项目复盘与后续微信小程序工作流
 
-复盘日期：2026-08-07  
-证据截止：2026-08-07 11:46（北京时间）  
-源码快照：`main@0e43a5ff78ca19da4024edd0a57ba3ca511a1db3`  
+复盘日期：2026-08-07
+
+证据截止：2026-08-07 11:46（北京时间）
+
+源码快照：`main@0e43a5ff78ca19da4024edd0a57ba3ca511a1db3`
 小程序源码版本：以 `apps/miniprogram/config/version.js` 为准；本次复盘读取值为 `v2.5.15`
 
 > 本文是历史复盘、维护指南和候选工作流，不是第二套产品、设计、数据或发布规范。发生冲突时，仍按 [`AGENTS.md`](../AGENTS.md) 和 [`DOCUMENT_INDEX.md`](DOCUMENT_INDEX.md) 指向的当前权威文件执行。本文中的版本、平台状态和测试结果只代表上面的证据截止时间，不能证明未来或当前外部平台状态。
@@ -336,13 +338,13 @@ Codex自动读取项目规则、当前实现、Git状态、版本源、已有测
 
 ## 九、是否适合做成个人Skill
 
-**适合。用户已完成用途、输入输出、频率、错误处理、复用能力、安装位置、辅助脚本和测试样例确认，当前进入设计审核，尚未创建Skill。**
+**适合。用户已完成用途、输入输出、频率、错误处理、复用能力、安装位置、辅助脚本和测试样例确认；Skill现已创建、安装并通过本地自测。**
 
 这套流程已经在一个真实、复杂、跨Web/微信/数据/云端的项目中反复出现，具备复用价值。Skill目标不是“自动替用户做任何项目”，而是：
 
 > 在现有代码项目中，先定界和盘点，再按风险小步实施、分层验证，并用准确状态和证据完成交付；遇到可复发问题时同步固化测试、规范和验收。
 
-计划名称为`verified-dev-workflow`，全局安装到`C:\Users\user\.agents\skills\verified-dev-workflow\`，并使用只记录和检查证据、不修改业务代码或发布的辅助CLI。完整设计见[`VERIFIED_DEV_WORKFLOW_SKILL_DESIGN.md`](VERIFIED_DEV_WORKFLOW_SKILL_DESIGN.md)；该设计获得用户明确批准前，不创建`SKILL.md`或实现脚本。
+个人 Skill 名称为`verified-dev-workflow`，已安装到`C:\Users\user\.agents\skills\verified-dev-workflow\`，并使用只记录和检查证据、不修改业务代码或发布的辅助CLI。2026-08-07现场运行14项自测全部通过；可移机备份位于`tools/codex-skills/verified-dev-workflow/`。完整设计与实现边界见[`VERIFIED_DEV_WORKFLOW_SKILL_DESIGN.md`](VERIFIED_DEV_WORKFLOW_SKILL_DESIGN.md)。
 
 ## 十、交给后续维护人员的一页清单
 

@@ -1,15 +1,15 @@
 # 项目交接文档
 
-> 核验基准：2026-08-07 14:12:59 +08:00；本地分支 `main`，提交 `0e43a5ff78ca19da4024edd0a57ba3ca511a1db3`。本文区分当前源码、历史证据和本次只读外部回查；未现场确认的状态均明确写为“未知”或“未验证”。
+> 核验日期：2026-08-07；本地分支 `main`。本次GitHub交接整理前的本地基线为 `8690e0627967deb37bef6ef01ff944a0edc90947`，当时远端 `origin/main` 为 `0e43a5ff78ca19da4024edd0a57ba3ca511a1db3`；最终交接提交由标签 `project-handoff-2026-08-07` 标识。本文区分当前源码、历史证据和只读外部回查；未现场确认的状态均明确写为“未知”或“未验证”。
 
 ## 1. 项目概况
 
 - 项目名称：70城住宅指数；微信小程序当前对外名称为“住房小二”。
 - 项目用途：展示国家统计局70个大中城市的新建商品住宅和二手住宅价格指数，支持环比、同比、面积档、六城概览、70城比较和长期趋势。项目不展示或估算元/平方米价格，不解释涨跌原因，不提供投资建议。
 - 主要技术：npm workspaces；Web为 Vite + React + TypeScript + ECharts；小程序为原生微信小程序 + wx-f2；数据工具为 Node.js + TypeScript + Cheerio；共享核心位于 `packages/core/`，设计令牌位于 `packages/design-tokens/`。
-- 仓库位置：`C:\Users\user\Desktop\房产数据页面设计`
-- 当前分支：`main`；本次核验时本地 `HEAD` 与 `origin/main` 均为 `0e43a5ff78ca19da4024edd0a57ba3ca511a1db3`。
-- 最后更新时间：2026-08-07 14:12:59 +08:00。
+- 仓库位置：本机为 `C:\Users\user\Desktop\房产数据页面设计`；GitHub为 [`yilugesanhua/housing-price-index`](https://github.com/yilugesanhua/housing-price-index)。
+- 当前分支：`main`；交接整理前本地提交和远端提交见页首核验说明，最终GitHub快照以交接标签为准。
+- 最后更新时间：2026-08-07。
 
 ## 2. 本次交付结论
 
@@ -35,8 +35,8 @@
 
 - 做了什么：实现响应式70城住宅指数页面，包含六城概览、70城市场位置、城市搜索、最多三城趋势比较、环比/同比、新房/二手房、面积档、趋势与累计变化等功能。
 - 相关文件或目录：`apps/web/`、`packages/core/`、`packages/design-tokens/`、`apps/web/public/data/`。
-- 验证方式：当前提交的 GitHub Actions `ci` 运行 `31141986025` 执行 `npm ci`、`npm run check` 和 `npm run test:e2e`。
-- 验证结果：CI成功；Web单元测试18项通过，生产构建成功；Web E2E共40项，39项通过、1项按既有配置跳过。该结果绑定当前提交，不包含本地未提交文档。
+- 验证方式：交接文档整理前的源码提交 `0e43a5ff78ca19da4024edd0a57ba3ca511a1db3` 由 GitHub Actions `ci` 运行 `31141986025` 执行 `npm ci`、`npm run check` 和 `npm run test:e2e`。
+- 验证结果：该次CI成功；Web单元测试18项通过，生产构建成功；Web E2E共40项，39项通过、1项按既有配置跳过。本次交接新增文档和工具备份的独立验证结果记录在第5节。
 
 ### 原生微信小程序
 
@@ -60,7 +60,7 @@
 - 验证结果：
   - 运行 `31137756505` 在提交 `60d3cb38f2bd47694aa1a7c78d674eeb1d1cfb79` 完成36个月普通月度隔离回放，GitHub状态为成功。
   - 运行 `31137756549` 在同一提交完成12轮历史修订回放，GitHub状态为成功。
-  - 当前提交CI运行 `31141986025` 成功。
+  - 源码提交 `0e43a5ff78ca19da4024edd0a57ba3ca511a1db3` 的CI运行 `31141986025` 成功。
   - 2026-08-07本次回查时两个生产授权变量均为 `true`。
   - 当日定时发现运行 `31152416842` 成功；后续自动发布运行 `31152461910` 只完成检查，`prepare`和`publish`均跳过；监测运行 `31152478159` 只完成检查，`monitor`跳过。因此这组运行没有形成“本次已写入生产”的证据。
   - D19仍为 `partial/not_tested`，不能称为无人值守闭环。
@@ -74,20 +74,18 @@
 
 ## 4. 变更文件
 
-本次任务实际只新增本文件，没有修改、删除任何业务代码、配置、数据或部署环境。
+本次项目收尾和GitHub交接累计只修改文档、截图及个人工作流备份，没有修改、删除任何业务代码、业务配置、数据、小程序版本或部署环境。
 
 | 文件路径 | 类型（新增/修改/删除） | 用途 | 是否已验证 |
 |---|---|---|---|
-| `HANDOFF.md` | 新增 | 当前项目交接、验证边界、风险和维护入口 | 是；已对照仓库、Git、CI和只读外部状态 |
-
-进入本轮前工作区已经存在以下未提交改动，本轮未修改、未覆盖，也不能归为本轮交付：
-
-| 文件路径 | 当前Git状态 | 用途 | 本轮验证状态 |
-|---|---|---|---|
-| `docs/DOCUMENT_INDEX.md` | 已修改 | 文档索引；具体修改意图未知 | 未验证 |
-| `docs/screenshots/city-picker-mobile.png` | 已修改 | 城市选择器手机截图 | 未验证 |
-| `docs/MINIPROGRAM_PROJECT_RETROSPECTIVE_AND_WORKFLOW.md` | 未跟踪 | 项目复盘、教训和个人工作流草稿 | 已读取用于线索核对，但未提交且不是权威规范 |
-| `docs/VERIFIED_DEV_WORKFLOW_SKILL_DESIGN.md` | 未跟踪 | 可信开发工作流Skill设计稿 | 已确认文件存在；与当前全局Skill的一致性未验证 |
+| `HANDOFF.md` | 新增、修改 | 当前项目交接、验证边界、风险和维护入口 | 是；已对照仓库、Git、CI和只读外部状态 |
+| `README.md` | 修改 | 增加同事或新电脑首次接手入口 | 是；命令、路径和链接已核对 |
+| `docs/PROJECT_TRANSFER.md` | 新增 | GitHub下载、首次启动、文件边界、外部权限和大文件风险 | 是；已按当前仓库逐项盘点 |
+| `docs/DOCUMENT_INDEX.md` | 修改 | 登记交接说明和已实现的个人工作流 | 是；链接已核对 |
+| `docs/MINIPROGRAM_PROJECT_RETROSPECTIVE_AND_WORKFLOW.md` | 新增、修改 | 项目复盘、Bug、踩坑、教训和后续工作流 | 是；历史结论与当前状态边界已标明 |
+| `docs/VERIFIED_DEV_WORKFLOW_SKILL_DESIGN.md` | 新增、修改 | 个人工作流设计与真实实现状态 | 是；已与全局安装文件和14项自测核对 |
+| `docs/screenshots/city-picker-mobile.png` | 修改 | 复盘所用城市选择器手机截图 | 是；已目视检查，未发现账号信息；PNG未发现文本或EXIF元数据块 |
+| `tools/codex-skills/verified-dev-workflow/` | 新增7个文件 | 可随GitHub迁移的个人Codex工作流源文件 | 是；与本机已安装版本逐文件SHA-256一致，未包含生成缓存 |
 
 ## 5. 启动、测试与构建
 
@@ -95,7 +93,7 @@
 
 ### 清理后的首次使用
 
-本次交接收尾已清理可重新生成的根目录 `node_modules/`、`apps/web/node_modules/`、`apps/web/dist/`，以及 `data/raw/` 下180份未压缩HTML本地缓存。开发服务已经停止；180份 `.html.gz` 官方来源档案和180份 `.batch.json` 批次复现文件均已保留。项目当前约为760.19 MiB，较清理前减少971.21 MiB。
+本次交接收尾已清理可重新生成的根目录 `node_modules/`、`apps/web/node_modules/`、`apps/web/dist/`，以及 `data/raw/` 下180份未压缩HTML本地缓存。开发服务已经停止；180份 `.html.gz` 官方来源档案和180份 `.batch.json` 批次复现文件均已保留。交接整理前Git跟踪834个文件，已读取文件合计至少615,679,058字节；包含中文路径的精确总字节数本次未验证，不用该统计判断下载完整性。
 
 接手同事首次使用时，请在项目根目录依次运行：
 
@@ -148,10 +146,15 @@ npm.cmd run build
 
 - 实际执行结果：
   - 清理前执行 `npm.cmd run dev:status` 时，本地预览运行正常：`http://127.0.0.1:5173/`；交接清理时已停止当时的PID 3780，当前5173端口不再监听。
-  - 当前精确提交的GitHub CI运行 `31141986025` 成功：Web测试18项通过，数据测试59项通过，小程序测试355项通过，发布检查3项通过，100,800条数据校验通过，生产构建成功；E2E为39项通过、1项跳过。
-  - 清理和本次文档更新后没有重新执行本地 `check`、E2E或构建；依赖与构建输出是本次主动清理的可重建内容，接手同事可按上面的“清理后的首次使用”步骤恢复。
+  - 源码提交 `0e43a5ff78ca19da4024edd0a57ba3ca511a1db3` 的GitHub CI运行 `31141986025` 成功：Web测试18项通过，数据测试59项通过，小程序测试355项通过，发布检查3项通过，100,800条数据校验通过，生产构建成功；E2E为39项通过、1项跳过。
+  - 2026-08-07在本机 Node.js `v24.16.0`、npm `11.13.0` 环境从锁文件运行 `npm.cmd ci` 成功，安装393个包；`npx.cmd playwright install chromium webkit` 成功。
+  - 本次交接工作区运行 `npm.cmd run check` 成功：Web测试18项、数据测试59项、小程序测试355项、发布检查3项全部通过，设计令牌一致，100,800条数据校验通过，生产构建成功。
+  - 本次交接工作区运行 `npm.cmd run test:e2e` 成功：桌面Chromium和手机WebKit共40项，39项通过、1项按既有配置跳过。
+  - 仓库备份中的 `verified-dev-workflow` 已现场运行14项自测，全部通过；7个源文件与本机安装版本逐文件SHA-256一致。
+  - 小程序机器版本仍为 `v2.5.15`，版本文件无Git差异；源码与开发者工具副本的39个共同受控文件SHA-256一致，副本另有其受控 `package-lock.json`，两边 `project.config.json` 的AppID、项目名和基础库版本一致。
+  - 精确GitHub交接提交的CI、从GitHub全新克隆复验和Release附件回读尚待本次上传后执行；在结果出现前不得视为已通过。
 - 尚未执行的验证及原因：
-  - 未重新操作桌面和手机浏览器：本次只新增交接文档，没有界面改动。
+  - 已完成自动化桌面和手机浏览器流程，但未另做本轮人工视觉验收或新截图；本次没有界面改动。
   - 未重新编译微信开发者工具、未重新连接Android/iPhone：本次没有小程序构件改动，也没有取得新的设备现场证据。
   - 未登录微信公众平台复核线上版本：本次未执行平台操作；当前实时平台状态仍未验证。
   - 未读取当前腾讯云生产指针或主动回滚：避免无必要接触生产环境；只采用已有只读监测记录。
@@ -206,7 +209,7 @@ npm.cmd run test:e2e
 
 - 当前阻塞点：
   - 不阻塞本地继续维护，但阻塞“项目全部完成”的结论：Web正式上线未知，小程序候选绑定和稳定归档未闭合，当前实时平台/生产数据未现场核验，D19未关闭。
-  - 当前工作区不是干净状态；进入本轮前已有4项未提交改动，接手人必须先确认归属和意图。
+  - 本次GitHub交接整理开始前，本地提交 `8690e0627967deb37bef6ef01ff944a0edc90947` 的工作区干净；接手人在自己电脑上仍必须重新运行 `git status --short`，不能由本次状态推断未来下载后的状态。
 - 已知缺陷：
   - 自动更新文档和治理状态内部冲突。`docs/AUTOMATION_ACTIVATION_CHECKLIST.md` 和 `docs/IMPLEMENTATION_STATUS.md` 顶部登记已启用 `supervised_automation`，但同一清单后文、`docs/MINIPROGRAM_DATA_UPDATE.md`、`docs/MINIPROGRAM_V2_5_15_RELEASE_HANDOFF.md` 仍写开关关闭或 `automation_disabled`；同时仓库规则要求适用硬门槛未取得当前证据时两个开关必须关闭。本次实时回查两个变量确实均为 `true`，但仅凭变量值不能证明全部启用门槛合规关闭。任何生产操作前必须逐项复核硬门槛并统一权威文档；存在不确定项时按失败关闭处理。
   - 当前没有一份经本次实时复核的用户界面缺陷清单；是否仍有其他线上缺陷未知。
@@ -215,10 +218,12 @@ npm.cmd run test:e2e
   - D20中Web和小程序的排名、涨平跌计数、累计变化仍分别实现，尚无固定输入的跨平台逐值一致测试；不得直接迁入共享核心。
   - `docs/RELEASE_READINESS.md` 记录的声明校验仍为 `schema_version: 1`，尚未把声明绑定到精确提交、构建、数据、域名和有效期。
   - `v2.5.15`没有稳定归档，平台证据附件不完整。
+  - 2026-08-07运行 `npm audit` 报告当前完整依赖树21项告警：13项中危、4项高危、4项严重；其中生产依赖范围为2项，分别是传递依赖 `undici` 高危和直接依赖 `echarts` 中危。部分建议修复涉及版本或破坏性升级，本次按项目冻结要求未运行 `npm audit fix`，也未修改依赖或锁文件。
 - 性能、安全、数据或兼容性风险：
   - 两个生产授权变量当前均为 `true`；错误理解旧文档可能导致误操作。自动化仍需按有人监督模式人工巡检。
   - 数据当前只核验到2026-06；下月数据必须继续通过四表白名单、全量重解析、独立审计和发布门禁。
   - 微信开发者工具“构建 npm”和编译缓存可能使实际运行包偏离源码，曾引发Babel运行时缺失和图表异常。
+  - 三个受Git管理的数据JSON均为101,957,189字节，距离GitHub 100 MiB单文件上限只剩2,900,411字节；后续数据增长可能使推送被拒绝，更新数据前必须先检查生成文件大小。
   - 外部GitHub、腾讯云、微信平台、设备和Web域名状态会变化，历史截图或运行ID不能替代操作前现场回读。
 - 影响范围：生产数据更新、微信小程序正式用户、发布/回滚可靠性、后续维护判断；Web上线问题只影响Web公开访问。
 - 建议处理优先级：
@@ -255,7 +260,7 @@ npm.cmd run test:e2e
 
 - 尝试内容：复制完整项目并连续实现三版大范围界面方案。
 - 失败原因或现象：方向未先量化，三版均不满意并删除，预览成本高且没有形成可交付结果。
-- 已有证据：`docs/MINIPROGRAM_PROJECT_RETROSPECTIVE_AND_WORKFLOW.md` 的历史会话复盘；该文件当前未提交，因此只作为过程教训，不作为产品现状证据。
+- 已有证据：`docs/MINIPROGRAM_PROJECT_RETROSPECTIVE_AND_WORKFLOW.md` 的历史会话复盘；该文件只作为过程教训，不作为当前产品或外部平台状态证据。
 - 后续是否禁止重复尝试：**禁止同样流程**。结构性改版必须先明确3至5个目标，用低成本整页稿确认方向后再实现。
 
 ### `REPLAY-001`至`REPLAY-004`自动更新回放绕路
@@ -269,12 +274,12 @@ npm.cmd run test:e2e
 
 1. 下一步建议做什么：先冻结功能，处理交接证据和文档一致性；生产操作前修正自动更新状态冲突，补齐 `v2.5.15`证据和稳定归档，再决定Web是否需要正式上线。不要在收尾阶段新增功能或重构。
 2. 做之前必须先确认什么：
-   - `git status`中的现有4项改动是谁产生、是否保留、是否提交。
+   - `git status --short`是否为空；若有改动，先确认来源、归属和意图。
    - `apps/miniprogram/config/version.js` 的当前值及目标候选提交/ZIP身份。
    - GitHub双开关当前值、当前提交CI、目标云环境、生产指针和待操作工作流。
    - 微信公众平台当前线上版本、构建号、审核状态和正式数据状态。
    - 国家统计局最新月份及来源是否仍符合四类表白名单。
-3. 哪些文件必须先阅读：`AGENTS.md`、本文件、`docs/DOCUMENT_INDEX.md`、`PRODUCT.md`、`DESIGN.md`、`docs/DATA_CONTRACT.md`、`docs/ACCEPTANCE.md`、`docs/MINIPROGRAM_VERSIONING.md`、`docs/MINIPROGRAM_DATA_UPDATE.md`、`docs/AUTOMATION_ACTIVATION_CHECKLIST.md`、`docs/IMPLEMENTATION_STATUS.md`、`docs/MINIPROGRAM_V2_5_15_RELEASE_HANDOFF.md`。
+3. 哪些文件必须先阅读：`AGENTS.md`、本文件、`docs/PROJECT_TRANSFER.md`、`docs/DOCUMENT_INDEX.md`、`PRODUCT.md`、`DESIGN.md`、`docs/DATA_CONTRACT.md`、`docs/ACCEPTANCE.md`、`docs/MINIPROGRAM_VERSIONING.md`、`docs/MINIPROGRAM_DATA_UPDATE.md`、`docs/AUTOMATION_ACTIVATION_CHECKLIST.md`、`docs/IMPLEMENTATION_STATUS.md`、`docs/MINIPROGRAM_V2_5_15_RELEASE_HANDOFF.md`。
 4. 哪些功能不能轻易修改：官方表格白名单和数据口径、唯一版本源、生成数据流程、远程指针/撤销/回滚协议、生产双开关、稳定归档、当前小程序布局和平台差异、Web与小程序分别实现的D20计算。任何页面结构或整体风格调整都要先取得明确批准。
 5. 哪些验证必须在改动后重新执行：
    - 所有代码改动：`npm.cmd run check`、`npm.cmd run test:e2e`。

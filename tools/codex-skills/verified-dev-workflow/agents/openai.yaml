@@ -1,0 +1,4 @@
+interface:
+  display_name: "可信开发工作流"
+  short_description: "用范围保护、分层验证和证据交付可靠完成每一次开发任务"
+  default_prompt: "使用 $verified-dev-workflow 按项目规则定界、保护已有改动、完成验证并给出证据交付。"

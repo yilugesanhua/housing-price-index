@@ -1,0 +1,25 @@
+{
+  "outcome": "complete",
+  "summary": [
+    "更新了README中的启动步骤"
+  ],
+  "evidence": [
+    {
+      "stage": "files-changed",
+      "status": "passed",
+      "detail": "范围检查只发现README.md为本次新增改动"
+    },
+    {
+      "stage": "unit-tests",
+      "status": "passed",
+      "detail": "针对性测试通过，共12项"
+    }
+  ],
+  "usage_steps": [
+    "按README中的步骤启动项目"
+  ],
+  "remaining": [
+    "未部署，也未执行任何线上操作"
+  ],
+  "rollback": []
+}
