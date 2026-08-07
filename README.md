@@ -11,14 +11,17 @@ GitHub 仓库：[`yilugesanhua/housing-price-index`](https://github.com/yilugesa
 推荐用 Git 克隆后，在项目根目录依次运行：
 
 ```powershell
-git clone https://github.com/yilugesanhua/housing-price-index.git
+git -c core.autocrlf=false clone https://github.com/yilugesanhua/housing-price-index.git
 Set-Location ".\housing-price-index"
+git config core.autocrlf false
 npm.cmd ci
 npx.cmd playwright install chromium webkit
 npm.cmd run check
 npm.cmd run test:e2e
 npm.cmd run dev
 ```
+
+前两条Git设置只用于避免Windows把受校验的生成文件换成CRLF换行；第二条只写入这个仓库自己的 `.git/config`，不会修改电脑上的全局Git设置。直接使用GitHub的 `Download ZIP` 不需要这两条设置。
 
 完整的文件清单、微信开发者工具导入步骤、账号权限移交、禁止上传内容、GitHub大文件风险和个人工作流安装方法见 [项目接手与 GitHub 备份说明](docs/PROJECT_TRANSFER.md)。当前真实完成状态、未验证项和生产风险见 [HANDOFF.md](HANDOFF.md)。
 

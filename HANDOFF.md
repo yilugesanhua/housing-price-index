@@ -152,7 +152,11 @@ npm.cmd run build
   - 本次交接工作区运行 `npm.cmd run test:e2e` 成功：桌面Chromium和手机WebKit共40项，39项通过、1项按既有配置跳过。
   - 仓库备份中的 `verified-dev-workflow` 已现场运行14项自测，全部通过；7个源文件与本机安装版本逐文件SHA-256一致。
   - 小程序机器版本仍为 `v2.5.15`，版本文件无Git差异；源码与开发者工具副本的39个共同受控文件SHA-256一致，副本另有其受控 `package-lock.json`，两边 `project.config.json` 的AppID、项目名和基础库版本一致。
-  - 精确GitHub交接提交的CI、从GitHub全新克隆复验和Release附件回读尚待本次上传后执行；在结果出现前不得视为已通过。
+  - GitHub提交 `d1dc8131d4a20bd4f8c25f381543511a01a6303b` 已推送，CI运行 `31158204256` 成功完成 `npm ci`、`npm run check` 和 `npm run test:e2e`。
+  - 第一次从公开HTTPS地址克隆时连接被重置且没有生成目录；强制HTTP/1.1后克隆成功，得到精确提交、842个受控文件和干净工作区。
+  - 该普通Windows克隆继承全局 `core.autocrlf=true`，把两份设计令牌文件检出为CRLF，导致 `design-tokens:check` 失败；字节检查确认原文件为LF，克隆文件全部为CRLF，忽略行尾后无其他差异。README和 `docs/PROJECT_TRANSFER.md` 已改为首次检出前使用 `git -c core.autocrlf=false clone`，并在仓库本地持久化设置。
+  - 按修正命令再次从公开HTTPS地址全新克隆成功：精确提交一致、842个受控文件、工作区干净、仓库本地 `core.autocrlf=false`，两份令牌文件SHA-256与原仓库一致；`npm.cmd ci`、Playwright浏览器安装和 `npm.cmd run check` 全部成功，E2E为39项通过、1项跳过。E2E后 `docs/screenshots/city-picker-mobile.png` 被测试按现有逻辑重写，功能测试没有失败；接手说明已增加测试后检查和有条件恢复截图的步骤。
+  - GitHub Release附件生成、上传和下载回读尚待执行；在结果出现前不得视为已通过。
 - 尚未执行的验证及原因：
   - 已完成自动化桌面和手机浏览器流程，但未另做本轮人工视觉验收或新截图；本次没有界面改动。
   - 未重新编译微信开发者工具、未重新连接Android/iPhone：本次没有小程序构件改动，也没有取得新的设备现场证据。
@@ -213,6 +217,8 @@ npm.cmd run test:e2e
 - 已知缺陷：
   - 自动更新文档和治理状态内部冲突。`docs/AUTOMATION_ACTIVATION_CHECKLIST.md` 和 `docs/IMPLEMENTATION_STATUS.md` 顶部登记已启用 `supervised_automation`，但同一清单后文、`docs/MINIPROGRAM_DATA_UPDATE.md`、`docs/MINIPROGRAM_V2_5_15_RELEASE_HANDOFF.md` 仍写开关关闭或 `automation_disabled`；同时仓库规则要求适用硬门槛未取得当前证据时两个开关必须关闭。本次实时回查两个变量确实均为 `true`，但仅凭变量值不能证明全部启用门槛合规关闭。任何生产操作前必须逐项复核硬门槛并统一权威文档；存在不确定项时按失败关闭处理。
   - 当前没有一份经本次实时复核的用户界面缺陷清单；是否仍有其他线上缺陷未知。
+  - Windows普通 `git clone` 会受用户全局换行设置影响；若 `core.autocrlf=true`，当前严格设计令牌检查会失败。接手人必须使用 `README.md` 和 `docs/PROJECT_TRANSFER.md` 中带 `-c core.autocrlf=false` 的克隆命令，并设置当前仓库的本地值。
+  - E2E测试会按浏览器渲染结果更新3份受Git管理的文档截图；测试可以通过但工作区出现截图改动。没有界面改动时按 `docs/PROJECT_TRANSFER.md` 核对并只恢复对应截图；有真实界面工作时必须保留并人工审查，不能盲目还原。
 - 技术债：
   - D19通知接收、确认超时和恢复闭环未完成。
   - D20中Web和小程序的排名、涨平跌计数、累计变化仍分别实现，尚无固定输入的跨平台逐值一致测试；不得直接迁入共享核心。

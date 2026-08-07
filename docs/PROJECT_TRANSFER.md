@@ -10,14 +10,19 @@
 
 ```powershell
 Set-Location "$env:USERPROFILE\Desktop"
-git clone https://github.com/yilugesanhua/housing-price-index.git
+git -c core.autocrlf=false clone https://github.com/yilugesanhua/housing-price-index.git
 Set-Location ".\housing-price-index"
+git config core.autocrlf false
 git status --short
 ```
 
 最后一条命令没有输出，表示刚下载的工作区没有本地改动。
 
+这里的 `core.autocrlf=false` 很重要：项目的生成文件校验按LF字节比较。2026-08-07实测，普通Windows Git在全局 `core.autocrlf=true` 时会把 `packages/design-tokens/tokens.wxss` 和 `tokens.json` 检出为CRLF，导致 `npm.cmd run check` 报“设计令牌生成文件不是最新版本”；两份文件当时仅换行不同。第一条命令保护首次检出，第二条只把设置保存在当前仓库的 `.git/config`，不会改变其他项目或电脑的全局Git设置。
+
 不使用 Git 时，可打开仓库网页，依次点击 `Code`、`Download ZIP`，解压后在项目文件夹空白处右键并选择“在终端中打开”。这种方式可以运行项目，但不包含 `.git` 版本历史，后续提交代码前仍建议改用 Git 克隆。
+
+如果已经用普通命令克隆并遇到上述设计令牌错误，最稳妥的处理是删除这个刚克隆且尚未开始工作的副本，再严格按本节命令重新克隆。不要运行生成命令覆盖文件，也不要在已有工作内容的目录中执行强制还原。
 
 项目交接 Release：[`project-handoff-2026-08-07`](https://github.com/yilugesanhua/housing-price-index/releases/tag/project-handoff-2026-08-07)。Release 中的项目快照是便于离线备份的副本；日常维护仍以仓库 `main` 分支为准。
 
@@ -54,6 +59,20 @@ npm.cmd run dev
 - `npm.cmd run check` 和 `npm.cmd run test:e2e` 最终退出码为 0。
 - `npm.cmd run dev` 显示本地地址；浏览器打开 `http://127.0.0.1:5173/` 能看到页面。
 - 开发服务占用当前终端；按 `Ctrl+C` 停止。
+
+E2E测试会比较并按需更新 `docs/screenshots/mobile-390x844.png`、`desktop-1440x900.png` 和 `city-picker-mobile.png`。不同浏览器渲染可能让测试通过但截图文件发生变化。测试结束后运行：
+
+```powershell
+git status --short
+```
+
+若本次没有界面改动，且状态中只有上述测试截图变化，可在确认路径后恢复仓库版本：
+
+```powershell
+git restore -- docs/screenshots/mobile-390x844.png docs/screenshots/desktop-1440x900.png docs/screenshots/city-picker-mobile.png
+```
+
+这条恢复命令会丢弃这三份截图的本地变化。已有界面工作、需要保留新截图或状态中还有其他文件时，不要执行；应先确认每项改动的来源。
 
 需要关闭终端后继续预览生产构建时，使用：
 
