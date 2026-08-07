@@ -1,6 +1,6 @@
 # 文档索引与状态
 
-更新日期：2026-08-06
+更新日期：2026-08-07
 
 本文件是项目文档的统一入口。当前产品与界面事实以 `apps/web/` 和 `apps/miniprogram/` 为准；小程序唯一机器可读源码版本来自 `apps/miniprogram/config/version.js`，截至本次整理其值为 `v2.5.15`。本文中的版本文字只是该次整理快照，不是第二版本源。`70城小程序技术验证/` 是同步副本，`release/miniprogram/` 是只读稳定归档。源码版本、历史测试或旧交接单均不等于微信平台已审核或发布。
 
@@ -31,6 +31,8 @@
 | [`AUTOMATION_ACTIVATION_CHECKLIST.md`](AUTOMATION_ACTIVATION_CHECKLIST.md) | 自动更新生产开关启用前的外部事项 |
 | [`IMPLEMENTATION_STATUS.md`](IMPLEMENTATION_STATUS.md) | S/C/D/R/I/V已批准结论、当前实现差距、阻断范围和关闭证据的唯一登记；不另行定义产品或技术规则，定义缺失的历史项目必须明确标为不可复核 |
 | [`MINIPROGRAM_LOCATION_SETUP.md`](MINIPROGRAM_LOCATION_SETUP.md) | 小程序模糊定位、腾讯位置服务、城市匹配和隐私边界配置 |
+| [`MINIPROGRAM_PROJECT_RETROSPECTIVE_AND_WORKFLOW.md`](MINIPROGRAM_PROJECT_RETROSPECTIVE_AND_WORKFLOW.md) | 项目历史复盘、后续小程序维护指南和个人工作流来源；不覆盖当前权威规范或外部平台状态 |
+| [`VERIFIED_DEV_WORKFLOW_SKILL_DESIGN.md`](VERIFIED_DEV_WORKFLOW_SKILL_DESIGN.md) | 全局“可信开发工作流”Skill的第二阶段设计稿；当前等待用户批准，尚未创建Skill或脚本 |
 | [`data/corrections/README.md`](../data/corrections/README.md) | 历史数据修订包规则 |
 | [`release/miniprogram/README.md`](../release/miniprogram/README.md) | 小程序稳定版本归档说明 |
 | [`docs/miniprogram/住房小二-icons/README.md`](miniprogram/住房小二-icons/README.md) | 品牌图标素材说明 |
