@@ -77,7 +77,7 @@ describe("production audit report gate", () => {
     expect(validateAuditReport(report, [batch])).toEqual(expect.arrayContaining([
       "full-record audit parser versions do not match source batches",
       "full-record audit code hash does not match the current verifier",
-      "full-record audit repository commit does not match the current checkout",
+      "full-record audit repository commit is not an ancestor of the current checkout",
       "full-record audit report hash is invalid",
     ]));
   });

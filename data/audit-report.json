@@ -1,10 +1,10 @@
 {
   "schema_version": 2,
   "audit_version": "full-record-audit-v7",
-  "verified_at": "2026-08-05T10:27:10.186Z",
+  "verified_at": "2026-08-07T01:05:41.100Z",
   "verification_method": "automated-full-record-audit-v7: sha256+official-url+metadata+four-table-whitelist+property-type+size-band+locator+raw-cell+schema+numeric-invariants+record-hash-binding+code-and-report-identity",
-  "repository_commit_sha": "fd8ed3685df605daf1063ab7d37550b302544ffc",
-  "audit_code_sha256": "9cccb92bcacc8a5d58fa8a815c38f49eb95704107329d4cf827136945b0dd781",
+  "repository_commit_sha": "f6f25c08b75d364340cee9aaae3640677bdb1f56",
+  "audit_code_sha256": "33a043ac994f55261b2c9a25893fea7f9311eeb9a0289c80a5ae4620768a2090",
   "parser_versions": [
     "official-html-v9-product-housing-only-strict-release-date"
   ],
@@ -1477,5 +1477,5 @@
       "result": "passed"
     }
   ],
-  "report_sha256": "237a0c3c10b4484e51b1102e4b091289cd417e8428e33b3e65893211ccb8c830"
+  "report_sha256": "814711b27f897532171311249c012d84aa2a9c050a53454b5d952c0bdb6ac7e2"
 }

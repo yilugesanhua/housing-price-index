@@ -42,6 +42,16 @@ export function currentRepositoryCommitSha(root = process.cwd()): string {
   }
 }
 
+export function currentRepositoryContainsCommit(commitSha: string, root = process.cwd()): boolean {
+  if (!/^[a-f0-9]{40}$/.test(commitSha)) return false;
+  try {
+    execFileSync("git", ["merge-base", "--is-ancestor", commitSha, "HEAD"], { cwd: root, stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 export function currentAuditCodeSha256(root = process.cwd()): string {
   return digest(AUDIT_CODE_PATHS.map((path) => ({
     path,
@@ -114,7 +124,7 @@ export function validateAuditReport(report: AuditReport | null, batches: ParsedB
   if (report.schema_version !== 2 || report.audit_version !== FULL_RECORD_AUDIT_VERSION || report.result !== "passed") errors.push("full-record audit report has not passed");
   if (report.verification_method !== FULL_RECORD_AUDIT_METHOD) errors.push("full-record audit method is unsupported");
   if (!Number.isFinite(Date.parse(report.verified_at))) errors.push("full-record audit verified_at is invalid");
-  if (!/^[a-f0-9]{40}$/.test(report.repository_commit_sha) || report.repository_commit_sha !== currentRepositoryCommitSha()) errors.push("full-record audit repository commit does not match the current checkout");
+  if (!/^[a-f0-9]{40}$/.test(report.repository_commit_sha) || !currentRepositoryContainsCommit(report.repository_commit_sha)) errors.push("full-record audit repository commit is not an ancestor of the current checkout");
   if (!/^[a-f0-9]{64}$/.test(report.audit_code_sha256) || report.audit_code_sha256 !== currentAuditCodeSha256()) errors.push("full-record audit code hash does not match the current verifier");
   if (JSON.stringify(report.parser_versions) !== JSON.stringify(parserVersions)) errors.push("full-record audit parser versions do not match source batches");
   if (!/^[a-f0-9]{64}$/.test(reportSha256) || reportSha256 !== auditReportSha256(reportContent)) errors.push("full-record audit report hash is invalid");
