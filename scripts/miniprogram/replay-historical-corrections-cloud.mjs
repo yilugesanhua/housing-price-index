@@ -136,16 +136,21 @@ async function pointerRehearsal({ cloud, pointerKey, previous, candidate, eviden
 }
 
 async function main() {
-  const [{ stdout }, dataText, auditText, workflowText] = await Promise.all([
+  const [{ stdout }, dataText, manifestText, auditText, workflowText] = await Promise.all([
     execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }),
     readFile(resolve(root, 'apps/web/public/data/data.json'), 'utf8'),
+    readFile(resolve(root, 'apps/web/public/data/manifest.json'), 'utf8'),
     readFile(resolve(root, 'data/audit-report.json'), 'utf8'),
     readFile(resolve(root, '.github/workflows/historical-correction-replay.yml'), 'utf8'),
   ])
   const data = JSON.parse(dataText)
+  const manifest = JSON.parse(manifestText)
   const audit = JSON.parse(auditText)
   const appVersion = require(resolve(root, 'apps/miniprogram/config/version.js')).version
   const sourceCommitSha = stdout.trim()
+  const sourceDatasetVersion = manifest.source_dataset_version
+  assert(/^20\d{2}-(0[1-9]|1[0-2])-[a-f0-9]{12}$/.test(sourceDatasetVersion || ''), 'manifest source dataset version is invalid')
+  assert.equal(manifest.dataset_version, data.dataset_version, 'manifest and web data versions differ')
   const workflowFileSha256 = sha256(workflowText)
   const cloud = createTencentCloudClient({ cloudEnvId })
   const prefix = `housing-data/rehearsals/${runId}/historical-corrections/`
@@ -169,7 +174,7 @@ async function main() {
           round,
           app_version: appVersion,
           source_commit_sha: sourceCommitSha,
-          source_dataset_version: data.source_dataset_version,
+          source_dataset_version: sourceDatasetVersion,
           parser_version: data.records[0].parser_version,
           audit_version: audit.audit_version,
           workflow_file_sha256: workflowFileSha256,
@@ -201,7 +206,7 @@ async function main() {
     prefix,
     app_version: appVersion,
     source_commit_sha: sourceCommitSha,
-    source_dataset_version: data.source_dataset_version,
+    source_dataset_version: sourceDatasetVersion,
     parser_version: data.records[0].parser_version,
     audit_version: audit.audit_version,
     workflow_file_sha256: workflowFileSha256,

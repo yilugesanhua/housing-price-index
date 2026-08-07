@@ -265,6 +265,8 @@ test('historical correction replay is manual, isolated, and cannot affect produc
   assert.match(script, /production_release_prefix_untouched: true/)
   assert.match(script, /workflow_file_sha256/)
   assert.match(script, /github_run_id/)
+  assert.match(script, /apps\/web\/public\/data\/manifest\.json/)
+  assert.match(script, /sourceDatasetVersion = manifest\.source_dataset_version/)
 })
 
 test('manual corrected-data publication is narrowly locked behind both production switches', () => {
