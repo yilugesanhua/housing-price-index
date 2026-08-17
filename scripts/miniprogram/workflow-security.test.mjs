@@ -65,10 +65,13 @@ test('publisher is triggered only by the named discovery workflow', () => {
   assert.match(publisher, /actions\/workflows\/ci\.yml\/runs/)
 })
 
-test('discovery schedule concentrates checks around the official 09:30 release', () => {
+test('discovery schedule covers both the 09:30 and 15:00 official release windows', () => {
   assert.match(discovery, /cron: "27,32,37,42,47,52,57 1 10-22 \* \*"/)
   assert.match(discovery, /cron: "2,7,12,17,22,27,30 2 10-22 \* \*"/)
-  assert.match(discovery, /cron: "0 4,8 10-22 \* \*"/)
+  assert.match(discovery, /cron: "57 6 10-22 \* \*"/)
+  assert.match(discovery, /cron: "2,7,12,17,22,27,32,37,42,47,52,57 7 10-22 \* \*"/)
+  assert.match(discovery, /cron: "0 8 10-22 \* \*"/)
+  assert.match(discovery, /cron: "0 4,9 10-22 \* \*"/)
   assert.doesNotMatch(discovery, /7,37 0-9 10-22/)
 })
 
