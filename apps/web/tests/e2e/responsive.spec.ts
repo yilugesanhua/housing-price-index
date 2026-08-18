@@ -74,8 +74,12 @@ test("keeps the page and chart stable across required viewports", async ({ page 
       expect(state.topbarPosition, "landscape topbar does not consume sticky height").toBe("relative");
       expect(state.analysisNavLinksDisplay, "landscape prioritizes filters over section shortcuts").toBe("none");
     }
-    if (testInfo.project.name === "desktop" && viewport.name === "phone-390") await saveScreenshot(page, "../../docs/screenshots/mobile-390x844.png", { fullPage: true });
-    if (testInfo.project.name === "desktop" && viewport.name === "desktop-1440") await saveScreenshot(page, "../../docs/screenshots/desktop-1440x900.png", { fullPage: true });
+    if (testInfo.project.name === "desktop" && viewport.name === "phone-390") {
+      await saveScreenshot(page, testInfo.outputPath("screenshots/mobile-390x844.png"), { fullPage: true });
+    }
+    if (testInfo.project.name === "desktop" && viewport.name === "desktop-1440") {
+      await saveScreenshot(page, testInfo.outputPath("screenshots/desktop-1440x900.png"), { fullPage: true });
+    }
   }
 });
 

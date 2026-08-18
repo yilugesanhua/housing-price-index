@@ -17,7 +17,7 @@ test('allows only generated source, normalized, public, snapshot, and pending fi
   assert.deepEqual(validateCandidatePaths(valid, '2026-07'), [...valid].sort())
 })
 
-for (const path of ['scripts/data/publish.ts', '.github/workflows/ci.yml', 'apps/miniprogram/pages/home/index.js', 'package-lock.json', 'data/raw/2026-07/source.html']) {
+for (const path of ['scripts/data/publish.ts', '.github/workflows/ci.yml', 'apps/miniprogram/pages/home/index.js', 'package-lock.json', 'data/raw/2026-07/source.html', 'docs/screenshots/desktop-1440x900.png']) {
   test(`rejects non-generated candidate path ${path}`, () => {
     assert.throws(() => validateCandidatePaths([...valid, path], '2026-07'), /not allowlisted/)
   })
