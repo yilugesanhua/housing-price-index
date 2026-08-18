@@ -72,9 +72,9 @@ function completeFixture() {
     paddingMonths.push(date.toISOString().slice(0, 7))
   }
   snapshot.months = [...paddingMonths, ...snapshot.months]
-  snapshot.coverageStart = '2011-07'
-  snapshot.sourceCoverageStart = '2011-07'
-  snapshot.releaseDates = [...Array(60).fill('2011-07-18'), ...snapshot.releaseDates]
+  snapshot.coverageStart = paddingMonths[0]
+  snapshot.sourceCoverageStart = paddingMonths[0]
+  snapshot.releaseDates = [...Array(60).fill(`${addMonths(paddingMonths[0])}-17`), ...snapshot.releaseDates]
   for (const cityId of snapshot.cityIds) {
     for (const code of Object.keys(snapshot.series[cityId])) snapshot.series[cityId][code] = [...Array(60 * 4).fill(null), ...snapshot.series[cityId][code]]
   }
@@ -371,9 +371,9 @@ function createWxMock(release, options = {}) {
   }
 }
 
-function correctionRelease() {
+function correctionRelease(base = correctionBaseSnapshot()) {
   const corrected = {
-    ...bundled,
+    ...base,
     datasetVersion: '2026-06-222222222222',
     sourceDatasetVersion: '2026-06-333333333333',
   }
@@ -385,8 +385,8 @@ function correctionRelease() {
     sourceBatchIds: ['official-html-test-corrected'],
     correction: {
       revision_id: 'revision-2026-06-audited-fix', revision_type: 'historical_data_correction', approval_status: 'approved',
-      dataset_as_of: '2026-06', supersedes_source_dataset_version: bundled.sourceDatasetVersion, source_dataset_version: corrected.sourceDatasetVersion,
-      source_version_chain: [bundled.sourceDatasetVersion, corrected.sourceDatasetVersion], revoked_source_dataset_versions: [bundled.sourceDatasetVersion],
+      dataset_as_of: '2026-06', supersedes_source_dataset_version: base.sourceDatasetVersion, source_dataset_version: corrected.sourceDatasetVersion,
+      source_version_chain: [base.sourceDatasetVersion, corrected.sourceDatasetVersion], revoked_source_dataset_versions: [base.sourceDatasetVersion],
       reason: '国家统计局官方原始表经全量复核后的历史数据修订', official_urls: ['https://www.stats.gov.cn/source'],
       source_batch_ids: ['official-html-test-corrected'], parser_version: 'official-html-v7-product-housing-only', audit_version: 'full-record-audit-v4',
       audit_report_sha256: 'a'.repeat(64), commit_sha: 'b'.repeat(40), github_run_id: '12345',
@@ -400,8 +400,8 @@ function correctionRelease() {
   const registry = appendHistoricalCorrectionRevocations(
     createRevocationRegistry({ generatedAt: '2026-07-20T00:00:00.000Z' }),
     {
-      datasetVersion: bundled.datasetVersion,
-      sourceDatasetVersion: bundled.sourceDatasetVersion,
+      datasetVersion: base.datasetVersion,
+      sourceDatasetVersion: base.sourceDatasetVersion,
       revokedAt: '2026-07-20T00:15:00.000Z',
       revisionId,
       replacementDatasetVersion: release.current.dataset_version,
@@ -409,22 +409,32 @@ function correctionRelease() {
       reason: 'official historical correction superseded the audited package and source',
     },
   )
-  return attachControl(release, {
+  const controlled = attachControl(release, {
     registry,
     transitionType: 'historical_correction',
-    supersededDatasetVersion: bundled.datasetVersion,
-    supersededSourceDatasetVersion: bundled.sourceDatasetVersion,
+    supersededDatasetVersion: base.datasetVersion,
+    supersededSourceDatasetVersion: base.sourceDatasetVersion,
   })
+  controlled.correctionBundled = base
+  return controlled
+}
+
+function addMonths(month, count = 1) {
+  const date = new Date(`${month}-01T00:00:00.000Z`)
+  date.setUTCMonth(date.getUTCMonth() + count)
+  return date.toISOString().slice(0, 7)
 }
 
 function nextMonthSnapshot() {
   const snapshot = structuredClone(bundled)
-  snapshot.months = [...snapshot.months.slice(1), '2026-07']
-  snapshot.releaseDates = [...snapshot.releaseDates.slice(1), '2026-08-17']
-  snapshot.datasetAsOf = '2026-07'
-  snapshot.datasetVersion = '2026-07-111111111111'
-  snapshot.sourceDatasetVersion = '2026-07-111111111111'
-  snapshot.releaseDate = '2026-08-17'
+  const nextMonth = addMonths(snapshot.datasetAsOf)
+  const releaseDate = `${addMonths(nextMonth)}-17`
+  snapshot.months = [...snapshot.months.slice(1), nextMonth]
+  snapshot.releaseDates = [...snapshot.releaseDates.slice(1), releaseDate]
+  snapshot.datasetAsOf = nextMonth
+  snapshot.datasetVersion = `${nextMonth}-111111111111`
+  snapshot.sourceDatasetVersion = `${nextMonth}-111111111111`
+  snapshot.releaseDate = releaseDate
   snapshot.coverageStart = snapshot.months[0]
   return snapshot
 }
@@ -453,6 +463,14 @@ function snapshotForMonth(datasetAsOf, sourceHash) {
     releaseDate: `${releaseDate.toISOString().slice(0, 7)}-17`,
     coverageStart: months[0],
   }
+}
+
+function correctionBaseSnapshot() {
+  return snapshotForMonth('2026-06', '000000000000')
+}
+
+function createCorrectionRuntime(release, mock, options = {}) {
+  return createDataRuntime({ wxApi: mock.wxApi, bundled: release.correctionBundled, ...options })
 }
 
 function snapshotWithNullPreSourcePadding() {
@@ -501,7 +519,7 @@ test('v2 complete remote package activates atomically without city shards and su
   assert.equal(result.updated, true)
   assert.equal(runtime.getSource(), 'remote')
   assert.equal(runtime.getSnapshot().months.length, 180)
-  assert.equal(runtime.getSnapshot().coverageStart, '2011-07')
+  assert.equal(runtime.getSnapshot().coverageStart, release.manifest.coverage_start)
   assert.equal(mock.stats.downloads, 3)
   assert.ok(mock.stats.nextTicks > 30, 'large complete-package cache verification should yield to AppService')
   assert.ok(mock.files.has(`/user/housing-data/${release.current.dataset_version}/complete-snapshot.json`))
@@ -786,8 +804,8 @@ test('a structurally invalid bundled snapshot fails closed before page calculati
     ['untrusted official URL', (snapshot) => { snapshot.latestOfficialUrl = 'https://example.com/not-official' }],
     ['missing source coverage start', (snapshot) => { delete snapshot.sourceCoverageStart }],
     ['invalid source coverage start', (snapshot) => { snapshot.sourceCoverageStart = '2016-13' }],
-    ['source coverage starts after the client window', (snapshot) => { snapshot.sourceCoverageStart = '2026-07' }],
-    ['pre-source padding contains a data value', (snapshot) => { snapshot.sourceCoverageStart = '2016-08' }],
+    ['source coverage starts after the client window', (snapshot) => { snapshot.sourceCoverageStart = snapshot.months.at(-1) }],
+    ['pre-source padding contains a data value', (snapshot) => { snapshot.sourceCoverageStart = snapshot.months[1] }],
   ]
   for (const [label, mutate] of mutations) {
     await t.test(label, () => {
@@ -814,8 +832,8 @@ test('a bundled snapshot accepts only null padding before a later in-window sour
 test('same-month remote conflicts cannot replace the audited bundled snapshot or hydrate from cache', async () => {
   const conflictingSnapshot = {
     ...bundled,
-    datasetVersion: '2026-06-000000000000',
-    sourceDatasetVersion: '2026-06-000000000000',
+    datasetVersion: `${bundled.datasetAsOf}-000000000000`,
+    sourceDatasetVersion: `${bundled.datasetAsOf}-000000000000`,
   }
   const release = makeRelease(versionConfig.version, conflictingSnapshot)
   const mock = createWxMock(release)
@@ -861,14 +879,7 @@ test('an older same-source remote package and cache quietly keep the newer bundl
 })
 
 test('same-month conflict is rejected against a newer active remote month, not only against bundled data', async () => {
-  const newer = structuredClone(bundled)
-  newer.months = [...newer.months.slice(1), '2026-07']
-  newer.coverageStart = newer.months[0]
-  newer.releaseDates = [...newer.releaseDates.slice(1), '2026-08-17']
-  newer.datasetAsOf = '2026-07'
-  newer.datasetVersion = '2026-07-111111111111'
-  newer.sourceDatasetVersion = '2026-07-111111111111'
-  newer.releaseDate = '2026-08-17'
+  const newer = nextMonthSnapshot()
   const first = makeRelease(versionConfig.version, newer)
   const mock = createWxMock(first)
   const runtime = createDataRuntime({ wxApi: mock.wxApi, bundled })
@@ -876,8 +887,8 @@ test('same-month conflict is rejected against a newer active remote month, not o
 
   const conflicting = {
     ...newer,
-    datasetVersion: '2026-07-222222222222',
-    sourceDatasetVersion: '2026-07-222222222222',
+    datasetVersion: `${newer.datasetAsOf}-222222222222`,
+    sourceDatasetVersion: `${newer.datasetAsOf}-222222222222`,
   }
   const second = makeRelease(versionConfig.version, conflicting)
   const secondMock = createWxMock(second, { files: mock.files, storage: mock.storage })
@@ -890,14 +901,14 @@ test('same-month conflict is rejected against a newer active remote month, not o
 test('valid same-month audited correction activates atomically and revokes the superseded source', async () => {
   const release = correctionRelease()
   const mock = createWxMock(release)
-  const runtime = createDataRuntime({ wxApi: mock.wxApi, bundled })
+  const runtime = createCorrectionRuntime(release, mock)
   const result = await runtime.refresh({ force: true })
   assert.equal(result.updated, true)
   assert.equal(runtime.getSource(), 'remote')
   assert.equal(mock.stats.downloads, 4)
-  assert.deepEqual(runtimeState(mock).control.revokedSourceDatasetVersions, [bundled.sourceDatasetVersion])
+  assert.deepEqual(runtimeState(mock).control.revokedSourceDatasetVersions, [release.correctionBundled.sourceDatasetVersion])
   assert.equal(runtimeState(mock).active.cachedCityIds.length, 70)
-  const restored = createDataRuntime({ wxApi: mock.wxApi, bundled })
+  const restored = createCorrectionRuntime(release, mock)
   assert.equal(restored.getSource(), 'remote')
 })
 
@@ -910,18 +921,18 @@ test('broken correction chains, damaged revision manifests, and revoked downgrad
   broken.manifestText = `${JSON.stringify(broken.manifest)}\n`
   broken.current.manifest_sha256 = createHash('sha256').update(broken.manifestText).digest('hex')
   const brokenMock = createWxMock(broken)
-  assert.equal((await createDataRuntime({ wxApi: brokenMock.wxApi, bundled }).refresh({ force: true })).reason, 'failed')
+  assert.equal((await createCorrectionRuntime(broken, brokenMock).refresh({ force: true })).reason, 'failed')
 
   const damaged = correctionRelease()
   const damagedFiles = cloudFiles(damaged)
   damagedFiles.set(damaged.manifest.revision_manifest_file_id, `${damaged.revisionManifestText} `)
   const damagedMock = createWxMock(damaged, { remote: damagedFiles })
-  assert.equal((await createDataRuntime({ wxApi: damagedMock.wxApi, bundled }).refresh({ force: true })).reason, 'failed')
+  assert.equal((await createCorrectionRuntime(damaged, damagedMock).refresh({ force: true })).reason, 'failed')
 
   const monthly = makeRelease()
   const revoked = createWxMock(monthly)
-  revoked.storage.set(REVOKED_SOURCES_KEY, [bundled.sourceDatasetVersion])
-  const revokedRuntime = createDataRuntime({ wxApi: revoked.wxApi, bundled })
+  revoked.storage.set(REVOKED_SOURCES_KEY, [broken.correctionBundled.sourceDatasetVersion])
+  const revokedRuntime = createDataRuntime({ wxApi: revoked.wxApi, bundled: broken.correctionBundled })
   assert.equal(revokedRuntime.getSource(), 'unavailable')
   assert.equal(revokedRuntime.getSnapshot().dataStatus, 'unavailable')
   assert.deepEqual(revokedRuntime.getSnapshot().series, {})
@@ -932,7 +943,7 @@ test('broken correction chains, damaged revision manifests, and revoked downgrad
 test('a bundled revocation survives main-state persistence failure and restart', async () => {
   const correction = correctionRelease()
   const failing = createWxMock(correction, { failStorage: (key) => key === STATE_KEY })
-  const failingRuntime = createDataRuntime({ wxApi: failing.wxApi, bundled })
+  const failingRuntime = createCorrectionRuntime(correction, failing)
   assert.equal((await failingRuntime.refresh({ force: true })).reason, 'failed')
   assert.equal(failingRuntime.getSource(), 'unavailable')
   assert.equal(failing.storage.has(CONTROL_TOMBSTONE_KEY), true)
@@ -943,7 +954,7 @@ test('a bundled revocation survives main-state persistence failure and restart',
     remote: failing.remote,
     functionError: new Error('offline'),
   })
-  const restored = createDataRuntime({ wxApi: offline.wxApi, bundled })
+  const restored = createCorrectionRuntime(correction, offline)
   assert.equal(restored.getSource(), 'unavailable')
   assert.equal(restored.getSnapshot().dataStatus, 'unavailable')
   assert.equal((await restored.refresh({ force: true })).reason, 'failed')
@@ -954,7 +965,7 @@ test('a control tombstone write failure immediately stops revoked bundled and re
   await t.test('bundled source', async () => {
     const correction = correctionRelease()
     const mock = createWxMock(correction, { failStorage: (key) => key === CONTROL_TOMBSTONE_KEY })
-    const runtime = createDataRuntime({ wxApi: mock.wxApi, bundled })
+    const runtime = createCorrectionRuntime(correction, mock)
 
     const result = await runtime.refresh({ force: true })
     assert.equal(result.reason, 'failed')
@@ -1004,7 +1015,7 @@ test('revocation persistence failures rebuild and retain a verified remote fallb
   const initialRuntime = createDataRuntime({ wxApi: initial.wxApi, bundled })
   assert.equal((await initialRuntime.refresh({ force: true })).updated, true)
 
-  const second = attachControl(makeRelease(versionConfig.version, snapshotForMonth('2026-08', '222222222222')), {
+  const second = attachControl(makeRelease(versionConfig.version, snapshotForMonth(addMonths(bundled.datasetAsOf, 2), '222222222222')), {
     registry: first.revocationArtifact.registry,
     controlGeneration: 2,
   })
@@ -1061,7 +1072,7 @@ test('an authorized rollback revokes an active newer month and survives restart 
   const mock = createWxMock(badRelease)
   const runtime = createDataRuntime({ wxApi: mock.wxApi, bundled })
   assert.equal((await runtime.refresh({ force: true })).updated, true)
-  assert.equal(runtime.getSnapshot().datasetAsOf, '2026-07')
+  assert.equal(runtime.getSnapshot().datasetAsOf, addMonths(bundled.datasetAsOf))
 
   const safeRelease = makeRelease()
   const rollbackRegistry = appendRollbackRevocations(badRelease.revocationArtifact.registry, {
@@ -1244,9 +1255,9 @@ test('a revoked remote cache cannot revive when pending rollback state persisten
 test('a malformed or unreadable tombstone cannot remove revocations from the main state', async (t) => {
   const correction = correctionRelease()
   const original = createWxMock(correction)
-  const originalRuntime = createDataRuntime({ wxApi: original.wxApi, bundled })
+  const originalRuntime = createCorrectionRuntime(correction, original)
   assert.equal((await originalRuntime.refresh({ force: true })).updated, true)
-  assert.deepEqual(runtimeState(original).control.revokedSourceDatasetVersions, [bundled.sourceDatasetVersion])
+  assert.deepEqual(runtimeState(original).control.revokedSourceDatasetVersions, [correction.correctionBundled.sourceDatasetVersion])
 
   const cases = [
     ['missing revocation', (storage) => {
@@ -1277,7 +1288,7 @@ test('a malformed or unreadable tombstone cannot remove revocations from the mai
       const runtime = createDataRuntime({ wxApi: mock.wxApi, bundled })
       assert.equal(runtime.getSource(), 'unavailable')
       assert.equal(runtime.getSnapshot().dataStatus, 'unavailable')
-      assert.deepEqual(storage.get(STATE_KEY).control.revokedSourceDatasetVersions, [bundled.sourceDatasetVersion])
+      assert.deepEqual(storage.get(STATE_KEY).control.revokedSourceDatasetVersions, [correction.correctionBundled.sourceDatasetVersion])
     })
   }
 
@@ -1289,7 +1300,7 @@ test('a malformed or unreadable tombstone cannot remove revocations from the mai
     tombstone.control.revokedSourceDatasetEntries = []
     storage.set(CONTROL_TOMBSTONE_KEY, tombstone)
     const mock = createWxMock(correction, { files: original.files, storage, remote: original.remote })
-    const runtime = createDataRuntime({ wxApi: mock.wxApi, bundled })
+    const runtime = createDataRuntime({ wxApi: mock.wxApi, bundled: correction.correctionBundled })
     assert.equal(runtime.getSource(), 'unavailable')
     assert.equal(runtime.getSnapshot().dataStatus, 'unavailable')
   })
@@ -1301,7 +1312,7 @@ test('a verified unrevoked fallback remains active while a rollback target is co
   const runtime = createDataRuntime({ wxApi: mock.wxApi, bundled })
   assert.equal((await runtime.refresh({ force: true })).updated, true)
 
-  const second = attachControl(makeRelease(versionConfig.version, snapshotForMonth('2026-08', '222222222222')), {
+  const second = attachControl(makeRelease(versionConfig.version, snapshotForMonth(addMonths(bundled.datasetAsOf, 2), '222222222222')), {
     registry: first.revocationArtifact.registry,
     controlGeneration: 2,
   })
@@ -1342,7 +1353,7 @@ test('a newly revoked bundled source becomes unavailable immediately when its re
   const correctedRelease = correctionRelease()
   const mock = createWxMock(correctedRelease)
   mock.remote.set(correctedRelease.current.manifest_file_id, `${correctedRelease.manifestText} `)
-  const runtime = createDataRuntime({ wxApi: mock.wxApi, bundled })
+  const runtime = createCorrectionRuntime(correctedRelease, mock)
 
   const result = await runtime.refresh({ force: true })
   assert.equal(result.reason, 'failed')
@@ -1350,7 +1361,7 @@ test('a newly revoked bundled source becomes unavailable immediately when its re
   assert.equal(runtime.getSource(), 'unavailable')
   assert.equal(runtime.getSnapshot().dataStatus, 'unavailable')
   assert.equal(runtimeState(mock).status, 'pending-rollback')
-  assert.deepEqual(runtimeState(mock).control.revokedSourceDatasetVersions, [bundled.sourceDatasetVersion])
+  assert.deepEqual(runtimeState(mock).control.revokedSourceDatasetVersions, [correctedRelease.correctionBundled.sourceDatasetVersion])
 })
 
 test('an ordinary older pointer cannot masquerade as a rollback after verified control state exists', async () => {
@@ -1437,7 +1448,7 @@ test('an exact controlled rollback can activate a target earlier than the bundle
   const runtime = createDataRuntime({ wxApi: mock.wxApi, bundled })
   assert.equal((await runtime.refresh({ force: true })).updated, true)
 
-  const safeRelease = makeRelease(versionConfig.version, snapshotForMonth('2026-05', '555555555555'))
+  const safeRelease = makeRelease(versionConfig.version, snapshotForMonth(addMonths(bundled.datasetAsOf, -1), '555555555555'))
   const registry = appendRollbackRevocations(badRelease.revocationArtifact.registry, {
     failedRelease: badRelease,
     targetRelease: safeRelease,
@@ -1456,9 +1467,9 @@ test('an exact controlled rollback can activate a target earlier than the bundle
   const result = await runtime.refresh({ force: true })
   assert.equal(result.updated, true)
   assert.equal(runtime.getSource(), 'remote')
-  assert.equal(runtime.getSnapshot().datasetAsOf, '2026-05')
+  assert.equal(runtime.getSnapshot().datasetAsOf, addMonths(bundled.datasetAsOf, -1))
   assert.equal(runtimeState(mock).active.datasetVersion, safeRelease.current.dataset_version)
-  assert.equal(createDataRuntime({ wxApi: mock.wxApi, bundled }).getSnapshot().datasetAsOf, '2026-05')
+  assert.equal(createDataRuntime({ wxApi: mock.wxApi, bundled }).getSnapshot().datasetAsOf, addMonths(bundled.datasetAsOf, -1))
 })
 
 test('a fresh strict validation receipt authorizes new data after the static control window expires', async () => {
@@ -1521,13 +1532,13 @@ test('a known bundled revocation remains unavailable while offline even after co
   attachControl(correctedRelease, {
     registry: correctedRelease.revocationArtifact.registry,
     transitionType: 'historical_correction',
-    supersededDatasetVersion: bundled.datasetVersion,
-    supersededSourceDatasetVersion: bundled.sourceDatasetVersion,
+    supersededDatasetVersion: correctedRelease.correctionBundled.datasetVersion,
+    supersededSourceDatasetVersion: correctedRelease.correctionBundled.sourceDatasetVersion,
     ...controlWindow(now),
   })
   const mock = createWxMock(correctedRelease, { receiptNow: now })
   mock.remote.set(correctedRelease.current.manifest_file_id, `${correctedRelease.manifestText} `)
-  const runtime = createDataRuntime({ wxApi: mock.wxApi, bundled, now: () => now })
+  const runtime = createDataRuntime({ wxApi: mock.wxApi, bundled: correctedRelease.correctionBundled, now: () => now })
   assert.equal((await runtime.refresh({ force: true })).reason, 'failed')
   assert.equal(runtime.getSource(), 'unavailable')
 
@@ -1538,7 +1549,7 @@ test('a known bundled revocation remains unavailable while offline even after co
     remote: mock.remote,
     functionError: new Error('offline'),
   })
-  const restored = createDataRuntime({ wxApi: offline.wxApi, bundled, now: () => expiredAt })
+  const restored = createDataRuntime({ wxApi: offline.wxApi, bundled: correctedRelease.correctionBundled, now: () => expiredAt })
   assert.equal(restored.getSource(), 'unavailable')
   assert.equal((await restored.refresh({ force: true })).reason, 'failed')
   assert.equal(restored.getSource(), 'unavailable')
@@ -1599,12 +1610,12 @@ test('restart cleanup removes temporary and unreferenced version directories', (
 })
 
 test('three successful releases retain only the active package and one verified fallback', async () => {
-  const first = attachControl(makeRelease(versionConfig.version, snapshotForMonth('2026-07', '111111111111')), { controlGeneration: 1 })
+  const first = attachControl(makeRelease(versionConfig.version, snapshotForMonth(addMonths(bundled.datasetAsOf, 1), '111111111111')), { controlGeneration: 1 })
   const mock = createWxMock(first)
   const runtime = createDataRuntime({ wxApi: mock.wxApi, bundled })
   assert.equal((await runtime.refresh({ force: true })).updated, true)
 
-  const second = attachControl(makeRelease(versionConfig.version, snapshotForMonth('2026-08', '222222222222')), {
+  const second = attachControl(makeRelease(versionConfig.version, snapshotForMonth(addMonths(bundled.datasetAsOf, 2), '222222222222')), {
     registry: first.revocationArtifact.registry,
     controlGeneration: 2,
   })
@@ -1612,7 +1623,7 @@ test('three successful releases retain only the active package and one verified 
   mock.setCurrent(second.current)
   assert.equal((await runtime.refresh({ force: true })).updated, true)
 
-  const third = attachControl(makeRelease(versionConfig.version, snapshotForMonth('2026-09', '333333333333')), {
+  const third = attachControl(makeRelease(versionConfig.version, snapshotForMonth(addMonths(bundled.datasetAsOf, 3), '333333333333')), {
     registry: first.revocationArtifact.registry,
     controlGeneration: 3,
   })
@@ -1744,7 +1755,7 @@ test('clearing remote pointers removes active and fallback caches and stays bund
   const mock = createWxMock(first)
   const runtime = createDataRuntime({ wxApi: mock.wxApi, bundled })
   assert.equal((await runtime.refresh({ force: true })).updated, true)
-  const second = attachControl(makeRelease(versionConfig.version, snapshotForMonth('2026-08', '222222222222')), {
+  const second = attachControl(makeRelease(versionConfig.version, snapshotForMonth(addMonths(bundled.datasetAsOf, 2), '222222222222')), {
     registry: first.revocationArtifact.registry,
     controlGeneration: 2,
   })

@@ -43,10 +43,32 @@ const legacyCurrent = JSON.parse(legacyCurrentText)
 const legacyManifest = JSON.parse(legacyManifestText)
 const legacyBootstrap = JSON.parse(legacyBootstrapText)
 const bundledAtMigration = {
-  ...clone(bundled),
+  ...clone(legacyBootstrap),
   datasetVersion: descriptor.source_dataset_version,
   sourceDatasetVersion: descriptor.source_dataset_version,
+  coverageStart: descriptor.client_coverage_start,
+  sourceCoverageStart: descriptor.legacy_source_coverage_start,
   generatedAt: legacyManifest.generated_at,
+}
+
+function configuredBundledFixture() {
+  const snapshot = clone(bundled)
+  const targetIndex = snapshot.months.indexOf(descriptor.dataset_as_of)
+  assert(targetIndex >= 0, 'configured bundled fixture month is missing')
+  const shift = snapshot.months.length - 1 - targetIndex
+  const paddingMonths = Array.from({ length: shift }, (_, index) => addMonths(snapshot.months[0], index - shift))
+  snapshot.months = [...paddingMonths, ...snapshot.months.slice(0, targetIndex + 1)]
+  snapshot.releaseDates = [...paddingMonths.map((month) => `${addMonths(month, 1)}-18`), ...snapshot.releaseDates.slice(0, targetIndex + 1)]
+  for (const city of Object.values(snapshot.series)) {
+    for (const [code, values] of Object.entries(city)) city[code] = [...values.slice(0, shift * 4), ...values.slice(0, (targetIndex + 1) * 4)]
+  }
+  snapshot.datasetAsOf = descriptor.dataset_as_of
+  snapshot.datasetVersion = config.bundledLegacySupersession[0].bundledDatasetVersion
+  snapshot.sourceDatasetVersion = config.bundledLegacySupersession[0].bundledSourceDatasetVersion
+  snapshot.releaseDate = snapshot.releaseDates.at(-1)
+  snapshot.coverageStart = snapshot.months[0]
+  snapshot.generatedAt = new Date(Date.parse(legacyManifest.generated_at) + 60_000).toISOString()
+  return snapshot
 }
 
 const DEFAULT_MIGRATED_AT = '2026-07-31T00:00:00.000Z'
@@ -58,6 +80,12 @@ function sha256(value) {
 
 function clone(value) {
   return structuredClone(value)
+}
+
+function addMonths(month, count) {
+  const date = new Date(`${month}-01T00:00:00Z`)
+  date.setUTCMonth(date.getUTCMonth() + count)
+  return date.toISOString().slice(0, 7)
 }
 
 function createDeferred() {
@@ -330,7 +358,7 @@ function legacyPointer(datasetVersion = legacyCurrent.dataset_version, manifestS
 }
 
 function syntheticNextMonthSnapshot() {
-  const snapshot = clone(bundled)
+  const snapshot = clone(bundledAtMigration)
   snapshot.months = [...snapshot.months.slice(1), '2026-07']
   snapshot.releaseDates = [...snapshot.releaseDates.slice(1), '2026-08-17']
   snapshot.datasetAsOf = '2026-07'
@@ -382,17 +410,18 @@ test('fixed legacy runtime fixture keeps its exact audited byte identities', () 
 })
 
 test('the current same-source bundled package quietly supersedes the older legacy migration package', async () => {
-  assert.notEqual(bundled.datasetVersion, descriptor.source_dataset_version)
+  const currentBundled = configuredBundledFixture()
+  assert.notEqual(currentBundled.datasetVersion, descriptor.source_dataset_version)
   const release = migrationRelease()
   const mock = createWxMock(release, { now: DEFAULT_NOW })
-  const runtime = createDataRuntime({ wxApi: mock.wxApi, bundled, now: () => DEFAULT_NOW })
+  const runtime = createDataRuntime({ wxApi: mock.wxApi, bundled: currentBundled, now: () => DEFAULT_NOW })
 
   const result = await runtime.refresh({ force: true })
 
   assert.equal(result.reason, 'bundled-source-is-newer')
   assert.equal(result.updated, false)
   assert.equal(runtime.getSource(), 'bundled')
-  assert.equal(runtime.getSnapshot().datasetVersion, bundled.datasetVersion)
+  assert.equal(runtime.getSnapshot().datasetVersion, currentBundled.datasetVersion)
   assert.deepEqual(mock.stats.downloadFileIds, [
     release.revocationArtifact.cloudFileId,
     release.current.manifest_file_id,
@@ -402,8 +431,8 @@ test('the current same-source bundled package quietly supersedes the older legac
 test('the legacy supersession exception requires the exact bundled identity', async () => {
   const release = migrationRelease()
   const alteredBundled = {
-    ...clone(bundled),
-    datasetVersion: '2026-06-aaaaaaaaaaaa',
+    ...configuredBundledFixture(),
+    datasetVersion: `${descriptor.dataset_as_of}-bbbbbbbbbbbb`,
   }
   const mock = createWxMock(release, { now: DEFAULT_NOW })
   const runtime = createDataRuntime({ wxApi: mock.wxApi, bundled: alteredBundled, now: () => DEFAULT_NOW })

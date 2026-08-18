@@ -34,7 +34,7 @@ test('remote mini program release is compact and exactly reconstructs bundled da
   assert.equal(candidate.manifest.format, REMOTE_FORMAT)
   assert.equal(candidate.manifest.source_dataset_version, snapshot.sourceDatasetVersion)
   assert.equal(candidate.manifest.release_type, RELEASE_TYPES.monthly)
-  assert.match(candidate.manifest.dataset_version, /^2026-06-[a-f0-9]{12}$/)
+  assert.match(candidate.manifest.dataset_version, new RegExp(`^${snapshot.datasetAsOf}-[a-f0-9]{12}$`))
   assert.equal(Object.keys(candidate.cities).length, 70)
   assert.equal(Object.keys(candidate.bootstrap.series).length, 70)
   assert.ok(candidate.manifest.bootstrap_bytes <= SIZE_LIMITS.bootstrap)
@@ -102,22 +102,23 @@ test('integrity verifier interprets coverageStart as source coverage only for th
 })
 
 test('historical correction binds an audited revision manifest into the release', () => {
+  const correctionMonth = snapshot.datasetAsOf
   const corrected = {
     ...snapshot,
-    datasetVersion: '2026-06-222222222222',
-    sourceDatasetVersion: '2026-06-333333333333',
+    datasetVersion: `${correctionMonth}-222222222222`,
+    sourceDatasetVersion: `${correctionMonth}-333333333333`,
   }
   const candidate = buildRemoteRelease(corrected, {
     cloudEnvId: 'cloud1-d3gpdx70w5d05c68c', storageBucket: '636c-cloud1-d3gpdx70w5d05c68c-1456861154',
     minimumAppVersion: 'v2.4.0', nextCheckAt: '2026-08-17T01:40:00.000Z', sourceBatchIds: ['official-html-corrected'],
     correction: {
-      revision_id: 'revision-2026-06-audited-fix', revision_type: 'historical_data_correction', approval_status: 'approved', dataset_as_of: '2026-06',
+      revision_id: `revision-${correctionMonth}-audited-fix`, revision_type: 'historical_data_correction', approval_status: 'approved', dataset_as_of: correctionMonth,
       supersedes_source_dataset_version: snapshot.sourceDatasetVersion, source_dataset_version: corrected.sourceDatasetVersion,
       source_version_chain: [snapshot.sourceDatasetVersion, corrected.sourceDatasetVersion], revoked_source_dataset_versions: [snapshot.sourceDatasetVersion],
       reason: '国家统计局官方原始表经全量复核后的历史数据修订', official_urls: ['https://www.stats.gov.cn/source'], source_batch_ids: ['official-html-corrected'],
       parser_version: 'official-html-v7-product-housing-only', audit_version: 'full-record-audit-v4', approved_at: '2026-07-20T00:00:00Z', approved_by: 'data-owner',
       audit_report_sha256: 'a'.repeat(64), commit_sha: 'b'.repeat(40), github_run_id: '12345',
-      changes: [{ record_key: '2026-06|fuzhou|new|all', field: 'mom_index', old_value: 99.8, new_value: 99.9, source_url: 'https://www.stats.gov.cn/source', source_record_locator: 'table[0] row[1]' }],
+      changes: [{ record_key: `${correctionMonth}|fuzhou|new|all`, field: 'mom_index', old_value: 99.8, new_value: 99.9, source_url: 'https://www.stats.gov.cn/source', source_record_locator: 'table[0] row[1]' }],
     },
   })
   assert.equal(candidate.manifest.release_type, RELEASE_TYPES.correction)
