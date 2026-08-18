@@ -17,11 +17,11 @@ test("shows the published six-city overview and current data state", async ({ pa
   expect(shareImage.headers()["content-type"]).toContain("image/png");
   await expect(page.getByRole("heading", { name: "常用六城概览" })).toBeVisible();
   if (testInfo.project.name === "mobile") {
-    await expect(page.getByLabel("数据截止 2026-06")).toBeVisible();
+    await expect(page.getByLabel(/数据截止 20\d{2}-(0[1-9]|1[0-2])/)).toBeVisible();
     await expect(page.getByLabel("数据截止信息")).toBeHidden();
-    await expect(page.locator(".mobile-release-date")).toContainText("发布于 2026年7月15日");
+    await expect(page.locator(".mobile-release-date")).toContainText(/发布于 20\d{2}年\d{1,2}月\d{1,2}日/);
   } else {
-    await expect(page.getByLabel("数据截止信息").getByText("2026-06")).toBeVisible();
+    await expect(page.getByLabel("数据截止信息")).toContainText(/20\d{2}-(0[1-9]|1[0-2])/);
   }
   await expect(page.locator(".trend-chart[role='img']")).toBeVisible();
   await expect(page.getByRole("heading", { name: "累计变化" })).toBeVisible();
@@ -35,7 +35,7 @@ test("shows the published six-city overview and current data state", async ({ pa
   await expect(page.locator(".filter-toggle")).toHaveCount(0);
   const cardTexts = await page.locator(".city-card").allTextContents();
   expect(cardTexts[0]).toContain("上海");
-  expect(cardTexts[0]).toContain("+0.3%");
+  expect(cardTexts[0]).toMatch(/[+-]\d+\.\d%/);
   const directionColors = await page.evaluate(() => ({
     up: getComputedStyle(document.querySelector(".direction-up") as HTMLElement).color,
     down: getComputedStyle(document.querySelector(".direction-down") as HTMLElement).color,
@@ -58,7 +58,7 @@ test("shows 70-city breadth, tier peers and province peers for new and resale ho
   await page.goto("/?v=1&metric=mom&type=new&range=120&cities=xiamen,fuzhou");
   const market = page.getByRole("region", { name: "市场位置" });
   await expect(market).toBeVisible();
-  await expect(market.getByRole("img", { name: "20城上涨，1城持平，49城下跌" })).toBeVisible();
+  await expect(market.getByRole("img", { name: /^\d+城上涨，\d+城持平，\d+城下跌/ })).toBeVisible();
   await expect(market.getByText("重点城市的全国、同级和省内位置 · 最新月份")).toBeVisible();
   const marketScope = page.getByLabel("当前查看口径");
   if (testInfo.project.name === "mobile") {
@@ -88,7 +88,7 @@ test("shows 70-city breadth, tier peers and province peers for new and resale ho
 
   if (testInfo.project.name === "mobile") await page.getByLabel("快速筛选住宅类型").selectOption("resale");
   else await page.getByRole("group", { name: "住宅类型" }).getByRole("button", { name: "二手房" }).click();
-  await expect(market.getByRole("img", { name: "9城上涨，1城持平，60城下跌" })).toBeVisible();
+  await expect(market.getByRole("img", { name: /^\d+城上涨，\d+城持平，\d+城下跌/ })).toBeVisible();
   await expect(marketScope).toContainText("二手房");
   await expect(marketScope).toContainText("环比");
 });

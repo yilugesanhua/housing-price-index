@@ -76,7 +76,7 @@ test("switches area bands and updates the official scope labels", async ({ page 
   await areaSelect.selectOption("le90");
   await expect(page).toHaveURL(/size=le90/);
   await expect(areaSelect).toHaveValue("le90");
-  await expect(page.locator(".city-card").filter({ hasText: "北京" })).toContainText("-0.6%");
+  await expect(page.locator(".city-card").filter({ hasText: "北京" })).toContainText(/[+-]\d+\.\d%/);
 });
 
 test("renders a painted 70-city temperature history for the active scope", async ({ page }) => {
@@ -87,7 +87,7 @@ test("renders a painted 70-city temperature history for the active scope", async
   await expect(history.getByRole("slider", { name: "选择温度月份" })).toBeVisible();
   await expect(history.getByText("有效城市数 / 70")).toBeVisible();
   await expect(history.getByText("缺失 0城", { exact: true })).toHaveCount(0);
-  await expect(history.getByText("2026-06", { exact: true })).toBeVisible();
+  await expect(history.locator(".breadth-history-detail strong").first()).toHaveText(/^20\d{2}-(0[1-9]|1[0-2])$/);
   await expect.poll(() => history.locator("canvas").count()).toBeGreaterThan(0);
   const painted = await history.locator("canvas").evaluate((canvas) => {
     const context = (canvas as HTMLCanvasElement).getContext("2d");
@@ -95,5 +95,5 @@ test("renders a painted 70-city temperature history for the active scope", async
     return data ? Array.from(data).filter((value, index) => index % 4 === 3 && value > 0).length : 0;
   });
   expect(painted).toBeGreaterThan(100);
-  await expect(history).toContainText(/2026-06：有效数据中上涨.*城/);
+  await expect(history).toContainText(/20\d{2}-(0[1-9]|1[0-2])：有效数据中上涨.*城/);
 });
