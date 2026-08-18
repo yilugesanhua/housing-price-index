@@ -21,6 +21,7 @@ const breadth = (JSON.parse(readFileSync(resolve(root, `apps/web/public/data/${m
 const propertyTypes: PropertyType[] = ["new", "resale"];
 const sizeBands: SizeBand[] = ["all", "le90", "90_144", "gt144"];
 const metrics: Metric[] = ["mom", "yoy"];
+const historyMonthCount = new Set(records.map((record) => record.stat_month)).size;
 const recordsByScope = new Map<string, PriceRecord[]>();
 const recordsBySeries = new Map<string, PriceRecord[]>();
 for (const record of records) {
@@ -76,7 +77,7 @@ describe("full-history derived values", () => {
       expect(expected.up + expected.flat + expected.down + expected.missing).toBe(70);
       checked += 1;
     }
-    expect(checked).toBe(180 * 2 * 4 * 2);
+    expect(checked).toBe(historyMonthCount * 2 * 4 * 2);
     expect(byKey.size).toBe(checked);
   });
 
@@ -110,7 +111,7 @@ describe("full-history derived values", () => {
     let checked = 0;
     for (const cityId of CITY_IDS) for (const propertyType of propertyTypes) for (const sizeBand of sizeBands) {
       const series = [...(recordsBySeries.get([cityId, propertyType, sizeBand].join("|")) ?? [])].sort((left, right) => left.stat_month.localeCompare(right.stat_month));
-      expect(series).toHaveLength(180);
+      expect(series).toHaveLength(historyMonthCount);
       for (const window of windows) {
         const input = series.slice(-window);
         const actual = getCumulativeIndexSeries(input);
