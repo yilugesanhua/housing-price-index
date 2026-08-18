@@ -136,6 +136,7 @@ jobs:
           npm run data:validate-handoff --
           --handoff=work/discovery-artifact/handoff.json
           --discovery-report=work/discovery-artifact/report.json
+          --discovery-calendar=work/discovery-artifact/release-calendar.json
           --fresh-report=work/monthly-data-check/report.json
           --calendar=work/monthly-data-check/release-calendar.json
           --trigger=work/auto-release/trigger.json

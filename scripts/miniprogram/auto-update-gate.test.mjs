@@ -39,9 +39,20 @@ const handoff = {
 }
 
 test('accepts an untampered discovery handoff confirmed by a fresh official check', () => {
-  const result = validateDiscoveryGate({ handoff, discoveryReportText: reportText, freshReport: report, freshCalendar: calendar, trigger })
+  const result = validateDiscoveryGate({ handoff, discoveryReportText: reportText, discoveryCalendar: calendar, freshReport: report, freshCalendar: calendar, trigger })
   assert.equal(result.status, 'passed')
   assert.equal(result.expected_stat_month, '2026-07')
+})
+
+test('accepts a changed official release schedule when the official month and page remain confirmed', () => {
+  const freshCalendar = structuredClone(calendar)
+  freshCalendar.raw_content_sha256 = 'c'.repeat(64)
+  freshCalendar.entries[0].scheduled_at = '2026-08-17T15:00:00+08:00'
+  const freshReport = { ...report, scheduled_release_at: freshCalendar.entries[0].scheduled_at }
+  const result = validateDiscoveryGate({ handoff, discoveryReportText: reportText, discoveryCalendar: calendar, freshReport, freshCalendar, trigger })
+  assert.equal(result.calendar_changed_after_discovery, true)
+  assert.equal(result.fresh_scheduled_release_at, '2026-08-17T15:00:00+08:00')
+  assert.notEqual(result.idempotency_key, handoff.idempotency_key)
 })
 
 for (const [label, mutate, pattern] of [
@@ -50,11 +61,19 @@ for (const [label, mutate, pattern] of [
   ['commit', (input) => { input.trigger.head_sha = 'c'.repeat(40) }, /commit SHA mismatch/],
   ['month', (input) => { input.handoff.expected_stat_month = '2026-08' }, /exactly next/],
   ['official host', (input) => { input.handoff.official_url = 'https://evil.example/release.html' }, /official release URL/],
-  ['calendar', (input) => { input.freshCalendar.raw_content_sha256 = 'd'.repeat(64) }, /calendar changed/],
+  ['discovery calendar', (input) => { input.discoveryCalendar.raw_content_sha256 = 'd'.repeat(64) }, /discovery release calendar hash/],
+  ['fresh schedule', (input) => { input.freshCalendar.entries[0].scheduled_at = '2026-08-17T15:00:00+08:00' }, /freshly verified release schedule/],
   ['fresh check', (input) => { input.freshReport.status = 'current' }, /fresh official check/],
 ]) {
   test(`rejects a mismatched ${label}`, () => {
-    const input = structuredClone({ handoff, discoveryReportText: reportText, freshReport: report, freshCalendar: calendar, trigger })
+    const input = {
+      handoff: structuredClone(handoff),
+      discoveryReportText: reportText,
+      discoveryCalendar: structuredClone(calendar),
+      freshReport: structuredClone(report),
+      freshCalendar: structuredClone(calendar),
+      trigger: structuredClone(trigger),
+    }
     mutate(input)
     assert.throws(() => validateDiscoveryGate(input), pattern)
   })

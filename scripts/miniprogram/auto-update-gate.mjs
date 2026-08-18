@@ -18,7 +18,7 @@ function calendarText(calendar) {
   return JSON.stringify({ year: calendar.year, source_urls: calendar.source_urls ?? [calendar.source_url], raw_content_sha256: calendar.raw_content_sha256, entries: calendar.entries })
 }
 
-export function validateDiscoveryGate({ handoff, discoveryReportText, freshReport, freshCalendar, trigger }) {
+export function validateDiscoveryGate({ handoff, discoveryReportText, discoveryCalendar, freshReport, freshCalendar, trigger }) {
   assert(handoff?.format === 'housing-data-discovery-handoff-v1' && handoff.status === 'update_available', 'handoff format or status is invalid')
   assert(trigger.workflow_name === 'monthly-data-check', 'triggering workflow is not the read-only discovery workflow')
   assert(trigger.conclusion === 'success', 'discovery workflow did not complete successfully')
@@ -35,16 +35,20 @@ export function validateDiscoveryGate({ handoff, discoveryReportText, freshRepor
   assert(handoff.expected_stat_month === discoveryReport.expected_stat_month && handoff.expected_stat_month === discoveryReport.latest_official_month, 'discovery month fields disagree')
   assert(handoff.official_url === discoveryReport.latest_official_url && isOfficialReleaseUrl(handoff.official_url), 'official release URL is invalid')
   assert(handoff.scheduled_release_at === discoveryReport.scheduled_release_at, 'scheduled release time mismatch')
-  const expectedCalendarText = calendarText(freshCalendar)
-  assert(handoff.calendar_sha256 === sha256(expectedCalendarText), 'release calendar changed after discovery')
-  assert(handoff.calendar_raw_content_sha256 === freshCalendar.raw_content_sha256, 'release calendar source hash mismatch')
+  const discoveryCalendarText = calendarText(discoveryCalendar)
+  assert(handoff.calendar_sha256 === sha256(discoveryCalendarText), 'discovery release calendar hash mismatch')
+  assert(handoff.calendar_raw_content_sha256 === discoveryCalendar.raw_content_sha256, 'discovery release calendar source hash mismatch')
+  const discoveryEntry = discoveryCalendar.entries?.find((item) => item.expected_stat_month === handoff.expected_stat_month)
+  assert(discoveryEntry?.scheduled_at === handoff.scheduled_release_at, 'handoff does not match the discovery release schedule')
   const entry = freshCalendar.entries?.find((item) => item.expected_stat_month === handoff.expected_stat_month)
-  assert(entry?.scheduled_at === handoff.scheduled_release_at, 'candidate does not match the verified release schedule')
   assert(freshReport.status === 'update_available' && freshReport.official_release_detected === true, 'fresh official check did not confirm the update')
   assert(freshReport.expected_stat_month === handoff.expected_stat_month && freshReport.latest_official_month === handoff.expected_stat_month, 'fresh official month mismatch')
   assert(freshReport.latest_official_url === handoff.official_url, 'fresh official URL mismatch')
-  const idempotencyKey = sha256(`${handoff.expected_stat_month}\n${handoff.official_url}\n${expectedCalendarText}`)
-  assert(handoff.idempotency_key === idempotencyKey, 'idempotency key mismatch')
+  assert(entry?.scheduled_at === freshReport.scheduled_release_at, 'candidate does not match the freshly verified release schedule')
+  const handoffIdempotencyKey = sha256(`${handoff.expected_stat_month}\n${handoff.official_url}\n${discoveryCalendarText}`)
+  assert(handoff.idempotency_key === handoffIdempotencyKey, 'discovery idempotency key mismatch')
+  const freshCalendarText = calendarText(freshCalendar)
+  const idempotencyKey = sha256(`${handoff.expected_stat_month}\n${handoff.official_url}\n${freshCalendarText}`)
   return {
     format: 'housing-data-discovery-gate-v1',
     status: 'passed',
@@ -55,6 +59,9 @@ export function validateDiscoveryGate({ handoff, discoveryReportText, freshRepor
     discovery_run_id: String(trigger.run_id),
     discovery_commit_sha: trigger.head_sha,
     idempotency_key: idempotencyKey,
+    calendar_changed_after_discovery: handoff.calendar_sha256 !== sha256(freshCalendarText),
+    discovery_scheduled_release_at: handoff.scheduled_release_at,
+    fresh_scheduled_release_at: entry.scheduled_at,
     handoff_sha256: sha256(`${JSON.stringify(handoff, null, 2)}\n`),
     fresh_checked_at: freshReport.checked_at,
     verified_at: new Date().toISOString(),
@@ -67,16 +74,18 @@ async function main() {
   const discoveryReportPath = argument('discovery-report')
   const freshReportPath = argument('fresh-report')
   const calendarPath = argument('calendar')
+  const discoveryCalendarPath = argument('discovery-calendar')
   const triggerPath = argument('trigger')
-  assert(handoffPath && discoveryReportPath && freshReportPath && calendarPath && triggerPath, 'required input path is missing')
-  const [handoff, discoveryReportText, freshReport, freshCalendar, trigger] = await Promise.all([
+  assert(handoffPath && discoveryReportPath && discoveryCalendarPath && freshReportPath && calendarPath && triggerPath, 'required input path is missing')
+  const [handoff, discoveryReportText, discoveryCalendar, freshReport, freshCalendar, trigger] = await Promise.all([
     readFile(resolve(handoffPath), 'utf8').then(JSON.parse),
     readFile(resolve(discoveryReportPath), 'utf8'),
+    readFile(resolve(discoveryCalendarPath), 'utf8').then(JSON.parse),
     readFile(resolve(freshReportPath), 'utf8').then(JSON.parse),
     readFile(resolve(calendarPath), 'utf8').then(JSON.parse),
     readFile(resolve(triggerPath), 'utf8').then(JSON.parse),
   ])
-  const result = validateDiscoveryGate({ handoff, discoveryReportText, freshReport, freshCalendar, trigger })
+  const result = validateDiscoveryGate({ handoff, discoveryReportText, discoveryCalendar, freshReport, freshCalendar, trigger })
   const outputRoot = resolve('work/auto-release')
   await mkdir(outputRoot, { recursive: true })
   await writeFile(resolve(outputRoot, 'discovery-gate.json'), `${JSON.stringify(result, null, 2)}\n`, 'utf8')
