@@ -60,7 +60,7 @@ npm.cmd run dev
 - `npm.cmd run dev` 显示本地地址；浏览器打开 `http://127.0.0.1:5173/` 能看到页面。
 - 开发服务占用当前终端；按 `Ctrl+C` 停止。
 
-E2E测试会比较并按需更新 `docs/screenshots/mobile-390x844.png`、`desktop-1440x900.png` 和 `city-picker-mobile.png`。不同浏览器渲染可能让测试通过但截图文件发生变化。测试结束后运行：
+E2E测试会比较并按需更新 `docs/screenshots/mobile-390x844.png` 和 `desktop-1440x900.png`。不同浏览器渲染可能让测试通过但截图文件发生变化。测试结束后运行：
 
 ```powershell
 git status --short
@@ -69,10 +69,10 @@ git status --short
 若本次没有界面改动，且状态中只有上述测试截图变化，可在确认路径后恢复仓库版本：
 
 ```powershell
-git restore -- docs/screenshots/mobile-390x844.png docs/screenshots/desktop-1440x900.png docs/screenshots/city-picker-mobile.png
+git restore -- docs/screenshots/mobile-390x844.png docs/screenshots/desktop-1440x900.png
 ```
 
-这条恢复命令会丢弃这三份截图的本地变化。已有界面工作、需要保留新截图或状态中还有其他文件时，不要执行；应先确认每项改动的来源。
+这条恢复命令会丢弃这两份截图的本地变化。已有界面工作、需要保留新截图或状态中还有其他文件时，不要执行；应先确认每项改动的来源。
 
 需要关闭终端后继续预览生产构建时，使用：
 
