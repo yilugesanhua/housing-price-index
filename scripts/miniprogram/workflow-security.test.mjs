@@ -104,6 +104,7 @@ test('candidate cleanup has one fixed release target and preserves the protected
   assert.match(candidateCleanupScript, /Current production pointer is not the expected protected version/)
   assert.match(candidateCleanupScript, /Candidate release prefix is not empty after deletion/)
   assert.match(candidateCleanupScript, /Production current\.json changed during candidate cleanup/)
+  assert.match(candidateCleanupScript, /page\.IsTruncated === true \|\| page\.IsTruncated === 'true'/)
   assert.doesNotMatch(candidateCleanupScript, /housing-data\/current\.json['"],/)
 })
 

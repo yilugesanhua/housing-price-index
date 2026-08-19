@@ -44,8 +44,9 @@ async function listReleaseKeys() {
       if (typeof item.Key !== 'string' || !item.Key.startsWith(prefix)) throw new Error('COS returned an object outside the requested cleanup prefix')
       keys.push(item.Key)
     }
-    marker = page.IsTruncated ? page.NextMarker : undefined
-    if (page.IsTruncated && (!marker || typeof marker !== 'string')) throw new Error('COS returned an invalid continuation marker')
+    const isTruncated = page.IsTruncated === true || page.IsTruncated === 'true'
+    marker = isTruncated ? page.NextMarker : undefined
+    if (isTruncated && (!marker || typeof marker !== 'string')) throw new Error('COS returned an invalid continuation marker')
   } while (marker)
   return keys
 }
