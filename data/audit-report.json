@@ -1,19 +1,19 @@
 {
   "schema_version": 2,
   "audit_version": "full-record-audit-v7",
-  "verified_at": "2026-08-19T01:35:19.928Z",
+  "verified_at": "2026-08-07T01:05:41.100Z",
   "verification_method": "automated-full-record-audit-v7: sha256+official-url+metadata+four-table-whitelist+property-type+size-band+locator+raw-cell+schema+numeric-invariants+record-hash-binding+code-and-report-identity",
-  "repository_commit_sha": "46e3f0282cff606aba75187cb5cf4669f043cb29",
+  "repository_commit_sha": "f6f25c08b75d364340cee9aaae3640677bdb1f56",
   "audit_code_sha256": "33a043ac994f55261b2c9a25893fea7f9311eeb9a0289c80a5ae4620768a2090",
   "parser_versions": [
     "official-html-v9-product-housing-only-strict-release-date"
   ],
-  "batch_count": 181,
-  "record_count": 101360,
-  "records_sha256": "a79ec6eedd4502d958de982ef52eeaa9366cd3d60b1b742aa63cbc926bfcdee4",
-  "source_index_sha256": "1d6abe985db60b9b3906ea7b249c0b86d7ea303b3c07aa6380b85ccce4d41679",
+  "batch_count": 180,
+  "record_count": 100800,
+  "records_sha256": "283028e67b0a07edf0c9e5d733ad7c6090b865a9bb8da4c8a8584f87bba3a229",
+  "source_index_sha256": "f25f93ce937a724be5864bb3dd1929ac5e05ca1e74db66ca35798ae4b45db7dd",
   "coverage_start": "2011-07",
-  "coverage_end": "2026-07",
+  "coverage_end": "2026-06",
   "checks": [
     "raw SHA-256",
     "official URL allowlist",
@@ -1475,15 +1475,7 @@
       "records_sha256": "1c44705bd488637f8e5709913e8b4d7e9f5296c343f4c15f680e63fdf202c914",
       "records_checked": 560,
       "result": "passed"
-    },
-    {
-      "source_batch_id": "official-html-2026-07-e809bb80b569",
-      "stat_month": "2026-07",
-      "raw_content_sha256": "e809bb80b569d1445bad7d69e23348c1f26b24627225845ab76affb9bd487bcc",
-      "records_sha256": "b7af048d6afe15ee6c3ca4b88e8e6135f0800c6b57139bfaa8d0c2a93c8b14d4",
-      "records_checked": 560,
-      "result": "passed"
     }
   ],
-  "report_sha256": "ae11c0f58feb6b9a943fe6e47b660bdbe2fc4f92791a21e32146e156ad6c26ec"
+  "report_sha256": "814711b27f897532171311249c012d84aa2a9c050a53454b5d952c0bdb6ac7e2"
 }
