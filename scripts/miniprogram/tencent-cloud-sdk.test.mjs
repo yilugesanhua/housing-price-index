@@ -2,6 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import {
   assertRehearsalKey,
+  assertReleaseCleanupPrefix,
   cosTimeoutForKey,
   DEFAULT_COS_TIMEOUT_MS,
   LARGE_TRANSFER_COS_TIMEOUT_MS,
@@ -13,6 +14,12 @@ test('isolated write rehearsal accepts only its own run prefix', () => {
   assert.throws(() => assertRehearsalKey('housing-data/releases/2026-07-test/manifest.json', '12345'), /Refusing non-rehearsal/)
   assert.throws(() => assertRehearsalKey('housing-data/rehearsals/other/probe.json', '12345'), /Refusing non-rehearsal/)
   assert.throws(() => assertRehearsalKey('housing-data/rehearsals/12345/../current.json', '12345'), /Refusing non-rehearsal/)
+})
+
+test('release cleanup is restricted to one immutable release prefix', () => {
+  assert.equal(assertReleaseCleanupPrefix('2026-07-0123456789ab'), 'housing-data/releases/2026-07-0123456789ab/')
+  assert.throws(() => assertReleaseCleanupPrefix('2026-07'), /Invalid release cleanup/)
+  assert.throws(() => assertReleaseCleanupPrefix('2026-07-0123456789ab/../../current'), /Invalid release cleanup/)
 })
 
 test('complete bootstrap transfers get a longer SDK-enforced timeout', () => {

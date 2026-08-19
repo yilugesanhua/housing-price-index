@@ -133,7 +133,7 @@ GitHub Actions 是当前主方案。若后续因平台政策、可用性、公�
 
 - `.github/workflows/monthly-data-check.yml` 只读，不持有云端写凭据，不得直接修改 `current.json`。
 - 只读发现每次检查只生成绑定控制指针基线SHA-256、观察时间、结果、下次检查时间和官方来源哈希的不可变报告。用户可见 `data_status` 只能由独立受保护状态部署作业更新；该作业必须重新读取当前指针和撤销登记，保持数据版本、源版本、清单和撤销身份不变，递增 `control_generation`，写后再只读回读。当前仓库没有完成该作业，I09保持未关闭。
-- `.github/workflows/monthly-data-auto-publish.yml` 负责无云凭据的候选生成与受保护环境中的首次发布；两个作业权限隔离。
+- `.github/workflows/monthly-data-auto-publish.yml` 负责无云凭据的候选生成与受保护环境中的首次发布；两个作业权限隔离。候选提交只可持久化官方原始档案和 `status=ready` 的待发布记录，不得覆盖当前 Web 数据、当前小程序内置快照或标准化正式数据；候选提交自身必须先取得同一提交的成功普通 CI 证据，才可进入受保护发布。`ready` 只表示待发布，不能表示已发布或已切换正式指针。
 - `.github/workflows/monthly-data-pending-publish.yml` 只重试默认分支中状态为 `ready` 的持久化候选。无Secrets的检查/恢复作业必须先对pending状态字段、官方来源URL白名单、换行或危险字符、不可变候选、重新抓取的官方来源和全部门禁失败关闭；只有其结构化输出通过后，受保护发布作业才可取得生产Secrets。不得把仓库文件中的URL或shell输出直接插入命令字符串。
 - 待发布恢复必须找到同一精确恢复提交上成功完成的普通 `ci.yml` push运行，把CI运行ID、提交SHA、目标数据版本和门禁报告哈希写入恢复门禁；不得复用其他提交、Pull Request或旧候选的CI结果。
 - `.github/workflows/monthly-data-post-publish-monitor.yml` 在发布后24小时使用独立只读身份复核完整远端版本，不拥有指针写权限。

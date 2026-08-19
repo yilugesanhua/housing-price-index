@@ -28,6 +28,14 @@ function requireEqual(actual, expected, label) {
   if (!equal(actual, expected)) throw new Error(`CI release authorization rejected: ${label} mismatch`)
 }
 
+function requireOrdinaryCi(gate, checkedOutSha, label) {
+  if (!RUN_ID_PATTERN.test(String(gate.ordinary_ci?.run_id || ''))) throw new Error(`CI release authorization rejected: ${label} ordinary CI run ID is invalid`)
+  requireEqual(gate.ordinary_ci?.workflow, 'ci.yml', `${label} ordinary CI workflow`)
+  requireEqual(gate.ordinary_ci?.event, 'push', `${label} ordinary CI event`)
+  requireEqual(gate.ordinary_ci?.conclusion, 'success', `${label} ordinary CI conclusion`)
+  requireEqual(gate.ordinary_ci?.commit_sha, checkedOutSha, `${label} ordinary CI commit SHA`)
+}
+
 export function validateCiReleaseAuthorization({ env, datasetVersion, cloudEnvId, gateReportText, checkedOutSha = env.GITHUB_SHA }) {
   requireEqual(env.GITHUB_ACTIONS, 'true', 'GitHub Actions marker')
   const correctedRelease = env.GITHUB_EVENT_NAME === 'workflow_dispatch' && env.GITHUB_WORKFLOW === CORRECTED_RELEASE.workflow
@@ -93,12 +101,8 @@ export function validateCiReleaseAuthorization({ env, datasetVersion, cloudEnvId
   } else {
     requireEqual(String(gate.discovery_run_id), env.CI_DISCOVERY_RUN_ID, 'discovery run ID')
     if (gate.recovery === true) {
-      if (!RUN_ID_PATTERN.test(String(gate.ordinary_ci?.run_id || ''))) throw new Error('CI release authorization rejected: recovery ordinary CI run ID is invalid')
-      requireEqual(gate.ordinary_ci?.workflow, 'ci.yml', 'recovery ordinary CI workflow')
-      requireEqual(gate.ordinary_ci?.event, 'push', 'recovery ordinary CI event')
-      requireEqual(gate.ordinary_ci?.conclusion, 'success', 'recovery ordinary CI conclusion')
-      requireEqual(gate.ordinary_ci?.commit_sha, checkedOutSha, 'recovery ordinary CI commit SHA')
-    }
+      requireOrdinaryCi(gate, checkedOutSha, 'recovery')
+    } else requireOrdinaryCi(gate, checkedOutSha, 'candidate')
   }
   return gate
 }

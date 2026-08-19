@@ -17,6 +17,7 @@ const completeHistoryPublisher = await readFile(resolve(root, '.github/workflows
 const completeHistoryPreview = await readFile(resolve(root, '.github/workflows/miniprogram-15-year-preview.yml'), 'utf8')
 const legacyMigration = await readFile(resolve(root, '.github/workflows/legacy-control-migration.yml'), 'utf8')
 const manualRollback = await readFile(resolve(root, '.github/workflows/manual-data-rollback.yml'), 'utf8')
+const candidateCleanup = await readFile(resolve(root, '.github/workflows/monthly-data-candidate-cleanup.yml'), 'utf8')
 const pointerRepair = await readFile(resolve(root, 'scripts/miniprogram/repair-current-pointer.mjs'), 'utf8')
 const genericPublisher = await readFile(resolve(root, 'scripts/miniprogram/publish-remote-data.mjs'), 'utf8')
 const rollbackPublisher = await readFile(resolve(root, 'scripts/miniprogram/rollback-remote-data.mjs'), 'utf8')
@@ -27,6 +28,7 @@ const monitorEventRegistration = await readFile(resolve(root, 'scripts/miniprogr
 const strictValidatorDeployment = await readFile(resolve(root, 'scripts/miniprogram/deploy-strict-validator.mjs'), 'utf8')
 const previewValidatorDeployment = await readFile(resolve(root, 'scripts/miniprogram/deploy-preview-validator.mjs'), 'utf8')
 const tencentCloudSdk = await readFile(resolve(root, 'scripts/miniprogram/tencent-cloud-sdk.mjs'), 'utf8')
+const candidateCleanupScript = await readFile(resolve(root, 'scripts/miniprogram/delete-remote-candidate.mjs'), 'utf8')
 const ci = await readFile(resolve(root, '.github/workflows/ci.yml'), 'utf8')
 
 async function readWorkflowTree(directory) {
@@ -62,7 +64,9 @@ test('publisher is triggered only by the named discovery workflow', () => {
   assert.match(publisher, /needs\.inspect\.outputs\.update_available == 'true'/)
   assert.match(publisher, /Distinguish a verified update from a normal no-update check/)
   assert.match(publisher, /Require successful ordinary CI for the base commit/)
+  assert.match(publisher, /Require successful ordinary CI for the exact candidate commit/)
   assert.match(publisher, /actions\/workflows\/ci\.yml\/runs/)
+  assert.match(publisher, /ordinary-ci-evidence\.json/)
 })
 
 test('discovery schedule covers both the 09:30 and 15:00 official release windows', () => {
@@ -87,6 +91,20 @@ test('production pointer writes are serialized and never cancelled', () => {
   assert.match(recovery, /group: housing-data-production-publish/)
   assert.match(recovery, /cancel-in-progress: false/)
   assert.match(monitor, /group: housing-data-production-publish/)
+  assert.match(candidateCleanup, /group: housing-data-production-publish/)
+})
+
+test('candidate cleanup has one fixed release target and preserves the protected pointer', () => {
+  assert.match(candidateCleanup, /workflow_dispatch:/)
+  assert.match(candidateCleanup, /environment: housing-data-production/)
+  assert.match(candidateCleanup, /--dataset=2026-07-5da3c160c5e3/)
+  assert.match(candidateCleanup, /--expected-current=2026-06-f80465ae29a5/)
+  assert.match(candidateCleanupScript, /assertReleaseCleanupPrefix/)
+  assert.match(candidateCleanupScript, /monthly-data-candidate-cleanup\.yml@refs\/heads/)
+  assert.match(candidateCleanupScript, /Current production pointer is not the expected protected version/)
+  assert.match(candidateCleanupScript, /Candidate release prefix is not empty after deletion/)
+  assert.match(candidateCleanupScript, /Production current\.json changed during candidate cleanup/)
+  assert.doesNotMatch(candidateCleanupScript, /housing-data\/current\.json['"],/)
 })
 
 test('scheduled recovery reads state without credentials and publishes only a ready pending release', () => {

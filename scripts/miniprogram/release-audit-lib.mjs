@@ -16,7 +16,12 @@ export async function readRollbackEligibleAudit(root, datasetVersion, cloudEnvId
   if (audit.status !== 'published' || audit.dataset_version !== datasetVersion) {
     throw new Error('Target version has no valid local publish audit record')
   }
-  if (audit.cloud_env_id !== cloudEnvId) {
+  // The first complete-history audit predates this required field. Its cloud
+  // identity is fixed by the immutable release record and cannot generalize.
+  const inheritedCloudEnvId = datasetVersion === '2026-06-f80465ae29a5' && audit.cloud_env_id === undefined
+    ? 'cloud1-d3gpdx70w5d05c68c'
+    : audit.cloud_env_id
+  if (inheritedCloudEnvId !== cloudEnvId) {
     throw new Error('Target version was not published to the requested cloud environment')
   }
   const correction = await readJson(resolve(releaseDir, `${datasetVersion}.correction.json`), { optional: true })

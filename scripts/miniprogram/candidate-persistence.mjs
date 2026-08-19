@@ -6,11 +6,7 @@ import { sha256 } from './remote-data-lib.mjs'
 
 const execFileAsync = promisify(execFile)
 const ALLOWED = [
-  /^apps\/web\/public\/data\//,
-  /^apps\/miniprogram\/data\/snapshot\.js$/,
   /^data\/raw\/20\d{2}-(0[1-9]|1[0-2])\/[a-f0-9]{64}\.(?:batch\.json|html\.gz)$/,
-  /^data\/normalized\/(?:records|revisions)\.json$/,
-  /^data\/audit-report\.json$/,
   /^data\/releases\/pending-auto-release\.json$/,
 ]
 
@@ -23,8 +19,6 @@ export function validateCandidatePaths(paths, expectedMonth) {
   const required = [
     (path) => path.startsWith(`data/raw/${expectedMonth}/`) && path.endsWith('.batch.json'),
     (path) => path.startsWith(`data/raw/${expectedMonth}/`) && path.endsWith('.html.gz'),
-    (path) => path === 'apps/web/public/data/manifest.json',
-    (path) => path === 'apps/miniprogram/data/snapshot.js',
     (path) => path === 'data/releases/pending-auto-release.json',
   ]
   if (!required.every((matcher) => normalized.some(matcher))) throw new Error('Candidate persistence rejected: required generated artifacts are missing')

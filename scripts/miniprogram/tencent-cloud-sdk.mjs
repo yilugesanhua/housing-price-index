@@ -29,6 +29,13 @@ export function assertRehearsalKey(key, runId) {
   return key
 }
 
+export function assertReleaseCleanupPrefix(datasetVersion) {
+  if (!/^20\d{2}-(0[1-9]|1[0-2])-[a-f0-9]{12}$/.test(datasetVersion || '')) {
+    throw new Error('Invalid release cleanup dataset version')
+  }
+  return `housing-data/releases/${datasetVersion}/`
+}
+
 export function cosTimeoutForKey(key) {
   return /(?:^|\/)(?:bootstrap|complete-snapshot)\.json$/.test(key) ? LARGE_TRANSFER_COS_TIMEOUT_MS : DEFAULT_COS_TIMEOUT_MS
 }
@@ -84,6 +91,17 @@ export function createTencentCloudClient({
     return body
   }
   const putObject = async (key, body) => callCos('putObject', key, { Body: body })
+  const listObjects = async (prefix, marker = undefined) => callCos('getBucket', prefix, {
+    Prefix: prefix,
+    Marker: marker,
+    MaxKeys: 1000,
+  })
+  const deleteObjects = async (keys) => {
+    if (!Array.isArray(keys) || keys.length === 0 || keys.length > 1000 || keys.some((key) => typeof key !== 'string' || key.length === 0)) {
+      throw new Error('COS deletion requires 1 to 1000 explicit object keys')
+    }
+    return callCos('deleteMultipleObject', keys[0], { Objects: keys.map((Key) => ({ Key })), Quiet: true })
+  }
   const uploadFile = async (source, key) => putObject(key, await readFile(source))
   const uploadDirectory = async (sourceRoot, keyPrefix) => {
     const uploaded = []
@@ -135,6 +153,8 @@ export function createTencentCloudClient({
     getObject,
     downloadObject,
     putObject,
+    listObjects,
+    deleteObjects,
     uploadFile,
     uploadDirectory,
     objectExists,

@@ -7,16 +7,19 @@ import { readRollbackEligibleAudit, rollbackVersionOrNull } from './release-audi
 
 const VERSION = '2026-06-0123456789ab'
 const ENV_ID = 'cloud1-test'
+const COMPLETE_HISTORY_VERSION = '2026-06-f80465ae29a5'
+const PRODUCTION_ENV_ID = 'cloud1-d3gpdx70w5d05c68c'
 
-async function fixture({ correction = null, cloudEnvId = ENV_ID } = {}) {
+async function fixture({ correction = null, cloudEnvId = ENV_ID, omitCloudEnv = false } = {}) {
   const root = await mkdtemp(resolve(tmpdir(), 'housing-release-audit-'))
   const releaseDir = resolve(root, 'data/releases')
   await mkdir(releaseDir, { recursive: true })
-  await writeFile(resolve(releaseDir, `${VERSION}.json`), JSON.stringify({
+  const release = {
     status: 'published',
     dataset_version: VERSION,
-    cloud_env_id: cloudEnvId,
-  }))
+  }
+  if (!omitCloudEnv) release.cloud_env_id = cloudEnvId
+  await writeFile(resolve(releaseDir, `${VERSION}.json`), JSON.stringify(release))
   if (correction) await writeFile(resolve(releaseDir, `${VERSION}.correction.json`), JSON.stringify(correction))
   return root
 }
@@ -47,4 +50,18 @@ test('rejects releases from another cloud environment and malformed corrections'
     rollback_allowed: false,
   } })
   await assert.rejects(readRollbackEligibleAudit(malformedCorrectionRoot, VERSION, ENV_ID), /malformed correction record/)
+})
+
+test('accepts only the identified complete-history audit when its historical cloud field is absent', async () => {
+  const root = await fixture({ omitCloudEnv: true })
+  const releaseDir = resolve(root, 'data/releases')
+  await writeFile(resolve(releaseDir, `${COMPLETE_HISTORY_VERSION}.json`), JSON.stringify({
+    status: 'published',
+    dataset_version: COMPLETE_HISTORY_VERSION,
+    manifest_sha256: 'a'.repeat(64),
+  }))
+  const audit = await readRollbackEligibleAudit(root, COMPLETE_HISTORY_VERSION, PRODUCTION_ENV_ID)
+  assert.equal(audit.dataset_version, COMPLETE_HISTORY_VERSION)
+  await assert.rejects(readRollbackEligibleAudit(root, COMPLETE_HISTORY_VERSION, 'cloud1-other'), /requested cloud environment/)
+  await assert.rejects(readRollbackEligibleAudit(root, VERSION, ENV_ID), /requested cloud environment/)
 })

@@ -12,6 +12,7 @@ const gate = {
   cloud_env_id: cloudEnvId,
   commit_sha: 'a'.repeat(40),
   discovery_run_id: '456',
+  ordinary_ci: { workflow: 'ci.yml', event: 'push', conclusion: 'success', run_id: '789', commit_sha: 'a'.repeat(40) },
 }
 const gateReportText = `${JSON.stringify(gate)}\n`
 const validEnv = {
@@ -63,6 +64,25 @@ test('rejects a gate report that did not pass', () => {
     gateReportText: failedText,
     checkedOutSha: validEnv.CI_COMMIT_SHA,
   }), /gate status mismatch/)
+})
+
+test('rejects an automatic candidate without successful CI for the same commit', () => {
+  const missingEvidence = `${JSON.stringify({ ...gate, ordinary_ci: undefined })}\n`
+  assert.throws(() => validateCiReleaseAuthorization({
+    env: { ...validEnv, CI_GATE_REPORT_SHA256: sha256(missingEvidence) },
+    datasetVersion,
+    cloudEnvId,
+    gateReportText: missingEvidence,
+    checkedOutSha: validEnv.CI_COMMIT_SHA,
+  }), /candidate ordinary CI run ID is invalid/)
+  const mismatchedEvidence = `${JSON.stringify({ ...gate, ordinary_ci: { ...gate.ordinary_ci, commit_sha: 'b'.repeat(40) } })}\n`
+  assert.throws(() => validateCiReleaseAuthorization({
+    env: { ...validEnv, CI_GATE_REPORT_SHA256: sha256(mismatchedEvidence) },
+    datasetVersion,
+    cloudEnvId,
+    gateReportText: mismatchedEvidence,
+    checkedOutSha: validEnv.CI_COMMIT_SHA,
+  }), /candidate ordinary CI commit SHA mismatch/)
 })
 
 test('accepts the fixed scheduled pending-release recovery workflow', () => {
