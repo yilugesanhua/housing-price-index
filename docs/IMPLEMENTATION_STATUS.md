@@ -7,6 +7,7 @@
 - A01-A06 自动更新可靠性修复、独立守护器和小程序构建输入已提交到 `main`，实现提交为 `be351cca8a36c26898f4f46da372ef63205991c2`，文档收尾提交为 `783263de6795023a17dae7a82beec802ffc0af72`；`v2.5.16` 已写入唯一源码版本文件并同步到微信开发者工具目录。
 - GitHub Actions 普通 `ci / verify` 运行 `32747632680` 已成功完成 `npm run check` 和 `npm run test:e2e`（39项通过、1项按配置跳过）。这只证明当前主分支提交的普通 CI 通过，不代表生产发布或微信平台发布。
 - GitHub 仓库级 `AUTOMATIC_RELEASE_ENABLED=false` 与生产 Environment 级 `PRODUCTION_RELEASE_AUTHORIZED=false` 已现场复读；CloudBase 守护器保持 `WATCHDOG_DRY_RUN=true`，没有触发线上工作流、生产数据、正式指针或生产发布写入。
+- 2026-08-25 手动触发只读 `monthly-data-check`（运行 `32749279961`）已实际执行到发现任务，但因仓库级 `TENCENTCLOUD_MONITOR_SECRET_ID`、`TENCENTCLOUD_MONITOR_SECRET_KEY` 为空而在“读取正式指针”步骤失败。两项同名密钥目前只存在于 `housing-data-production` Environment；按工作流安全测试，候选准备任务不得绑定该受保护环境，因此必须由维护人把只读密钥以同名方式配置到仓库级 Secrets 后再重跑。该失败未生成候选、未进入发布、未写生产数据。
 
 ## 2026-08-07 自动更新历史记录（不代表当前启用）
 

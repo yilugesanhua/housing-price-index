@@ -12,7 +12,7 @@
 - 自动发现、候选生成、数据门禁、受限发布、发布后守卫、回滚、待发布恢复、私有审计和24小时监测已有基础实现；D01-D16仍存在未关闭的正确性、重跑、审计、客户端状态和回滚差距，不能概括为完整安全闭环。
 - 既有 `npm run check`、`npm run test:e2e`、小程序/自动化故障测试和GitHub Actions检查只证明对应提交与已覆盖场景，不能替代D01-D20的关闭证据。
 - 公开仓库 `yilugesanhua/housing-price-index` 已创建，初始提交 `4e0713e` 已推送，GitHub Actions `ci / verify` 已通过；仓库当前同时跟踪官方页面 `.html.gz` 和对应批次复现文件，它们不进入Web或小程序生产包。
-- `housing-data-production` Environment 已创建；写入与只读监测 Secrets 已分别配置。2026-08-24通过GitHub CLI现场回读：仓库级 `AUTOMATIC_RELEASE_ENABLED=false`，生产 Environment 级 `PRODUCTION_RELEASE_AUTHORIZED=false`；当前两级门禁均失败关闭。变量关闭不等于V16已完整验证，真实受保护Environment执行和未来启用时的独立授权证据仍未完成。
+- `housing-data-production` Environment 已创建；写入与只读监测 Secrets 的名称已配置在环境中。2026-08-25 手动运行 `monthly-data-check`（`32749279961`）证明仓库级只读监测 Secrets 实际为空；由于候选准备任务按安全规则不得绑定生产环境，维护人还需把 `TENCENTCLOUD_MONITOR_SECRET_ID`、`TENCENTCLOUD_MONITOR_SECRET_KEY` 以同名方式配置到仓库级 Secrets。2026-08-24通过GitHub CLI现场回读：仓库级 `AUTOMATIC_RELEASE_ENABLED=false`，生产 Environment 级 `PRODUCTION_RELEASE_AUTHORIZED=false`；当前两级门禁均失败关闭。变量关闭不等于V16已完整验证，真实受保护Environment执行和未来启用时的独立授权证据仍未完成。
 - `main-production-guard` 规则集已启用，禁止删除、强制推送和非线性历史；生产Environment仅允许 `main` 分支进入。
 - GitHub个人仓库不允许内置Actions身份绕过“必需状态检查”，因此规则集不直接要求 `verify`；自动发布工作流必须在候选生成前通过GitHub API证明基础提交的普通 `ci / verify` 已成功。
 - COS/SCF 官方 SDK 联调、完整 70 城隔离上传/回读及有限指针/回滚演练已有历史通过记录；生产开关必须保持关闭，直到R02、D01-D16、I01-I03、I09、I12、候选绑定的开发者工具检查和双真机、平台证据回读及正式数据链路复核全部完成。维护人确认已发布不单独满足自动更新门槛。
