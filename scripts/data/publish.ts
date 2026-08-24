@@ -11,12 +11,30 @@ import { readBatches, validateRecords } from "./validate";
 import type { StandardRecord } from "./types";
 import { CITY_IDS, FEATURED_CITY_IDS, type CityId, type MarketBreadthPoint, type Metric, type PropertyType, type SizeBand } from "@housing/core";
 
-const PUBLIC_PARENT = resolve("apps", "web", "public");
-const OUTPUT_DIR = resolve(PUBLIC_PARENT, "data");
-const TEMP_DIR = resolve(PUBLIC_PARENT, ".data-publish-tmp");
-const BACKUP_DIR = resolve(PUBLIC_PARENT, ".data-publish-backup");
-const NORMALIZED_DIR = resolve("data", "normalized");
+const OUTPUT_DIR = resolve(process.env.AUTO_RELEASE_OUTPUT_ROOT ?? resolve("apps", "web", "public", "data"));
+const TEMP_DIR = `${OUTPUT_DIR}.tmp`;
+const BACKUP_DIR = `${OUTPUT_DIR}.backup`;
+const PREVIOUS_OUTPUT_DIR = resolve(process.env.AUTO_RELEASE_PREVIOUS_OUTPUT_ROOT ?? OUTPUT_DIR);
+const NORMALIZED_DIR = resolve(process.env.AUTO_RELEASE_NORMALIZED_ROOT ?? resolve("data", "normalized"));
+const PREVIOUS_NORMALIZED_DIR = resolve(process.env.AUTO_RELEASE_PREVIOUS_NORMALIZED_ROOT ?? NORMALIZED_DIR);
+const AUDIT_REPORT_PATH = resolve(process.env.AUTO_RELEASE_AUDIT_REPORT_PATH ?? resolve("data", "audit-report.json"));
 const MIN_COVERAGE_START = "2011-07";
+
+function releaseTimestamp(): string {
+  const seed = process.env.AUTO_RELEASE_TIME_SEED;
+  if (!seed) return new Date().toISOString();
+  const timestamp = Date.parse(seed);
+  if (!Number.isFinite(timestamp)) throw new Error("AUTO_RELEASE_TIME_SEED is invalid");
+  return new Date(timestamp).toISOString();
+}
+
+function configuredNextCheckAt(fallback: string): string {
+  const configured = process.env.AUTO_RELEASE_NEXT_CHECK_AT;
+  if (!configured) return fallback;
+  const timestamp = Date.parse(configured);
+  if (!Number.isFinite(timestamp)) throw new Error("AUTO_RELEASE_NEXT_CHECK_AT is invalid");
+  return new Date(timestamp).toISOString();
+}
 
 interface RevisionRecord {
   revision_id: string;
@@ -56,7 +74,7 @@ async function writeJsonAtomically(path: string, value: unknown): Promise<void> 
 const batches = await readBatches();
 const records = batches.flatMap((batch) => batch.records);
 const errors = validateRecords(records);
-const auditReport = await readJson<AuditReport | null>(resolve("data", "audit-report.json"), null);
+const auditReport = await readJson<AuditReport | null>(AUDIT_REPORT_PATH, null);
 errors.push(...validateAuditReport(auditReport, batches));
 const verifiedBatches = batches.filter((batch) => batch.source_batch.verification_status === "verified");
 if (batches.length === 0) errors.push("no source batches found under data/raw");
@@ -79,13 +97,15 @@ if (errors.length > 0) {
   const recordsJson = JSON.stringify(sortedRecords);
   const shortHash = createHash("sha256").update(recordsJson).digest("hex").slice(0, 12);
   const datasetVersion = `${latestMonth}-${shortHash}`;
-  const existingRevisions = await readJson<RevisionRecord[]>(resolve(NORMALIZED_DIR, "revisions.json"), []);
+  const existingRevisions = await readJson<RevisionRecord[]>(resolve(PREVIOUS_NORMALIZED_DIR, "revisions.json"), []);
   const sourceVersion = sourceDatasetVersion(latestMonth, batches, existingRevisions);
-  const generatedAt = new Date().toISOString();
+  const generatedAt = releaseTimestamp();
   const latestBatch = batches.find((batch) => batch.source_batch.stat_month === latestMonth);
   const discovery = await readJson<{ checked_at?: string; historical_official_search_checked_at?: string }>(resolve("data", "discovered-official-pages.json"), {});
-  const lastCheckedAt = discovery.historical_official_search_checked_at ?? discovery.checked_at ?? generatedAt;
-  const nextCheckDueAt = addOneMonth(lastCheckedAt);
+  const lastCheckedAt = process.env.AUTO_RELEASE_TIME_SEED
+    ? generatedAt
+    : discovery.historical_official_search_checked_at ?? discovery.checked_at ?? generatedAt;
+  const nextCheckDueAt = configuredNextCheckAt(addOneMonth(lastCheckedAt));
   const dataStatus = deriveDataStatus({ datasetAsOf: latestMonth, latestOfficialMonth: latestMonth, latestReleaseDate: latestBatch?.source_batch.release_date ?? generatedAt.slice(0, 10), nextCheckDueAt, now: generatedAt });
   const dataFileName = `data-${datasetVersion}.json`;
   const overviewFileName = `overview-${datasetVersion}.json`;
@@ -163,7 +183,7 @@ if (errors.length > 0) {
     coverage_gaps: [],
   };
 
-  const oldPayload = await readJson<{ records?: StandardRecord[] }>(resolve(OUTPUT_DIR, "data.json"), {});
+  const oldPayload = await readJson<{ records?: StandardRecord[] }>(resolve(PREVIOUS_OUTPUT_DIR, "data.json"), {});
   const oldByKey = new Map((oldPayload.records ?? []).map((record) => [recordKey(record), record]));
   const newRevisions: RevisionRecord[] = [];
   for (const record of sortedRecords) {

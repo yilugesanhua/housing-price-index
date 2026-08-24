@@ -29,6 +29,8 @@ const strictValidatorDeployment = await readFile(resolve(root, 'scripts/miniprog
 const previewValidatorDeployment = await readFile(resolve(root, 'scripts/miniprogram/deploy-preview-validator.mjs'), 'utf8')
 const tencentCloudSdk = await readFile(resolve(root, 'scripts/miniprogram/tencent-cloud-sdk.mjs'), 'utf8')
 const candidateCleanupScript = await readFile(resolve(root, 'scripts/miniprogram/delete-remote-candidate.mjs'), 'utf8')
+const watchdogFunction = await readFile(resolve(root, 'apps/miniprogram/cloudfunctions/monthlyDataWatchdog/index.js'), 'utf8')
+const watchdogDecision = await readFile(resolve(root, 'apps/miniprogram/cloudfunctions/monthlyDataWatchdog/decision.js'), 'utf8')
 const ci = await readFile(resolve(root, '.github/workflows/ci.yml'), 'utf8')
 
 async function readWorkflowTree(directory) {
@@ -57,6 +59,25 @@ test('discovery workflow remains read-only and has no production environment', (
   assert.doesNotMatch(discovery, /contents: write|housing-data-production|TENCENTCLOUD_SECRET/)
 })
 
+test('independent watchdog can only read Actions runs and dispatch the fixed discovery workflow', () => {
+  assert.match(discovery, /workflow_dispatch:\s+inputs:\s+watchdog_slot:/)
+  assert.match(watchdogFunction, /actions\/workflows\/\$\{encodeURIComponent\(workflow\)\}\/runs/)
+  assert.match(watchdogFunction, /actions\/workflows\/\$\{encodeURIComponent\(workflow\)\}\/dispatches/)
+  assert.match(watchdogFunction, /inputs: \{ watchdog_slot: decision\.expectedAt \}/)
+  assert.match(watchdogFunction, /WATCHDOG_DRY_RUN/)
+  assert.match(watchdogFunction, /cloud\.init\(\{ env: cloud\.DYNAMIC_CURRENT_ENV \}\)/)
+  assert.match(watchdogFunction, /database\.runTransaction/)
+  assert.match(watchdogFunction, /already_claimed/)
+  assert.match(watchdogFunction, /candidate-stalled:/)
+  assert.match(watchdogFunction, /already_alerted/)
+  assert.match(watchdogFunction, /WATCHDOG_PUBLISH_WORKFLOW/)
+  assert.doesNotMatch(watchdogFunction, /TENCENTCLOUD_(?:SECRET|MONITOR_SECRET)|putObject|uploadFile|publish-remote-data|cosCall|scf\./i)
+  assert.match(watchdogDecision, /within_grace_period/)
+  assert.match(watchdogDecision, /already_dispatched/)
+  assert.match(watchdogDecision, /schedule_missing/)
+  assert.match(watchdogDecision, /findStalledRun/)
+})
+
 test('publisher is triggered only by the named discovery workflow', () => {
   assert.match(publisher, /workflow_run:\s+workflows: \[monthly-data-check\]/)
   assert.doesNotMatch(publisher, /pull_request:|workflow_dispatch:/)
@@ -67,6 +88,24 @@ test('publisher is triggered only by the named discovery workflow', () => {
   assert.match(publisher, /Require successful ordinary CI for the exact candidate commit/)
   assert.match(publisher, /actions\/workflows\/ci\.yml\/runs/)
   assert.match(publisher, /ordinary-ci-evidence\.json/)
+})
+
+test('queued duplicate discoveries recheck durable state before candidate work', () => {
+  const prepare = publisher.slice(publisher.indexOf('  prepare:'), publisher.indexOf('  publish:'))
+  const recheck = prepare.indexOf('Recheck durable candidate state after acquiring the queue')
+  const candidateWork = prepare.indexOf('Fetch, audit, build, and test candidate')
+  assert.ok(recheck >= 0 && candidateWork > recheck)
+  assert.match(prepare, /isSameReleaseHandled/)
+  assert.match(prepare, /readRemoteJson\('data\/releases\/auto-update-state\.json'\)/)
+  assert.match(prepare, /readRemoteJson\('data\/releases\/pending-auto-release\.json'\)/)
+  assert.match(prepare, /steps\.recheck_state\.outputs\.handled != 'true'/)
+})
+
+test('automatic publisher exposes only the isolated candidate directory', () => {
+  const prepare = publisher.slice(publisher.indexOf('  prepare:'), publisher.indexOf('  publish:'))
+  assert.match(prepare, /work\/auto-release\//)
+  assert.doesNotMatch(prepare, /work\/miniprogram-data/)
+  assert.doesNotMatch(publisher, /work\/miniprogram-data/)
 })
 
 test('discovery schedule covers both the 09:30 and 15:00 official release windows', () => {
@@ -117,6 +156,22 @@ test('scheduled recovery reads state without credentials and publishes only a re
   assert.match(inspectAndRecover, /miniprogram:data:verify-official-source/)
   assert.match(publish, /environment: housing-data-production/)
   assert.match(publish, /PRODUCTION_RELEASE_AUTHORIZED:/)
+})
+
+test('scheduled recovery restores the original candidate artifact instead of generating a new one', async () => {
+  const recover = recovery.slice(recovery.indexOf('  recover:'), recovery.indexOf('  publish:'))
+  assert.match(recovery, /candidate_run_id: \$\{\{ steps\.pending\.outputs\.candidate_run_id \}\}/)
+  assert.match(recover, /Download the exact original candidate artifact/)
+  assert.match(recover, /housing-data-candidate-\$\{\{ needs\.inspect\.outputs\.candidate_run_id \}\}/)
+  assert.match(recover, /run-id: \$\{\{ needs\.inspect\.outputs\.candidate_run_id \}\}/)
+  assert.match(recover, /work\/auto-release\/candidate\/snapshot\.cjs/)
+  assert.match(recover, /work\/auto-release\/candidate\/remote-data/)
+  assert.doesNotMatch(recover, /npm run data:audit|miniprogram:data:stage|miniprogram:data:prepare-auto|miniprogram:data:publish\s+--/)
+
+  const recoveryGate = await readFile(resolve(root, 'scripts/miniprogram/create-recovery-gate.mjs'), 'utf8')
+  assert.match(recoveryGate, /Pending candidate workflow run ID is invalid/)
+  assert.match(recoveryGate, /work\/auto-release\/candidate/)
+  assert.doesNotMatch(recoveryGate, /work\/miniprogram-data/)
 })
 
 test('24-hour monitor uses a separate read-only identity and does not expose pointer writes', () => {

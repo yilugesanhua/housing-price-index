@@ -51,6 +51,7 @@
     "miniprogram:data:verify-remote": "node scripts/miniprogram/verify-remote-data.mjs",
     "miniprogram:data:prepare-auto": "node scripts/miniprogram/prepare-auto-update.mjs",
     "miniprogram:data:persist-candidate": "node scripts/miniprogram/candidate-persistence.mjs",
+    "miniprogram:data:persist-state": "node scripts/miniprogram/persist-auto-update-state.mjs",
     "miniprogram:data:bind-gate": "node scripts/miniprogram/bind-auto-gate.mjs",
     "miniprogram:data:complete-auto": "node scripts/miniprogram/complete-auto-release.mjs",
     "miniprogram:data:publish-audit": "node scripts/miniprogram/publish-private-audit.mjs",

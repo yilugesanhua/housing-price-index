@@ -5,7 +5,8 @@ import { byteLength, sha256, verifyReleaseAgainstSnapshot, verifyReleaseIntegrit
 
 const root = resolve(import.meta.dirname, '../..')
 const require = createRequire(import.meta.url)
-const snapshot = require(resolve(root, 'apps/miniprogram/data/snapshot.js'))
+const snapshotPath = process.argv.find((argument) => argument.startsWith('--snapshot='))?.slice('--snapshot='.length) || 'apps/miniprogram/data/snapshot.js'
+const snapshot = require(resolve(root, snapshotPath))
 const explicitDir = process.argv.find((argument) => argument.startsWith('--dir='))?.slice('--dir='.length)
 const integrityOnly = process.argv.includes('--integrity-only')
 const latest = explicitDir ? null : JSON.parse(await readFile(resolve(root, 'work/miniprogram-data/latest-candidate.json'), 'utf8'))

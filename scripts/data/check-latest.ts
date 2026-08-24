@@ -8,6 +8,7 @@ import type { ReleaseCalendar } from "./fetch-release-calendar";
 type DiscoveredPage = { title: string; href: string };
 type Discovery = { checked_at?: string; list_url?: string; pages?: DiscoveredPage[] };
 type Manifest = { dataset_as_of?: string; next_check_due_at?: string };
+export type PublishedPointer = { dataset_as_of?: string; dataset_version?: string; manifest_sha256?: string; next_check_at?: string };
 
 export type LatestCheckStatus = "waiting" | "current" | "update_available" | "anomaly";
 export type ReleaseWindow = "waiting" | "active" | "overdue" | "calendar_exhausted";
@@ -51,6 +52,7 @@ export type DiscoveryHandoff = {
   repository_commit_sha: string | null;
   discovery_run_id: string | null;
   idempotency_key: string;
+  release_identity_version: "month-and-official-url-v1";
 };
 
 function digest(value: string): string {
@@ -74,7 +76,7 @@ export function buildDiscoveryHandoff(result: LatestCheckResult, calendar: Relea
   const calendarText = JSON.stringify({ year: calendar.year, source_urls: calendar.source_urls ?? [calendar.source_url], raw_content_sha256: calendar.raw_content_sha256, entries: calendar.entries });
   const repositoryCommit = /^[a-f0-9]{40}$/.test(env.GITHUB_SHA || "") ? env.GITHUB_SHA! : null;
   const discoveryRunId = /^\d+$/.test(env.GITHUB_RUN_ID || "") ? env.GITHUB_RUN_ID! : null;
-  const idempotencyKey = digest(`${result.expected_stat_month}\n${result.latest_official_url}\n${calendarText}`);
+  const idempotencyKey = digest(`${result.expected_stat_month}\n${result.latest_official_url}`);
   return {
     format: "housing-data-discovery-handoff-v1",
     status: "update_available",
@@ -90,7 +92,15 @@ export function buildDiscoveryHandoff(result: LatestCheckResult, calendar: Relea
     repository_commit_sha: repositoryCommit,
     discovery_run_id: discoveryRunId,
     idempotency_key: idempotencyKey,
+    release_identity_version: "month-and-official-url-v1",
   };
+}
+
+export function publishedManifest(pointer: PublishedPointer | null | undefined, fallback: Manifest = {}): Manifest {
+  if (pointer && typeof pointer.dataset_as_of === "string") {
+    return { dataset_as_of: pointer.dataset_as_of, next_check_due_at: pointer.next_check_at ?? fallback.next_check_due_at };
+  }
+  return fallback;
 }
 
 export function extractStatMonth(title: string): string | null {
@@ -222,7 +232,11 @@ function toMarkdown(result: LatestCheckResult): string {
 async function main() {
   const discoveryArgument = process.argv.find((arg) => arg.startsWith("--discovery="))?.split("=").slice(1).join("=");
   const calendarArgument = process.argv.find((arg) => arg.startsWith("--calendar="))?.split("=").slice(1).join("=");
-  const manifest = JSON.parse(await readFile(resolve("apps", "web", "public", "data", "manifest.json"), "utf8")) as Manifest;
+  const repositoryManifest = JSON.parse(await readFile(resolve("apps", "web", "public", "data", "manifest.json"), "utf8")) as Manifest;
+  const currentArgument = process.argv.find((arg) => arg.startsWith("--current="))?.split("=").slice(1).join("=");
+  const current = currentArgument ? JSON.parse(await readFile(resolve(currentArgument), "utf8")) as PublishedPointer : null;
+  if (currentArgument && (!current || typeof current.dataset_as_of !== "string")) throw new Error("生产 current.json 缺少有效 dataset_as_of");
+  const manifest = publishedManifest(current, repositoryManifest);
   const now = new Date();
   let result: LatestCheckResult;
   if (calendarArgument) {

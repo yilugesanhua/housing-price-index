@@ -8,23 +8,54 @@ import type { ParsedBatch, SourceBatch } from "./types";
 
 const gzipAsync = promisify(gzip);
 
-export async function fetchOfficialPage(sourceUrl: string): Promise<ParsedBatch> {
-  const maxAttempts = 3;
-  let response: Response | undefined;
+export type OfficialPageResponse = Pick<Response, "arrayBuffer" | "ok" | "status" | "url">;
+
+/**
+ * Fetches the response headers and the complete body as one retryable unit.
+ * A response is not usable until the body has been read: NBS occasionally
+ * closes a slow body after returning a successful HTTP status.
+ */
+export async function fetchOfficialBytes(
+  sourceUrl: string,
+  {
+    maxAttempts = 3,
+    timeoutMs = 30_000,
+    retryDelayMs = (attempt: number) => attempt * 800,
+    fetchImpl = fetch,
+  }: {
+    maxAttempts?: number;
+    timeoutMs?: number;
+    retryDelayMs?: (attempt: number) => number;
+    fetchImpl?: typeof fetch;
+  } = {},
+): Promise<{ response: OfficialPageResponse; html: Buffer }> {
   let lastError: unknown;
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(new Error(`official page request timed out after ${timeoutMs}ms`)), timeoutMs);
     try {
-      response = await fetch(sourceUrl, { headers: { "User-Agent": "HousingPriceIndexBot/0.1 (+local development)" }, signal: AbortSignal.timeout(30_000) });
-      if (response.ok) break;
-      throw new Error(`HTTP ${response.status}`);
+      const response = await fetchImpl(sourceUrl, { headers: { "User-Agent": "HousingPriceIndexBot/0.1 (+local development)" }, signal: controller.signal });
+      if (!response.ok) {
+        await response.arrayBuffer().catch(() => undefined);
+        throw new Error(`HTTP ${response.status}`);
+      }
+      const html = Buffer.from(await response.arrayBuffer());
+      return { response, html };
     } catch (error) {
       lastError = error;
-      if (attempt < maxAttempts) await new Promise((resolveDelay) => setTimeout(resolveDelay, attempt * 800));
+      if (attempt < maxAttempts) await new Promise((resolveDelay) => setTimeout(resolveDelay, retryDelayMs(attempt)));
+    } finally {
+      clearTimeout(timeout);
+      controller.abort();
     }
   }
-  if (!response?.ok) throw new Error(`抓取官方页面失败: ${String(lastError)}`);
-  const fetchedAt = new Date().toISOString();
-  const html = Buffer.from(await response.arrayBuffer());
+  throw new Error(`抓取官方页面失败: ${String(lastError)}`);
+}
+
+export async function fetchOfficialPage(sourceUrl: string): Promise<ParsedBatch> {
+  const { response, html } = await fetchOfficialBytes(sourceUrl);
+  const seed = process.env.AUTO_RELEASE_TIME_SEED;
+  const fetchedAt = seed && Number.isFinite(Date.parse(seed)) ? new Date(seed).toISOString() : new Date().toISOString();
   const digest = sha256(html);
   const detected = detectOfficialMetadata(html.toString("utf8"), response.url || sourceUrl);
   const archiveDir = resolve("data", "raw", detected.statMonth);

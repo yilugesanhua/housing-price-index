@@ -35,7 +35,8 @@ const handoff = {
   report_sha256: sha256(reportText),
   repository_commit_sha: trigger.head_sha,
   discovery_run_id: trigger.run_id,
-  idempotency_key: sha256(`2026-07\n${report.latest_official_url}\n${calendarText}`),
+  idempotency_key: sha256(`2026-07\n${report.latest_official_url}`),
+  release_identity_version: 'month-and-official-url-v1',
 }
 
 test('accepts an untampered discovery handoff confirmed by a fresh official check', () => {
@@ -52,7 +53,7 @@ test('accepts a changed official release schedule when the official month and pa
   const result = validateDiscoveryGate({ handoff, discoveryReportText: reportText, discoveryCalendar: calendar, freshReport, freshCalendar, trigger })
   assert.equal(result.calendar_changed_after_discovery, true)
   assert.equal(result.fresh_scheduled_release_at, '2026-08-17T15:00:00+08:00')
-  assert.notEqual(result.idempotency_key, handoff.idempotency_key)
+  assert.equal(result.idempotency_key, handoff.idempotency_key)
 })
 
 for (const [label, mutate, pattern] of [

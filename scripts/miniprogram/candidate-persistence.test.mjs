@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { validateCandidatePaths } from './candidate-persistence.mjs'
+import { validateCandidatePaths, validateCandidateRunId } from './candidate-persistence.mjs'
 
 const valid = [
   'data/raw/2026-07/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.batch.json',
   'data/raw/2026-07/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa.html.gz',
   'data/releases/pending-auto-release.json',
+  'data/releases/auto-update-state.json',
 ]
 
 test('allows only raw source evidence and a pending state', () => {
@@ -18,6 +19,13 @@ for (const path of ['scripts/data/publish.ts', '.github/workflows/ci.yml', 'apps
   })
 }
 
-test('requires both compressed raw evidence files and a pending state for the target month', () => {
+test('requires both compressed raw evidence files and durable state for the target month', () => {
   assert.throws(() => validateCandidatePaths(valid.filter((path) => !path.endsWith('.html.gz')), '2026-07'), /required generated artifacts/)
+})
+
+test('requires an immutable artifact run identifier for later recovery', () => {
+  assert.equal(validateCandidateRunId(456), '456')
+  for (const value of ['', ' 456', '456\n789', 'run-456', null]) {
+    assert.throws(() => validateCandidateRunId(value), /candidate workflow run ID is invalid/)
+  }
 })

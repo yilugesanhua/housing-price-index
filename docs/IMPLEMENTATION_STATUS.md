@@ -1,12 +1,26 @@
 # 实施状态登记
 
-更新日期：2026-08-07
+更新日期：2026-08-24
 
-## 2026-08-07 自动更新启用记录
+## 2026-08-07 自动更新历史记录（不代表当前启用）
 
 - 当前源码版本为 `v2.5.15`，精确提交为 `60d3cb38f2bd47694aa1a7c78d674eeb1d1cfb79`。GitHub Actions `31137756505` 已成功完成唯一一组 36 个月普通月度隔离回放：`2023-07 -> 2026-06` 共 36/36 轮通过。工件报告位于 `work/evidence-download/31137756505/full-auto-update-replay-31137756505-1/31137756505-1/report.json`；报告记录生产指针与正式发布目录均未触碰，且回放时 `automatic_release_enabled=false`。
 - 独立的历史修订云端回放为 GitHub Actions `31137756549`，12 轮通过。普通月度与历史修订的两类证据分别保留，不互相替代。
-- 维护人授权后，GitHub CLI 已独立设置并回读仓库级 `AUTOMATIC_RELEASE_ENABLED=true` 和 `housing-data-production` Environment 级 `PRODUCTION_RELEASE_AUTHORIZED=true`。正常月度自动更新当前已启用；D19 未关闭前，运行模式为 `supervised_automation`，不宣称通知链路已完全无人值守。
+- 维护人授权后，历史记录曾独立设置并回读仓库级 `AUTOMATIC_RELEASE_ENABLED=true` 和 `housing-data-production` Environment 级 `PRODUCTION_RELEASE_AUTHORIZED=true`。该记录只证明当时状态，不能替代当前现场回读；当前实现和启用清单仍按 `automation_disabled` 失败关闭处理，D19 未关闭前不得宣称通知链路已完全无人值守。
+
+## 2026-08-21 月度自动更新可靠性修复（本地验证）
+
+- 按 `MONTHLY_DATA_AUTOMATION_AUDIT_20260820.md` 的 A01-A06 完成当前本地实现：候选数据只生成到 `work/auto-release/candidate/`；状态在确认官方原文身份后先写入 `preparing`；稳定 `release_key`、候选身份和首次时间种子用于重试；发现与排队候选都会复查默认分支上的持久化状态；已发布月份以生产 `current.json` 的只读回读为准；HTTP完整正文读取纳入重试边界。
+- 待发布恢复现在从首次候选运行的精确 Artifact 恢复 `snapshot.cjs` 和远程候选包，并逐项核验，不再重新抓取、审计或生成另一份候选。待发布状态保存该 Artifact 的运行编号，缺失或格式不正确时失败关闭。
+- 本机已通过 `npm run check`、`npm run test:e2e`（39项通过、1项按配置跳过）、工作流YAML解析、TypeScript检查和恢复流程定向测试。上述只证明本地实现和测试结果，不代表工作流已在GitHub实际运行、腾讯云守护器已部署或生产环境可用。
+- 2026-08-21 使用隔离审计报告完成改造后本地36个月回放，`36/36` 轮通过；包含远程文件缺失、下载中断、缓存写入失败和撤销注册表故障注入，报告确认 `production_pointer_untouched=true`、`production_release_prefix_untouched=true`。可复查报告保存在项目外临时证据目录 `C:\Users\user\AppData\Local\Temp\housing-data-auto-update-audit-20260821-remainder\replay-36-report.json`。
+- 2026-08-24 已将只读监测函数部署到 CloudBase 环境 `cloud1-d3gpdx70w5d05c68c`，配置 GitHub 最小权限令牌、状态集合 `monthlyDataWatchdog` 和 `0 */5 * * * * *` 定时触发器；首次线上 dry-run 返回 `schedule_observed`，未补触发工作流。随后现场发现仓库级和生产 Environment 级发布开关均为 `true`，已关闭并分别复读为 `false`；没有生产数据、正式指针或发布写入。
+- 2026-08-24 线上 `monthly-data-auto-publish.yml` 运行 `32683024358` 在候选持久化阶段失败，原因是远端旧提交仍把生成的 `apps/miniprogram/data/snapshot.js` 判为未允许路径；本地 A01-A06 修复尚未进入远端主分支。该失败没有进入 publish job；在修复提交通过普通 CI 前保持两级生产开关关闭。
+
+### 2026-08-24 独立守护器实现（已部署，dry-run）
+
+- 已新增 `apps/miniprogram/cloudfunctions/monthlyDataWatchdog/`，只查询 GitHub Actions 定时/手动运行记录，在宽限时间后对缺失的 `monthly-data-check.yml` 进行一次性补触发判断，并按发布运行 ID 对长时间卡住的候选发布生成一次性日志告警；不读取生产对象、不持有腾讯云生产密钥、不修改生产开关。
+- 已新增本地决策测试和模拟 GitHub API 测试；真实函数、最小权限令牌、CloudBase 状态集合和定时触发器已部署，`WATCHDOG_DRY_RUN=true` 的线上首次调用返回 `schedule_observed`。必须继续观察完整官方发布时间窗口，确认日志正常后才可由维护人将 `WATCHDOG_DRY_RUN` 改为 `false`；步骤见 [`MONTHLY_DATA_WATCHDOG.md`](MONTHLY_DATA_WATCHDOG.md)。
 
 本文件记录权威规范与当前实现之间的差距，不另行定义产品、数据或发布规则。R01-R07、D01-D20、I01-I14与V01-V19涉及的目标要求以 `AGENTS.md`、`PRODUCT.md`、`DATA_CONTRACT.md`、`ACCEPTANCE.md`、`MINIPROGRAM_VERSIONING.md`、`RELEASE_READINESS.md` 和 `MINIPROGRAM_DATA_UPDATE.md` 的对应条款为准；项目全部权威规范及职责边界以 [文档索引](DOCUMENT_INDEX.md) 为准。
 

@@ -2,6 +2,11 @@ name: monthly-data-check
 
 on:
   workflow_dispatch:
+    inputs:
+      watchdog_slot:
+        description: Deterministic UTC schedule slot supplied by the independent watchdog
+        required: false
+        type: string
   schedule:
     # 北京时间每天09:00同步官方发布预告；是否检查正式发布列表由预告日期和时间决定。
     - cron: "0 1 * * *"
@@ -35,12 +40,17 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: Read production current pointer (read-only)
+        env:
+          TENCENTCLOUD_MONITOR_SECRET_ID: ${{ secrets.TENCENTCLOUD_MONITOR_SECRET_ID }}
+          TENCENTCLOUD_MONITOR_SECRET_KEY: ${{ secrets.TENCENTCLOUD_MONITOR_SECRET_KEY }}
+        run: node scripts/miniprogram/auto-update-state.mjs --read-production-pointer --output=work/monthly-data-check/current.json
       - id: latest
         name: Sync release calendar and compare official and published months
         shell: bash
         run: |
           set +e
-          npm run data:check-latest
+          npm run data:check-latest -- --current=work/monthly-data-check/current.json
           status=$?
           set -e
           case "$status" in

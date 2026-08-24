@@ -45,10 +45,11 @@ export function validateDiscoveryGate({ handoff, discoveryReportText, discoveryC
   assert(freshReport.expected_stat_month === handoff.expected_stat_month && freshReport.latest_official_month === handoff.expected_stat_month, 'fresh official month mismatch')
   assert(freshReport.latest_official_url === handoff.official_url, 'fresh official URL mismatch')
   assert(entry?.scheduled_at === freshReport.scheduled_release_at, 'candidate does not match the freshly verified release schedule')
-  const handoffIdempotencyKey = sha256(`${handoff.expected_stat_month}\n${handoff.official_url}\n${discoveryCalendarText}`)
+  assert(handoff.release_identity_version === 'month-and-official-url-v1', 'discovery identity version is unsupported')
+  const handoffIdempotencyKey = sha256(`${handoff.expected_stat_month}\n${handoff.official_url}`)
   assert(handoff.idempotency_key === handoffIdempotencyKey, 'discovery idempotency key mismatch')
   const freshCalendarText = calendarText(freshCalendar)
-  const idempotencyKey = sha256(`${handoff.expected_stat_month}\n${handoff.official_url}\n${freshCalendarText}`)
+  const idempotencyKey = sha256(`${handoff.expected_stat_month}\n${handoff.official_url}`)
   return {
     format: 'housing-data-discovery-gate-v1',
     status: 'passed',

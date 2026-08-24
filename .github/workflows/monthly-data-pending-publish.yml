@@ -22,6 +22,7 @@ jobs:
       official_url: ${{ steps.pending.outputs.official_url }}
       source_raw_sha256: ${{ steps.pending.outputs.source_raw_sha256 }}
       discovery_run_id: ${{ steps.pending.outputs.discovery_run_id }}
+      candidate_run_id: ${{ steps.pending.outputs.candidate_run_id }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -99,6 +100,26 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: Download the exact original candidate artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: housing-data-candidate-${{ needs.inspect.outputs.candidate_run_id }}
+          path: work/candidate-artifact
+          github-token: ${{ github.token }}
+          run-id: ${{ needs.inspect.outputs.candidate_run_id }}
+      - name: Restore the exact original candidate without regenerating data
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p work/auto-release
+          cp -R work/candidate-artifact/work/auto-release/. work/auto-release/
+          test -f work/auto-release/candidate/snapshot.cjs
+          test -f work/auto-release/candidate/latest-candidate.json
+      - name: Read production current pointer (read-only)
+        env:
+          TENCENTCLOUD_MONITOR_SECRET_ID: ${{ secrets.TENCENTCLOUD_MONITOR_SECRET_ID }}
+          TENCENTCLOUD_MONITOR_SECRET_KEY: ${{ secrets.TENCENTCLOUD_MONITOR_SECRET_KEY }}
+        run: node scripts/miniprogram/auto-update-state.mjs --read-production-pointer --output=work/monthly-data-check/current.json
       - run: npx playwright install --with-deps chromium webkit
       - name: Re-fetch and hash-check the committed official source
         env:
@@ -108,13 +129,12 @@ jobs:
         run: |
           set -euo pipefail
           npm run miniprogram:data:verify-official-source -- "--url=$OFFICIAL_URL" "--sha256=$SOURCE_RAW_SHA256"
-      - run: npm run data:audit -- --report-only
-      - run: npm run data:release-calendar
-      - run: npm run miniprogram:data
-      - run: npm run miniprogram:data:stage -- --calendar=work/monthly-data-check/release-calendar.json --env=cloud1-d3gpdx70w5d05c68c
-      - run: npm run miniprogram:data:verify-remote
-      - run: npm run check
-      - run: npm run test:e2e
+      - name: Reconstruct the exact original candidate from its isolated files
+        shell: bash
+        run: |
+          set -euo pipefail
+          dataset="${{ needs.inspect.outputs.dataset_version }}"
+          npm run miniprogram:data:verify-remote -- --dir="work/auto-release/candidate/remote-data/$dataset" --snapshot=work/auto-release/candidate/snapshot.cjs
       - id: gate
         name: Recreate commit-bound production gate
         env:
@@ -131,7 +151,6 @@ jobs:
           name: housing-data-recovery-candidate-${{ github.run_id }}
           path: |
             work/auto-release/
-            work/miniprogram-data/
             work/monthly-data-check/
           if-no-files-found: error
           retention-days: 90
@@ -175,9 +194,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          mkdir -p work/auto-release work/miniprogram-data work/monthly-data-check
+          mkdir -p work/auto-release work/monthly-data-check
           cp -R work/recovery-artifact/work/auto-release/. work/auto-release/
-          cp -R work/recovery-artifact/work/miniprogram-data/. work/miniprogram-data/
           cp -R work/recovery-artifact/work/monthly-data-check/. work/monthly-data-check/
           node -e "const fs=require('fs'),c=require('crypto'); const actual=c.createHash('sha256').update(fs.readFileSync('work/auto-release/gate-report.json')).digest('hex'); if(actual!==process.env.EXPECTED_GATE_SHA256) throw Error('Recovered gate artifact hash mismatch')"
       - name: Retry guarded publication
@@ -233,7 +251,7 @@ jobs:
           npm run miniprogram:data:complete-auto -- --dataset=${{ needs.recover.outputs.dataset_version }}
           git config user.name "housing-data-automation"
           git config user.email "housing-data-automation@users.noreply.github.com"
-          git add -- "data/releases/${{ needs.recover.outputs.dataset_version }}.json" data/releases/pending-auto-release.json data/releases/latest-auto-release.json
+          git add -- "data/releases/${{ needs.recover.outputs.dataset_version }}.json" data/releases/pending-auto-release.json data/releases/latest-auto-release.json data/releases/auto-update-state.json
           git commit -m "data: record recovered monthly release"
           git push origin "HEAD:${DEFAULT_BRANCH}"
       - name: Upload public recovery evidence only
@@ -244,7 +262,6 @@ jobs:
           path: |
             data/releases/
             work/auto-release/
-            work/miniprogram-data/${{ needs.recover.outputs.dataset_version }}/
             work/monthly-data-check/
           if-no-files-found: warn
           retention-days: 365

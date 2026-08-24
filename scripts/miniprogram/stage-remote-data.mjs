@@ -6,11 +6,14 @@ import { loadAndValidateHistoricalCorrection } from './historical-correction-lib
 
 const root = resolve(import.meta.dirname, '../..')
 const require = createRequire(import.meta.url)
-const snapshot = require(resolve(root, 'apps/miniprogram/data/snapshot.js'))
+const snapshotPath = process.argv.find((argument) => argument.startsWith('--snapshot='))?.slice('--snapshot='.length) || 'apps/miniprogram/data/snapshot.js'
+const snapshot = require(resolve(root, snapshotPath))
 const locationConfig = require(resolve(root, 'apps/miniprogram/config/location.js'))
 const versionConfig = require(resolve(root, 'apps/miniprogram/config/version.js'))
 const cloudEnvId = process.argv.find((argument) => argument.startsWith('--env='))?.slice('--env='.length) || locationConfig.cloudEnvId
-const publishedData = JSON.parse(await readFile(resolve(root, 'apps/web/public/data/data.json'), 'utf8'))
+const dataRoot = process.argv.find((argument) => argument.startsWith('--data-root='))?.slice('--data-root='.length) || 'apps/web/public/data'
+const auditRoot = process.argv.find((argument) => argument.startsWith('--audit-root='))?.slice('--audit-root='.length) || ''
+const publishedData = JSON.parse(await readFile(resolve(root, dataRoot, 'data.json'), 'utf8'))
 const sourceBatchIds = publishedData.records.filter((record) => record.stat_month === snapshot.datasetAsOf).map((record) => record.source_batch_id).filter(Boolean)
 const dataConfig = require(resolve(root, 'apps/miniprogram/config/data.js'))
 const calendarPath = process.argv.find((argument) => argument.startsWith('--calendar='))?.slice('--calendar='.length) || resolve(root, 'work/monthly-data-check/release-calendar.json')
@@ -18,16 +21,21 @@ const explicitNextCheckAt = process.argv.find((argument) => argument.startsWith(
 const correctionPath = process.argv.find((argument) => argument.startsWith('--correction='))?.slice('--correction='.length)
 const commitSha = process.argv.find((argument) => argument.startsWith('--commit='))?.slice('--commit='.length)
 const githubRunId = process.argv.find((argument) => argument.startsWith('--run-id='))?.slice('--run-id='.length)
+const outputDirectory = process.argv.find((argument) => argument.startsWith('--output-root='))?.slice('--output-root='.length) || 'work/miniprogram-data'
+const latestCandidatePath = process.argv.find((argument) => argument.startsWith('--latest-candidate='))?.slice('--latest-candidate='.length) || 'work/miniprogram-data/latest-candidate.json'
 const nextCheckAt = explicitNextCheckAt || clientNextCheckAt(JSON.parse(await readFile(resolve(calendarPath), 'utf8')), snapshot.datasetAsOf)
 if (!Number.isFinite(Date.parse(nextCheckAt || ''))) throw new Error('Invalid --next-check-at value')
+const generatedAt = process.env.AUTO_RELEASE_TIME_SEED && Number.isFinite(Date.parse(process.env.AUTO_RELEASE_TIME_SEED))
+  ? new Date(process.env.AUTO_RELEASE_TIME_SEED).toISOString()
+  : snapshot.generatedAt
 let correction = correctionPath ? await loadAndValidateHistoricalCorrection({ root, requestPath: resolve(root, correctionPath) }) : null
 if (correction) {
   if (!/^[a-f0-9]{40}$/.test(commitSha || '') || !/^\d+$/.test(githubRunId || '')) throw new Error('Correction staging requires valid --commit and --run-id')
-  correction = { ...correction, audit_report_sha256: sha256(await readFile(resolve(root, 'data/audit-report.json'))), commit_sha: commitSha, github_run_id: githubRunId }
+      correction = { ...correction, audit_report_sha256: sha256(await readFile(resolve(root, auditRoot || 'data', 'audit-report.json'))), commit_sha: commitSha, github_run_id: githubRunId }
 }
 const minimumAppVersion = correction ? dataConfig.correctionMinimumAppVersion : dataConfig.monthlyMinimumAppVersion
 const release = buildRemoteRelease(snapshot, { cloudEnvId, storageBucket: dataConfig.storageBucket, minimumAppVersion, nextCheckAt, sourceBatchIds, correction })
-const outputRoot = resolve(root, 'work/miniprogram-data', release.manifest.dataset_version)
+const outputRoot = resolve(root, outputDirectory, release.manifest.dataset_version)
 const errors = verifyReleaseAgainstSnapshot(snapshot, release)
 if (errors.length) throw new Error(`Remote release validation failed:\n- ${errors.join('\n- ')}`)
 
@@ -62,10 +70,11 @@ const report = {
   city_count: Object.keys(release.cities).length,
   largest_city_bytes: Math.max(...Object.values(release.cities).map((item) => item.bytes)),
   total_release_bytes: release.totalBytes,
-  generated_at: new Date().toISOString(),
+  generated_at: generatedAt,
 }
 await writeFile(resolve(outputRoot, 'release-report.json'), `${JSON.stringify(report, null, 2)}\n`, 'utf8')
-await writeFile(resolve(root, 'work/miniprogram-data/latest-candidate.json'), `${JSON.stringify({ dataset_version: report.dataset_version, source_dataset_version: report.source_dataset_version }, null, 2)}\n`, 'utf8')
+await mkdir(resolve(root, latestCandidatePath, '..'), { recursive: true })
+await writeFile(resolve(root, latestCandidatePath), `${JSON.stringify({ dataset_version: report.dataset_version, source_dataset_version: report.source_dataset_version }, null, 2)}\n`, 'utf8')
 await writeFile(resolve(outputRoot, 'release-report.md'), [
   '# 小程序远程数据候选包',
   '',

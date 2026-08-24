@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { globSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { globSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import * as cheerio from "cheerio";
@@ -9,6 +9,18 @@ import { TARGET_CITIES, type ParsedBatch, type StandardRecord } from "./types";
 import { validateRecords } from "./validate";
 import { readRawArchiveSync } from "./raw-archive";
 import { auditSourceTableAssociation, type AuditedTableKind } from "./audit-source-association";
+
+const AUDIT_REPORT_PATH = process.env.AUTO_RELEASE_AUDIT_REPORT_PATH
+  ? resolve(process.env.AUTO_RELEASE_AUDIT_REPORT_PATH)
+  : resolve("data", "audit-report.json");
+
+function auditTimestamp(): string {
+  const seed = process.env.AUTO_RELEASE_TIME_SEED;
+  if (!seed) return new Date().toISOString();
+  const timestamp = Date.parse(seed);
+  if (!Number.isFinite(timestamp)) throw new Error("AUTO_RELEASE_TIME_SEED is invalid");
+  return new Date(timestamp).toISOString();
+}
 
 const OFFICIAL_PATHS = ["/sj/zxfb/", "/xxgk/sjfb/zxfb2020/"];
 
@@ -21,6 +33,7 @@ export interface AuditedBatch {
 const auditedTableKindCache = new WeakMap<object, AuditedTableKind>();
 
 function writeJsonAtomicallySync(path: string, value: unknown): void {
+  mkdirSync(dirname(path), { recursive: true });
   const temporaryPath = `${path}.tmp`;
   rmSync(temporaryPath, { force: true });
   writeFileSync(temporaryPath, JSON.stringify(value, null, 2) + "\n", "utf8");
@@ -202,8 +215,8 @@ if (requestedPath === "--report-only") {
   const batches = allPaths.map((path) => JSON.parse(readFileSync(path, "utf8")) as ParsedBatch);
   const invalid = batches.filter(({ source_batch, records }) => source_batch.verification_status !== "verified" || source_batch.verification_method !== FULL_RECORD_AUDIT_METHOD || !source_batch.audited_records_sha256 || source_batch.audited_records_sha256 !== recordsSha256(records));
   if (invalid.length > 0) throw new Error(`Cannot summarize audit: ${invalid.length} batch(es) lack current verification`);
-  const report = buildAuditReport(batches, new Date().toISOString());
-  writeJsonAtomicallySync(resolve("data", "audit-report.json"), report);
+  const report = buildAuditReport(batches, auditTimestamp());
+  writeJsonAtomicallySync(AUDIT_REPORT_PATH, report);
   console.log(`Summarized ${report.record_count} verified records across ${report.batch_count} batches`);
   process.exit(0);
 }
@@ -228,7 +241,7 @@ if (errorCount > 0) {
   if (errorCount > errorSamples.length) console.error(`- ... ${errorCount - errorSamples.length} additional error(s) omitted`);
   process.exitCode = 1;
 } else {
-  const verifiedAt = new Date().toISOString();
+  const verifiedAt = auditTimestamp();
   for (const path of orderedPaths) {
     const parsed = JSON.parse(readFileSync(path, "utf8")) as ParsedBatch;
     parsed.source_batch.verification_status = "verified";
@@ -241,7 +254,7 @@ if (errorCount > 0) {
   } else {
   const verifiedBatches = orderedPaths.map((path) => JSON.parse(readFileSync(path, "utf8")) as ParsedBatch);
   const report = buildAuditReport(verifiedBatches, verifiedAt);
-  writeJsonAtomicallySync(resolve("data", "audit-report.json"), report);
+  writeJsonAtomicallySync(AUDIT_REPORT_PATH, report);
   console.log(`Verified ${report.record_count} records across ${report.batch_count} batches (${report.coverage_start} to ${report.coverage_end})`);
   }
 }

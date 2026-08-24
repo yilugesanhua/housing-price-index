@@ -1,6 +1,6 @@
 # 文档索引与状态
 
-更新日期：2026-08-07
+更新日期：2026-08-20
 
 本文件是项目文档的统一入口。当前产品与界面事实以 `apps/web/` 和 `apps/miniprogram/` 为准；小程序唯一机器可读源码版本来自 `apps/miniprogram/config/version.js`，截至本次整理其值为 `v2.5.15`。本文中的版本文字只是该次整理快照，不是第二版本源。`70城小程序技术验证/` 是同步副本，`release/miniprogram/` 是只读稳定归档。源码版本、历史测试或旧交接单均不等于微信平台已审核或发布。
 
@@ -46,6 +46,7 @@
 
 以下文件只证明其标注日期、提交、运行或候选版本。它们不得用于证明当前 `v2.5.15` 已通过验收，也不得反向要求当前页面恢复旧设计：
 
+- [`MONTHLY_DATA_AUTOMATION_AUDIT_20260820.md`](MONTHLY_DATA_AUTOMATION_AUDIT_20260820.md)：2026-08-20月度自动数据更新可靠性只读审计，记录定时漏投、候选契约、重试、幂等和恢复问题及建议方案；状态为 `historical_evidence / plan_only`，不表示修复、部署或重新启用已经完成。
 - [`ACCEPTANCE_EVIDENCE.md`](ACCEPTANCE_EVIDENCE.md)：始建于2026-07-19、部分数据证据更新至2026-07-28的Web验收矩阵。
 - [`DELIVERY.md`](DELIVERY.md)：按日期追加的历史交付日志；只追加，不重写既有记录。
 - [`COMPLIANCE_REVIEW.md`](COMPLIANCE_REVIEW.md)：2026-07-15合规工程记录，正式发布前须按当前主体、用途和规则复核。

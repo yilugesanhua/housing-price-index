@@ -24,6 +24,9 @@ jobs:
       update_available: ${{ steps.discovery.outputs.update_available }}
       repository_release_enabled: ${{ steps.repository_auth.outputs.repository_release_enabled }}
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - name: Download exact discovery artifact
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -44,7 +47,13 @@ jobs:
             if (report.official_release_detected !== true || handoff.format !== 'housing-data-discovery-handoff-v1' || handoff.status !== 'update_available') {
               throw new Error('Discovery update is missing a valid machine handoff')
             }
-            updateAvailable = true
+            let state = null
+            try { state = JSON.parse(fs.readFileSync('data/releases/auto-update-state.json', 'utf8')) } catch (error) { if (error.code !== 'ENOENT') throw error }
+            let pending = null
+            try { pending = JSON.parse(fs.readFileSync('data/releases/pending-auto-release.json', 'utf8')) } catch (error) { if (error.code !== 'ENOENT') pending = null }
+            const { isSameReleaseHandled } = await import('./scripts/miniprogram/auto-update-inspect.mjs')
+            const sameRelease = isSameReleaseHandled({ state, pending, handoff })
+            updateAvailable = !sameRelease
           } else if (!['waiting', 'current'].includes(report.status)) {
             throw new Error(`Unexpected successful discovery status: ${report.status}`)
           }
@@ -89,15 +98,6 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npx playwright install --with-deps chromium webkit
-      - name: Require successful ordinary CI for the base commit
-        env:
-          GH_TOKEN: ${{ github.token }}
-          BASE_SHA: ${{ github.event.workflow_run.head_sha }}
-        shell: bash
-        run: |
-          count="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${BASE_SHA}&status=completed&per_page=20" --jq ".workflow_runs | map(select(.head_sha == \"${BASE_SHA}\" and .conclusion == \"success\")) | length")"
-          test "$count" -gt 0
       - name: Download exact discovery artifact
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
@@ -105,11 +105,56 @@ jobs:
           path: work/discovery-artifact
           github-token: ${{ github.token }}
           run-id: ${{ github.event.workflow_run.id }}
+      - id: recheck_state
+        name: Recheck durable candidate state after acquiring the queue
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch origin "$DEFAULT_BRANCH"
+          node --input-type=module <<'NODE'
+          import { execFileSync } from 'node:child_process'
+          import { readFileSync, appendFileSync } from 'node:fs'
+          import { isSameReleaseHandled } from './scripts/miniprogram/auto-update-inspect.mjs'
+          const branch = process.env.DEFAULT_BRANCH
+          const readRemoteJson = (path) => {
+            try {
+              return JSON.parse(execFileSync('git', ['show', `origin/${branch}:${path}`], { encoding: 'utf8' }))
+            } catch (error) {
+              if (error.status === 128) return null
+              throw error
+            }
+          }
+          const handoff = JSON.parse(readFileSync('work/discovery-artifact/handoff.json', 'utf8'))
+          const handled = isSameReleaseHandled({
+            state: readRemoteJson('data/releases/auto-update-state.json'),
+            pending: readRemoteJson('data/releases/pending-auto-release.json'),
+            handoff,
+          })
+          appendFileSync(process.env.GITHUB_OUTPUT, `handled=${handled}\n`)
+          NODE
+      - run: npx playwright install --with-deps chromium webkit
+        if: steps.recheck_state.outputs.handled != 'true'
+      - name: Require successful ordinary CI for the base commit
+        if: steps.recheck_state.outputs.handled != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BASE_SHA: ${{ github.event.workflow_run.head_sha }}
+        shell: bash
+        run: |
+          count="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${BASE_SHA}&status=completed&per_page=20" --jq ".workflow_runs | map(select(.head_sha == \"${BASE_SHA}\" and .conclusion == \"success\")) | length")"
+          test "$count" -gt 0
       - name: Re-fetch official schedule and release list
+        if: steps.recheck_state.outputs.handled != 'true'
+        env:
+          TENCENTCLOUD_MONITOR_SECRET_ID: ${{ secrets.TENCENTCLOUD_MONITOR_SECRET_ID }}
+          TENCENTCLOUD_MONITOR_SECRET_KEY: ${{ secrets.TENCENTCLOUD_MONITOR_SECRET_KEY }}
         shell: bash
         run: |
           set +e
-          npm run data:check-latest
+          node scripts/miniprogram/auto-update-state.mjs --read-production-pointer --output=work/monthly-data-check/current.json
+          npm run data:check-latest -- --current=work/monthly-data-check/current.json
           status=$?
           set -e
           if [ "$status" -ne 2 ]; then
@@ -117,6 +162,7 @@ jobs:
             exit 1
           fi
       - name: Record trusted workflow-run context
+        if: steps.recheck_state.outputs.handled != 'true'
         env:
           TRIGGER_WORKFLOW: ${{ github.event.workflow_run.name }}
           TRIGGER_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
@@ -132,6 +178,7 @@ jobs:
           head_branch:process.env.TRIGGER_HEAD_BRANCH,head_sha:process.env.TRIGGER_HEAD_SHA,
           run_id:process.env.TRIGGER_RUN_ID,default_branch:process.env.DEFAULT_BRANCH},null,2)+'\n')"
       - name: Validate discovery handoff against fresh official data
+        if: steps.recheck_state.outputs.handled != 'true'
         run: >-
           npm run data:validate-handoff --
           --handoff=work/discovery-artifact/handoff.json
@@ -141,14 +188,19 @@ jobs:
           --calendar=work/monthly-data-check/release-calendar.json
           --trigger=work/auto-release/trigger.json
       - name: Fetch, audit, build, and test candidate
+        if: steps.recheck_state.outputs.handled != 'true'
+        env:
+          GITHUB_RUN_ID: ${{ github.run_id }}
         run: >-
           npm run miniprogram:data:prepare-auto --
           --discovery-gate=work/auto-release/discovery-gate.json
           --calendar=work/monthly-data-check/release-calendar.json
           --env=cloud1-d3gpdx70w5d05c68c
       - name: Stage only allowlisted generated files
+        if: steps.recheck_state.outputs.handled != 'true'
         run: npm run miniprogram:data:persist-candidate -- --gate=work/auto-release/gate-report.json
       - name: Commit durable candidate state
+        if: steps.recheck_state.outputs.handled != 'true'
         env:
           EXPECTED_BRANCH: ${{ github.event.repository.default_branch }}
         shell: bash
@@ -159,6 +211,7 @@ jobs:
           git push origin "HEAD:${EXPECTED_BRANCH}"
       - id: candidate_ci
         name: Require successful ordinary CI for the exact candidate commit
+        if: steps.recheck_state.outputs.handled != 'true'
         shell: bash
         run: |
           set -euo pipefail
@@ -189,27 +242,46 @@ jobs:
           GH_TOKEN: ${{ github.token }}
       - id: bind
         name: Bind production gate to pushed candidate commit
+        if: steps.recheck_state.outputs.handled != 'true'
         shell: bash
         run: |
           candidate_sha="$(git rev-parse HEAD)"
           binding="$(npm run --silent miniprogram:data:bind-gate -- --gate=work/auto-release/gate-report.json --commit="$candidate_sha" --ordinary-ci=work/auto-release/ordinary-ci-evidence.json)"
           node -e "const v=JSON.parse(process.argv[1]); const fs=require('fs'); fs.appendFileSync(process.env.GITHUB_OUTPUT, 'candidate_commit_sha='+v.commit_sha+'\ndataset_version='+v.dataset_version+'\ngate_report_sha256='+v.gate_report_sha256+'\n')" "$binding"
       - name: Upload reproducible candidate and gate reports
-        if: always()
+        if: always() && steps.recheck_state.outputs.handled != 'true'
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: housing-data-candidate-${{ github.run_id }}
           path: |
             work/auto-release/
-            work/miniprogram-data/
             work/monthly-data-check/
             work/discovery-artifact/
           if-no-files-found: error
           retention-days: 90
+      - name: Persist failed automatic-update state and source evidence
+        if: failure() && steps.recheck_state.outputs.handled != 'true'
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          result="$(npm run --silent miniprogram:data:persist-state -- --error="automatic update workflow failed in run ${GITHUB_RUN_ID}")"
+          persisted="$(node -e "const v=JSON.parse(process.argv[1]); process.stdout.write(String(v.persisted === true))" "$result")"
+          if [ "$persisted" != "true" ]; then
+            exit 0
+          fi
+          if git diff --cached --quiet; then
+            exit 0
+          fi
+          git config user.name "housing-data-automation"
+          git config user.email "housing-data-automation@users.noreply.github.com"
+          git commit -m "data: persist failed automated update state"
+          git push origin "HEAD:${DEFAULT_BRANCH}"
 
   publish:
     needs: [inspect, prepare]
-    if: needs.prepare.result == 'success' && needs.inspect.outputs.repository_release_enabled == 'true'
+    if: needs.prepare.result == 'success' && needs.prepare.outputs.candidate_commit_sha != '' && needs.inspect.outputs.repository_release_enabled == 'true'
     permissions:
       actions: read
       contents: write
@@ -297,7 +369,7 @@ jobs:
           npm run miniprogram:data:complete-auto -- --dataset=${{ needs.prepare.outputs.dataset_version }}
           git config user.name "housing-data-automation"
           git config user.email "housing-data-automation@users.noreply.github.com"
-          git add -- "data/releases/${{ needs.prepare.outputs.dataset_version }}.json" data/releases/pending-auto-release.json data/releases/latest-auto-release.json
+          git add -- "data/releases/${{ needs.prepare.outputs.dataset_version }}.json" data/releases/pending-auto-release.json data/releases/latest-auto-release.json data/releases/auto-update-state.json
           git commit -m "data: record automated monthly release"
           git push origin "HEAD:${DEFAULT_BRANCH}"
       - name: Upload publish and rollback evidence
@@ -308,6 +380,5 @@ jobs:
           path: |
             data/releases/
             work/auto-release/
-            work/miniprogram-data/${{ needs.prepare.outputs.dataset_version }}/
           if-no-files-found: error
           retention-days: 365

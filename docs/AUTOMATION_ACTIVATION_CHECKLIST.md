@@ -6,13 +6,13 @@
 
 ## 当前结论
 
-- 2026-08-07：维护人已完成最终授权。当前源码版本为 `v2.5.15`，GitHub Actions `31137756505` 在精确提交 `60d3cb38f2bd47694aa1a7c78d674eeb1d1cfb79` 完成唯一一组 36 个月普通月度隔离回放（`2023-07 -> 2026-06`），36/36 通过。下载工件报告 `full-auto-update-replay-31137756505-1/31137756505-1/report.json` 记录 `status=passed`、`production_pointer_untouched=true`、`production_release_prefix_untouched=true` 和回放期间 `automatic_release_enabled=false`；每轮完成官方归档解析、候选失败关闭、隔离 COS 上传回读、隔离指针切换和小程序客户端激活。
-- 同日通过 GitHub CLI 分别设置并独立回读：仓库级 `AUTOMATIC_RELEASE_ENABLED=true`，`housing-data-production` Environment 级 `PRODUCTION_RELEASE_AUTHORIZED=true`。两个精确值均为 `true`，因此正常月度自动更新已启用；D19 未关闭时运行模式为 `supervised_automation`，不宣称无人值守通知闭环。
+- 2026-08-07 的历史记录：维护人曾完成最终授权，并在精确提交 `60d3cb38f2bd47694aa1a7c78d674eeb1d1cfb79` 完成唯一一组 36 个月普通月度隔离回放（`2023-07 -> 2026-06`），36/36 通过。回放报告记录 `production_pointer_untouched=true`、`production_release_prefix_untouched=true` 和回放期间 `automatic_release_enabled=false`；该记录只证明隔离回放，不证明当前生产开关或当前代码已经启用。
+- 同日历史记录曾记载仓库级 `AUTOMATIC_RELEASE_ENABLED=true` 和 `housing-data-production` Environment 级 `PRODUCTION_RELEASE_AUTHORIZED=true`。2026-08-24 现场复读发现两项仍为 `true`，已按安全门槛关闭并分别复读为精确字符串 `false`；该动作只恢复失败关闭状态，不代表自动发布已验收或启用。
 
 - 自动发现、候选生成、数据门禁、受限发布、发布后守卫、回滚、待发布恢复、私有审计和24小时监测已有基础实现；D01-D16仍存在未关闭的正确性、重跑、审计、客户端状态和回滚差距，不能概括为完整安全闭环。
 - 既有 `npm run check`、`npm run test:e2e`、小程序/自动化故障测试和GitHub Actions检查只证明对应提交与已覆盖场景，不能替代D01-D20的关闭证据。
 - 公开仓库 `yilugesanhua/housing-price-index` 已创建，初始提交 `4e0713e` 已推送，GitHub Actions `ci / verify` 已通过；仓库当前同时跟踪官方页面 `.html.gz` 和对应批次复现文件，它们不进入Web或小程序生产包。
-- `housing-data-production` Environment 已创建；写入与只读监测 Secrets 已分别配置。2026-07-31通过GitHub CLI现场只读回读：仓库级 `AUTOMATIC_RELEASE_ENABLED=false`，生产 Environment 未设置 `PRODUCTION_RELEASE_AUTHORIZED`；当前两级门禁均失败关闭。变量缺失不等于V16已完整验证，真实受保护Environment执行和未来启用时的独立授权证据仍未完成。
+- `housing-data-production` Environment 已创建；写入与只读监测 Secrets 已分别配置。2026-08-24通过GitHub CLI现场回读：仓库级 `AUTOMATIC_RELEASE_ENABLED=false`，生产 Environment 级 `PRODUCTION_RELEASE_AUTHORIZED=false`；当前两级门禁均失败关闭。变量关闭不等于V16已完整验证，真实受保护Environment执行和未来启用时的独立授权证据仍未完成。
 - `main-production-guard` 规则集已启用，禁止删除、强制推送和非线性历史；生产Environment仅允许 `main` 分支进入。
 - GitHub个人仓库不允许内置Actions身份绕过“必需状态检查”，因此规则集不直接要求 `verify`；自动发布工作流必须在候选生成前通过GitHub API证明基础提交的普通 `ci / verify` 已成功。
 - COS/SCF 官方 SDK 联调、完整 70 城隔离上传/回读及有限指针/回滚演练已有历史通过记录；生产开关必须保持关闭，直到R02、D01-D16、I01-I03、I09、I12、候选绑定的开发者工具检查和双真机、平台证据回读及正式数据链路复核全部完成。维护人确认已发布不单独满足自动更新门槛。

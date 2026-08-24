@@ -473,7 +473,8 @@ function createWxMock(release: any, options: {
 await rm(outputRoot, { recursive: true, force: true });
 await mkdir(outputRoot, { recursive: true });
 await writeReplayCheckpoint([], null);
-const auditReport = JSON.parse(await readFile(resolve(root, "data/audit-report.json"), "utf8")) as AuditReport;
+const auditReportPath = resolve(process.env.AUTO_RELEASE_AUDIT_REPORT_PATH ?? resolve(root, "data/audit-report.json"));
+const auditReport = JSON.parse(await readFile(auditReportPath, "utf8")) as AuditReport;
 const auditedBatches: ParsedBatch[] = [];
 for await (const path of glob(resolve(root, "data/raw/**/*.batch.json").replaceAll("\\", "/"))) {
   auditedBatches.push(JSON.parse(await readFile(path, "utf8")) as ParsedBatch);
