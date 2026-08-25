@@ -919,7 +919,7 @@ validation_status: passed
 
 两条报告都必须绑定 `app_version`、精确 `source_commit_sha`、`source_dataset_version`、`parser_version`、`audit_version`、工作流文件SHA-256、GitHub运行ID、测试云环境、起止时间和逐阶段耗时。任一身份不同、证据缺失或只提供汇总截图时，不得合并结论。
 
-现有 `MINIPROGRAM_12_MONTH_REPLAY_*.md` 和 [`MINIPROGRAM_V2_4_1_12_MONTH_REPLAY.md`](MINIPROGRAM_V2_4_1_12_MONTH_REPLAY.md) 只记录指定旧版本和旧提交的历史证据。旧 `v2.4.11` 的三组36个月本地结果见 [`MINIPROGRAM_V2_4_11_108_MONTH_REPLAY.md`](MINIPROGRAM_V2_4_11_108_MONTH_REPLAY.md)；它们仍不能替代当前 `v2.5.6` 的精确提交、当前单组6个月真实隔离云端、开发者工具和双真机报告。尚无同时满足普通月度、历史修订和当前候选外部证据链的精确候选，因此R02保持 `partial/passed_limited`，不得据此开启生产自动发布。
+现有 `MINIPROGRAM_12_MONTH_REPLAY_*.md` 和 [`MINIPROGRAM_V2_4_1_12_MONTH_REPLAY.md`](MINIPROGRAM_V2_4_1_12_MONTH_REPLAY.md) 只记录指定旧版本和旧提交的历史证据。旧 `v2.4.11` 的三组36个月本地结果见 [`MINIPROGRAM_V2_4_11_108_MONTH_REPLAY.md`](MINIPROGRAM_V2_4_11_108_MONTH_REPLAY.md)；它们仍不能替代当前提交 `4fe02a4a6f856d5d29f58f8bf23d55585ae79505` 的真实证据。当前普通月度云端运行 `32835008415` 已完成单组6/6（2026-01至2026-06），历史修订云端运行 `32835011782` 已完成12/12；两次均只写入隔离 rehearsal 前缀并确认生产指针/正式目录未触碰、生产开关为 `false`。开发者工具、双真机和平台/正式数据链路证据仍未完成，因此R02继续保持 `partial/passed_limited`，不得据此开启生产自动发布。
 
 使用 `npm run miniprogram:data:replay -- --months=6`，按时间顺序对最近6个已核验目标月份做确定性回放，并从第1轮重新启动单组执行。目标月份由候选的 `dataset_as_of` 向前连续取6个月，基线为目标窗口前1个月；以当前 `2026-06` 候选为例，目标月为 `2026-01` 至 `2026-06`，基线为 `2025-12`。当前正式数据覆盖为 `2011-07` 起；固定120个月客户端窗口若早于实际来源起点，才允许使用四字段均为 `null`、发布日期为空的显式测试填充，不得伪造官方数据或进入生产来源记录。
 
