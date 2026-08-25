@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict'
+import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { gzipSync } from 'node:zlib'
+import { tmpdir } from 'node:os'
+import { join } from 'node:path'
 import test from 'node:test'
-import { buildDurableReadyState, validateCandidatePaths, validateCandidateRunId } from './candidate-persistence.mjs'
+import { buildDurableReadyState, candidateSourceEvidencePaths, validateCandidatePaths, validateCandidateRunId, verifyExistingSourceEvidence } from './candidate-persistence.mjs'
 import { buildCandidateId, buildReleaseKey, validateStateIdentity } from './auto-update-state.mjs'
 
 const valid = [
@@ -22,6 +26,35 @@ for (const path of ['scripts/data/publish.ts', '.github/workflows/ci.yml', 'apps
 
 test('requires both compressed raw evidence files and durable state for the target month', () => {
   assert.throws(() => validateCandidatePaths(valid.filter((path) => !path.endsWith('.html.gz')), '2026-07'), /required generated artifacts/)
+})
+
+test('reuses already-persisted raw evidence only after verifying its exact identity', async () => {
+  const root = await mkdtemp(join(tmpdir(), 'candidate-persistence-'))
+  const month = '2026-07'
+  const sourceRawSha256 = 'a'.repeat(64)
+  const officialUrl = 'https://www.stats.gov.cn/sj/zxfb/202608/t20260817_1.html'
+  const sourceBatchId = 'official-html-2026-07-aaaaaaaaaaaa'
+  const [batchPath, archivePath] = candidateSourceEvidencePaths(month, sourceRawSha256)
+  try {
+    await mkdir(join(root, 'data/raw/2026-07'), { recursive: true })
+    const html = Buffer.from('<html>official</html>')
+    // The fixture's declared SHA must match the actual archive bytes.
+    const actualSha = (await import('node:crypto')).createHash('sha256').update(html).digest('hex')
+    const actualPaths = candidateSourceEvidencePaths(month, actualSha)
+    await writeFile(join(root, actualPaths[0]), JSON.stringify({ source_batch: {
+      stat_month: month, raw_content_sha256: actualSha, source_url: officialUrl, source_batch_id: sourceBatchId,
+    } }) + '\n')
+    await writeFile(join(root, actualPaths[1]), gzipSync(html))
+    assert.deepEqual(await verifyExistingSourceEvidence(root, {
+      expectedMonth: month, sourceRawSha256: actualSha, officialUrl, sourceBatchId,
+    }), actualPaths)
+    assert.deepEqual([batchPath, archivePath], [`data/raw/${month}/${sourceRawSha256}.batch.json`, `data/raw/${month}/${sourceRawSha256}.html.gz`])
+    await assert.rejects(() => verifyExistingSourceEvidence(root, {
+      expectedMonth: month, sourceRawSha256: actualSha, officialUrl: `${officialUrl}-tampered`, sourceBatchId,
+    }), /source batch URL does not match/)
+  } finally {
+    await rm(root, { recursive: true, force: true })
+  }
 })
 
 test('requires an immutable artifact run identifier for later recovery', () => {
