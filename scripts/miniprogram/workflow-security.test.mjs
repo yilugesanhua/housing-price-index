@@ -84,10 +84,13 @@ test('publisher is triggered only by the named discovery workflow', () => {
   assert.match(publisher, /workflow_run\.conclusion == 'success'/)
   assert.match(publisher, /needs\.inspect\.outputs\.update_available == 'true'/)
   assert.match(publisher, /Distinguish a verified update from a normal no-update check/)
-  assert.match(publisher, /Require successful ordinary CI for the base commit/)
+  assert.match(publisher, /Require successful ordinary CI for the base commit or audited failure-state parent/)
   assert.match(publisher, /Require successful ordinary CI for the exact candidate commit/)
   assert.match(publisher, /actions\/workflows\/ci\.yml\/runs/)
   assert.match(publisher, /ordinary-ci-evidence\.json/)
+  assert.match(publisher, /data: persist failed automated update state/)
+  assert.match(publisher, /git diff --name-only/)
+  assert.match(publisher, /housing-data-auto-update-state-v1/)
 })
 
 test('automatic publisher discovery gate uses one Node module format', () => {

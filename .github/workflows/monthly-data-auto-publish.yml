@@ -136,15 +136,44 @@ jobs:
           NODE
       - run: npx playwright install --with-deps chromium webkit
         if: steps.recheck_state.outputs.handled != 'true'
-      - name: Require successful ordinary CI for the base commit
+      - name: Require successful ordinary CI for the base commit or audited failure-state parent
         if: steps.recheck_state.outputs.handled != 'true'
         env:
           GH_TOKEN: ${{ github.token }}
           BASE_SHA: ${{ github.event.workflow_run.head_sha }}
         shell: bash
         run: |
+          set -euo pipefail
           count="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${BASE_SHA}&status=completed&per_page=20" --jq ".workflow_runs | map(select(.head_sha == \"${BASE_SHA}\" and .conclusion == \"success\")) | length")"
-          test "$count" -gt 0
+          if [ "$count" -gt 0 ]; then
+            exit 0
+          fi
+
+          # A failed-update persistence commit is created with GITHUB_TOKEN, so
+          # GitHub deliberately does not start another workflow for that commit.
+          # Reuse CI from its parent only when the commit is mechanically proven
+          # to contain nothing except the failed state and its exact raw source.
+          parent_sha="$(git rev-parse "${BASE_SHA}^")"
+          test "$(git show -s --format=%s "${BASE_SHA}")" = "data: persist failed automated update state"
+          changed_count=0
+          while IFS= read -r path; do
+            changed_count=$((changed_count + 1))
+            if [[ ! "$path" =~ ^data/raw/20[0-9]{2}-(0[1-9]|1[0-2])/[0-9a-f]{64}\.(batch\.json|html\.gz)$ && "$path" != "data/releases/auto-update-state.json" ]]; then
+              echo "Unexpected path in failed-state persistence commit: $path" >&2
+              exit 1
+            fi
+          done < <(git diff --name-only "${parent_sha}" "${BASE_SHA}")
+          test "$changed_count" -gt 0
+          parent_count="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${parent_sha}&status=completed&per_page=20" --jq ".workflow_runs | map(select(.head_sha == \"${parent_sha}\" and .conclusion == \"success\")) | length")"
+          test "$parent_count" -gt 0
+          export PARENT_SHA="$parent_sha"
+          node --input-type=module <<'NODE'
+          import { execFileSync } from 'node:child_process'
+          const state = JSON.parse(execFileSync('git', ['show', `${process.env.BASE_SHA}:data/releases/auto-update-state.json`], { encoding: 'utf8' }))
+          if (state.format !== 'housing-data-auto-update-state-v1' || state.status !== 'failed') throw new Error('base commit is not a failed automatic-update state')
+          if (!/^20\d{2}-(0[1-9]|1[0-2])$/.test(state.dataset_as_of || '') || !/^[a-f0-9]{64}$/.test(state.source_raw_sha256 || '') || state.release_key !== `${state.dataset_as_of}-${state.source_raw_sha256}`) throw new Error('failed state source identity is invalid')
+          if (!Number.isFinite(Date.parse(state.time_seed || '')) || !Number.isFinite(Date.parse(state.next_check_at || ''))) throw new Error('failed state timing identity is invalid')
+          NODE
       - name: Re-fetch official schedule and release list
         if: steps.recheck_state.outputs.handled != 'true'
         env:
