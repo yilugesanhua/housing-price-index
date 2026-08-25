@@ -109,7 +109,8 @@ test('candidate CI is explicitly dispatched only after the exact default-branch 
   assert.match(prepare, /actions: write\s+contents: write/)
   assert.match(prepare.slice(dispatch, candidateGate), /git rev-parse "origin\/\$DEFAULT_BRANCH"\)" = "\$candidate_sha"/)
   assert.match(prepare.slice(dispatch, candidateGate), /actions\/workflows\/ci\.yml\/dispatches/)
-  assert.match(prepare.slice(candidateGate), /\['push', 'workflow_dispatch'\]/)
+  assert.match(prepare.slice(candidateGate), /\["push", "workflow_dispatch"\]/)
+  assert.match(prepare.slice(candidateGate), /node -e '/)
   assert.match(prepare.slice(candidateGate), /event: successful\.event/)
 })
 

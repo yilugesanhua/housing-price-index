@@ -305,17 +305,20 @@ jobs:
           for attempt in $(seq 1 60); do
             gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${candidate_sha}&per_page=50" > work/auto-release/candidate-ci-runs.json
             set +e
-            node - <<'NODE'
-            const fs = require('fs')
-            const runs = JSON.parse(fs.readFileSync('work/auto-release/candidate-ci-runs.json', 'utf8')).workflow_runs || []
-            const matches = runs.filter((run) => run.head_sha === process.env.CANDIDATE_SHA && ['push', 'workflow_dispatch'].includes(run.event))
-            const failed = matches.find((run) => run.status === 'completed' && run.conclusion !== 'success')
-            if (failed) throw new Error(`Candidate ordinary CI failed: ${failed.id} (${failed.conclusion})`)
-            const successful = matches.find((run) => run.status === 'completed' && run.conclusion === 'success')
-            if (!successful) process.exit(2)
-            const evidence = { workflow: 'ci.yml', event: successful.event, conclusion: 'success', run_id: String(successful.id), commit_sha: successful.head_sha, verified_at: new Date().toISOString() }
-            fs.writeFileSync('work/auto-release/ordinary-ci-evidence.json', `${JSON.stringify(evidence, null, 2)}\n`)
-            NODE
+            node -e '
+              const fs = require("fs")
+              const runs = JSON.parse(fs.readFileSync("work/auto-release/candidate-ci-runs.json", "utf8")).workflow_runs || []
+              const matches = runs.filter((run) => run.head_sha === process.env.CANDIDATE_SHA && ["push", "workflow_dispatch"].includes(run.event))
+              const failed = matches.find((run) => run.status === "completed" && run.conclusion !== "success")
+              if (failed) {
+                console.error("Candidate ordinary CI failed: " + failed.id + " (" + failed.conclusion + ")")
+                process.exit(1)
+              }
+              const successful = matches.find((run) => run.status === "completed" && run.conclusion === "success")
+              if (!successful) process.exit(2)
+              const evidence = { workflow: "ci.yml", event: successful.event, conclusion: "success", run_id: String(successful.id), commit_sha: successful.head_sha, verified_at: new Date().toISOString() }
+              fs.writeFileSync("work/auto-release/ordinary-ci-evidence.json", JSON.stringify(evidence, null, 2) + "\n")
+            '
             status=$?
             set -e
             if [ "$status" -eq 0 ]; then break; fi
