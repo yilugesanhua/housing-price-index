@@ -38,26 +38,26 @@ jobs:
         name: Distinguish a verified update from a normal no-update check
         shell: bash
         run: |
-          node <<'NODE'
-          const fs = require('fs')
-          const report = JSON.parse(fs.readFileSync('work/discovery-artifact/report.json', 'utf8'))
+          node --input-type=module <<'NODE'
+          import { appendFileSync, readFileSync } from 'node:fs'
+          import { isSameReleaseHandled } from './scripts/miniprogram/auto-update-inspect.mjs'
+          const report = JSON.parse(readFileSync('work/discovery-artifact/report.json', 'utf8'))
           let updateAvailable = false
           if (report.status === 'update_available') {
-            const handoff = JSON.parse(fs.readFileSync('work/discovery-artifact/handoff.json', 'utf8'))
+            const handoff = JSON.parse(readFileSync('work/discovery-artifact/handoff.json', 'utf8'))
             if (report.official_release_detected !== true || handoff.format !== 'housing-data-discovery-handoff-v1' || handoff.status !== 'update_available') {
               throw new Error('Discovery update is missing a valid machine handoff')
             }
             let state = null
-            try { state = JSON.parse(fs.readFileSync('data/releases/auto-update-state.json', 'utf8')) } catch (error) { if (error.code !== 'ENOENT') throw error }
+            try { state = JSON.parse(readFileSync('data/releases/auto-update-state.json', 'utf8')) } catch (error) { if (error.code !== 'ENOENT') throw error }
             let pending = null
-            try { pending = JSON.parse(fs.readFileSync('data/releases/pending-auto-release.json', 'utf8')) } catch (error) { if (error.code !== 'ENOENT') pending = null }
-            const { isSameReleaseHandled } = await import('./scripts/miniprogram/auto-update-inspect.mjs')
+            try { pending = JSON.parse(readFileSync('data/releases/pending-auto-release.json', 'utf8')) } catch (error) { if (error.code !== 'ENOENT') pending = null }
             const sameRelease = isSameReleaseHandled({ state, pending, handoff })
             updateAvailable = !sameRelease
           } else if (!['waiting', 'current'].includes(report.status)) {
             throw new Error(`Unexpected successful discovery status: ${report.status}`)
           }
-          fs.appendFileSync(process.env.GITHUB_OUTPUT, `update_available=${updateAvailable}\n`)
+          appendFileSync(process.env.GITHUB_OUTPUT, `update_available=${updateAvailable}\n`)
           NODE
       - id: repository_auth
         name: Capture repository authorization outside the production environment

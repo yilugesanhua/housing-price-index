@@ -90,6 +90,15 @@ test('publisher is triggered only by the named discovery workflow', () => {
   assert.match(publisher, /ordinary-ci-evidence\.json/)
 })
 
+test('automatic publisher discovery gate uses one Node module format', () => {
+  const inspect = publisher.slice(publisher.indexOf('  inspect:'), publisher.indexOf('  prepare:'))
+  assert.match(inspect, /node --input-type=module <<'NODE'/)
+  assert.match(inspect, /import \{ appendFileSync, readFileSync \} from 'node:fs'/)
+  assert.match(inspect, /import \{ isSameReleaseHandled \} from '\.\/scripts\/miniprogram\/auto-update-inspect\.mjs'/)
+  assert.doesNotMatch(inspect, /const fs = require\('fs'\)/)
+  assert.doesNotMatch(inspect, /await import\('\.\/scripts\/miniprogram\/auto-update-inspect\.mjs'\)/)
+})
+
 test('queued duplicate discoveries recheck durable state before candidate work', () => {
   const prepare = publisher.slice(publisher.indexOf('  prepare:'), publisher.indexOf('  publish:'))
   const recheck = prepare.indexOf('Recheck durable candidate state after acquiring the queue')
