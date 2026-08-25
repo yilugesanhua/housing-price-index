@@ -157,18 +157,13 @@ jobs:
           base_ci_verdict() {
             local runs_json
             runs_json="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${BASE_SHA}&per_page=50")"
-            export BASE_CI_RUNS="$runs_json"
-            node --input-type=module <<'NODE'
-            const runs = JSON.parse(process.env.BASE_CI_RUNS).workflow_runs || []
-            const matches = runs.filter((run) => run.head_sha === process.env.BASE_SHA && ['push', 'workflow_dispatch'].includes(run.event))
-            if (matches.some((run) => run.status === 'completed' && run.conclusion === 'success')) {
-              process.stdout.write('success')
-            } else if (matches.some((run) => run.status === 'completed' && run.conclusion !== 'success')) {
-              process.stdout.write('failed')
-            } else {
-              process.stdout.write('pending')
-            }
-            NODE
+            BASE_CI_RUNS="$runs_json" BASE_SHA="$BASE_SHA" node --input-type=module -e '
+              const runs = JSON.parse(process.env.BASE_CI_RUNS).workflow_runs || []
+              const matches = runs.filter((run) => run.head_sha === process.env.BASE_SHA && ["push", "workflow_dispatch"].includes(run.event))
+              if (matches.some((run) => run.status === "completed" && run.conclusion === "success")) process.stdout.write("success")
+              else if (matches.some((run) => run.status === "completed" && run.conclusion !== "success")) process.stdout.write("failed")
+              else process.stdout.write("pending")
+            '
           }
 
           commit_subject="$(git show -s --format=%s "$BASE_SHA")"
