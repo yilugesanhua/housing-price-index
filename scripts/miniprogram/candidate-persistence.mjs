@@ -33,6 +33,23 @@ export function validateCandidateRunId(value) {
   return String(value)
 }
 
+export function buildDurableReadyState(pending) {
+  if (!pending || pending.status !== 'ready') throw new Error('Candidate persistence rejected: pending candidate is not ready')
+  const timeSeed = pending.time_seed || pending.prepared_at
+  if (!timeSeed || !Number.isFinite(Date.parse(timeSeed))) throw new Error('Candidate persistence rejected: stable time seed is invalid')
+  if (!pending.next_check_at || !Number.isFinite(Date.parse(pending.next_check_at))) throw new Error('Candidate persistence rejected: stable next check time is invalid')
+  return {
+    ...pending,
+    // The pending record and the durable state have different machine
+    // formats. Do not let the pending format leak into auto-update-state.json.
+    format: 'housing-data-auto-update-state-v1',
+    status: 'ready',
+    time_seed: timeSeed,
+    next_check_at: pending.next_check_at,
+    updated_at: pending.prepared_at || timeSeed,
+  }
+}
+
 function parsePorcelain(output) {
   return output.split('\0').filter(Boolean).map((entry) => entry.slice(3))
 }
@@ -84,14 +101,16 @@ if (isMain) {
     }),
     state_version: 'housing-data-auto-update-state-v1',
     gate_report_sha256: sha256(gateText),
+    time_seed: gate.time_seed || gate.started_at,
+    next_check_at: gate.next_check_at,
     prepared_at: gate.time_seed || gate.started_at || new Date().toISOString(),
   }
   const statePath = resolve(root, 'data/releases/auto-update-state.json')
   const existing = await readState(statePath)
   if (existing?.status === 'ready' && existing.candidate_id !== pending.candidate_id) throw new Error('Existing ready candidate identity differs from regenerated candidate')
   const nextState = existing
-    ? transitionState(existing, 'ready', { ...pending, release_key: pending.release_key, updated_at: pending.prepared_at })
-    : { ...pending, status: 'ready', updated_at: pending.prepared_at }
+    ? transitionState(existing, 'ready', buildDurableReadyState(pending))
+    : buildDurableReadyState(pending)
   await writeState(statePath, nextState)
   await writeFile(pendingPath, `${JSON.stringify(pending, null, 2)}\n`, 'utf8')
   const { stdout } = await execFileAsync('git', ['status', '--porcelain=v1', '-z', '--untracked-files=all', '--no-renames'], { cwd: root, encoding: 'utf8', maxBuffer: 10 * 1024 * 1024 })
