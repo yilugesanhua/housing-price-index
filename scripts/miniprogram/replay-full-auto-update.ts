@@ -49,7 +49,7 @@ const root = resolve(import.meta.dirname, "../..");
 const require = createRequire(import.meta.url);
 const gunzipAsync = promisify(gunzip);
 const argument = (name: string) => process.argv.find((value) => value.startsWith(`--${name}=`))?.slice(name.length + 3);
-const requestedMonths = Number(argument("months") ?? "12");
+const requestedMonths = Number(argument("months") ?? "6");
 assert(Number.isInteger(requestedMonths) && requestedMonths >= 1 && requestedMonths <= 36, "--months must be an integer from 1 to 36");
 const injectedFailureMonth = argument("inject-failure-month");
 if (injectedFailureMonth) assert.match(injectedFailureMonth, /^20\d{2}-(0[1-9]|1[0-2])$/, "invalid injected failure month");

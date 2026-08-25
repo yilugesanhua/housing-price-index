@@ -18,6 +18,7 @@ const requestedRounds = Number(argument('rounds') ?? '12')
 const runId = argument('run-id') ?? process.env.GITHUB_RUN_ID
 const cloudEnvId = argument('env') ?? 'cloud1-d3gpdx70w5d05c68c'
 const outputRoot = resolve(root, 'work/historical-correction-replay-cloud', runId || 'missing-run-id')
+const auditReportPath = resolve(root, process.env.AUTO_RELEASE_AUDIT_REPORT_PATH || 'data/audit-report.json')
 
 assert(Number.isInteger(requestedRounds) && requestedRounds >= 12 && requestedRounds <= 36, '--rounds must be an integer from 12 to 36')
 assert(/^\d+(?:-\d+)?$/.test(runId || ''), 'Use --run-id=<numeric-github-run-id>')
@@ -140,7 +141,7 @@ async function main() {
     execFileAsync('git', ['rev-parse', 'HEAD'], { cwd: root, encoding: 'utf8' }),
     readFile(resolve(root, 'apps/web/public/data/data.json'), 'utf8'),
     readFile(resolve(root, 'apps/web/public/data/manifest.json'), 'utf8'),
-    readFile(resolve(root, 'data/audit-report.json'), 'utf8'),
+    readFile(auditReportPath, 'utf8'),
     readFile(resolve(root, '.github/workflows/historical-correction-replay.yml'), 'utf8'),
   ])
   const data = JSON.parse(dataText)

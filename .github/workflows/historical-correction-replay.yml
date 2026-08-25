@@ -36,10 +36,15 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: Build a current temporary audit report for this replay
+        env:
+          AUTO_RELEASE_AUDIT_REPORT_PATH: work/historical-correction-replay/audit-report-${{ github.run_id }}-${{ github.run_attempt }}.json
+        run: npm run data:audit -- --report-only
       - name: Run 12-round isolated historical correction replay
         env:
           TENCENTCLOUD_SECRET_ID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
           TENCENTCLOUD_SECRET_KEY: ${{ secrets.TENCENTCLOUD_SECRET_KEY }}
+          AUTO_RELEASE_AUDIT_REPORT_PATH: work/historical-correction-replay/audit-report-${{ github.run_id }}-${{ github.run_attempt }}.json
         run: >-
           npm run miniprogram:data:replay-historical-cloud --
           --rounds=12

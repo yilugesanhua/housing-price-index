@@ -1,6 +1,6 @@
 # 实施状态登记
 
-更新日期：2026-08-24
+更新日期：2026-08-25
 
 ## 2026-08-24 本轮收尾状态
 
@@ -20,9 +20,18 @@
 - 按 `MONTHLY_DATA_AUTOMATION_AUDIT_20260820.md` 的 A01-A06 完成当前本地实现：候选数据只生成到 `work/auto-release/candidate/`；状态在确认官方原文身份后先写入 `preparing`；稳定 `release_key`、候选身份和首次时间种子用于重试；发现与排队候选都会复查默认分支上的持久化状态；已发布月份以生产 `current.json` 的只读回读为准；HTTP完整正文读取纳入重试边界。
 - 待发布恢复现在从首次候选运行的精确 Artifact 恢复 `snapshot.cjs` 和远程候选包，并逐项核验，不再重新抓取、审计或生成另一份候选。待发布状态保存该 Artifact 的运行编号，缺失或格式不正确时失败关闭。
 - 本机已通过 `npm run check`、`npm run test:e2e`（39项通过、1项按配置跳过）、工作流YAML解析、TypeScript检查和恢复流程定向测试。上述只证明本地实现和测试结果，不代表工作流已在GitHub实际运行、腾讯云守护器已部署或生产环境可用。
-- 2026-08-21 使用隔离审计报告完成改造后本地36个月回放，`36/36` 轮通过；包含远程文件缺失、下载中断、缓存写入失败和撤销注册表故障注入，报告确认 `production_pointer_untouched=true`、`production_release_prefix_untouched=true`。可复查报告保存在项目外临时证据目录 `C:\Users\user\AppData\Local\Temp\housing-data-auto-update-audit-20260821-remainder\replay-36-report.json`。
+- 2026-08-21 按当时生效的36个月标准，使用隔离审计报告完成改造后本地36个月回放，`36/36` 轮通过；包含远程文件缺失、下载中断、缓存写入失败和撤销注册表故障注入，报告确认 `production_pointer_untouched=true`、`production_release_prefix_untouched=true`。该记录现仅作历史证据；可复查报告保存在项目外临时证据目录 `C:\Users\user\AppData\Local\Temp\housing-data-auto-update-audit-20260821-remainder\replay-36-report.json`。
 - 2026-08-24 已将只读监测函数部署到 CloudBase 环境 `cloud1-d3gpdx70w5d05c68c`，配置 GitHub 最小权限令牌、状态集合 `monthlyDataWatchdog` 和 `0 */5 * * * * *` 定时触发器；首次线上 dry-run 返回 `schedule_observed`，未补触发工作流。随后现场发现仓库级和生产 Environment 级发布开关均为 `true`，已关闭并分别复读为 `false`；没有生产数据、正式指针或发布写入。
 - 2026-08-24 线上 `monthly-data-auto-publish.yml` 运行 `32683024358` 在候选持久化阶段失败，原因是旧提交仍把生成的 `apps/miniprogram/data/snapshot.js` 判为未允许路径；该失败没有进入 publish job。修复已由 `be351cca8a36c26898f4f46da372ef63205991c2` 推送并通过普通 CI，后续仍须按启用清单完成真实发布时间窗口和平台证据，不能据此开启生产发布。
+
+## 2026-08-25 隔离验证标准决策
+
+- 用户明确将普通月度自动更新的隔离验证从原先的 36 个月/多组重复执行，永久收敛为**单组连续 6 个月**；历史 36 个月报告和旧回放失败证据保持原样，只作为历史证据。
+- 当前 R02 关闭条件因此改为：当前精确候选完成单组 6 个月普通月度回放，并另行完成历史修订专项 12 轮；两条证据仍不得互相替代。脚本保留更长月份的诊断能力，但非 6 个月运行不具备当前启用门槛资格。
+- 该决策已同步 `MINIPROGRAM_DATA_UPDATE.md`、`AUTOMATION_ACTIVATION_CHECKLIST.md`、`.github/workflows/full-auto-update-replay.yml` 和工作流安全测试；两个生产开关继续保持失败关闭。
+- 本次外部状态复核：仓库级与 `housing-data-production` Environment 级两个生产开关均为精确字符串 `false`；只读监测Secret名称已在两级作用域存在，`monthly-data-check` 运行 `32823542147` 成功，随后 `monthly-data-auto-publish` 运行 `32823605926` 的 `prepare/publish` 均因关闭门禁跳过，未写入生产。`monthly-data-post-publish-monitor` 的相关只读运行成功，但不构成发布或自动化启用证据。
+- GitHub 全历史回放运行 `32824619838` 在正式隔离写入前因根目录审计报告落后于仓库已存在的 `2026-07` 原始批次而失败；生产指针和正式目录未触碰。当前工作树已让普通月度和历史修订回放在运行前生成并复用当前临时审计报告，待本次变更提交到远程后重新执行真实云端回放。
+- 本地重新生成当前临时审计报告后，普通月度单组连续6个月回放 `6/6`（2026-01至2026-06）通过；报告记录 `production_pointer_untouched=true`、`production_release_prefix_untouched=true` 和 `automatic_release_enabled=false`，仅为本地/隔离证据，不能替代真实云端、开发者工具或真机证据。
 
 ### 2026-08-24 独立守护器实现（已部署，dry-run）
 
@@ -87,7 +96,7 @@
 | ID | 用户决策 | 当前问题 | 已批准目标或保留决定 | 实现状态 | 验证状态 | 当前阻断 |
 | --- | --- | --- | --- | --- | --- | --- |
 | R01 | `approved` | 当前源码为 `v2.5.15`；精确提交已生成本地不可变候选，微信公众平台截图确认线上版本和发布时间，维护人确认审核通过和线上自检完成，但尚无同提交CI、候选绑定的开发者工具/双真机记录、构建号、审核通过时间或正式数据链路明细 | 使用现有不可变候选补齐上线审查、交接、Android和iPhone全量验收及正式数据链路回读；旧版证据只读保留 | `partial` | `passed_limited` | 阻断候选与线上版本的可复核绑定、稳定归档、远程数据和自动更新结论 |
-| R02 | `approved` | 普通月度路径已有 `v2.4.2` 精确提交的12轮隔离云端证据，但不能证明历史修订协议安全或外部微信平台验收 | 在当前精确提交分别保留普通月度12次执行和历史修订专项12轮故障回放，两条证据不得互相替代 | `partial` | `passed_limited` | 普通月度12轮云端回放已在 `main@94db4dd` 通过；仍缺独立历史修订12轮、云函数部署、开发者工具和双真机证据 |
+| R02 | `approved` | 普通月度路径已有旧版本隔离云端证据，但不能证明历史修订协议安全或外部微信平台验收 | 在当前精确提交分别完成普通月度单组连续6个月和历史修订专项12轮故障回放，两条证据不得互相替代 | `partial` | `passed_limited` | 当前候选的6个月普通月度回放、独立历史修订12轮、云函数部署、开发者工具和双真机证据仍待补齐 |
 | R03 | `approved` | 此前没有确定性候选构件工具，稳定归档仍不能按新规则生成 | `scripts/miniprogram/deterministic-candidate.mjs` 已能从精确提交生成确定性候选ZIP、回读清单和候选哈希；重复构建、乱序、排除项、非ASCII路径和损坏ZIP测试已覆盖。稳定归档晋级仍未实现 | `implemented` | `passed_limited` | 仍阻断按新规则新增稳定归档；候选生成须在干净提交且开发者工具目录逐文件一致时执行 |
 | R04 | `approved` | 归档只有人工版本说明和ZIP SHA，未绑定代码、数据、解析器、审计器及CI运行 | 自动生成并校验 `release-manifest.json`，机器绑定Git SHA、数据身份、归档身份、解析器、审计器、CI和编译证据 | `not_started` | `not_tested` | 阻断可追溯稳定归档和精确恢复声明 |
 | R05 | `not_approved` | 曾提出用受保护Git Tag或GitHub Release增强防篡改 | 不实施该备选方案；继续使用只读归档目录与同目录ZIP SHA-256规则 | - | - | 不是待办，不得新增为发布前置条件 |
@@ -99,7 +108,7 @@
 | ID | 当前实现依据 | 仍需关闭证据 |
 | --- | --- | --- |
 | R01 | `apps/miniprogram/config/version.js`；精确提交 `b854f8e6911986b556e45b760f27108596c24845` 的 `v2.5.15` 40文件本地候选；微信公众平台截图确认版本`2.5.15`在线发布时间为2026-08-06 09:16:40，维护人确认审核通过和线上自检完成；所有 `v2.5.6` 及更早候选、模板和真机记录均为历史证据 | 完成同提交CI、候选绑定的开发者工具重新编译和Android/iPhone结果、构建号、审核通过时间、正式数据链路回读及完整交接 |
-| R02 | `.github/workflows/full-auto-update-replay.yml` 和 `docs/MINIPROGRAM_V2_4_1_FULL_CLOUD_REPLAY_20260802.md`：`main@53ac616` 的云端运行 `30752209300` 已从第1轮连续通过12轮普通月度隔离回放；每轮验证560条新增、历史零变化、两类错误候选上传前阻断、72个数据对象加1个控制对象回读、完整70城客户端启用和切城零下载。生产指针和正式目录未触及，自动发布仍关闭 | 独立历史修订12轮故障报告，绑定当前解析器、审计器、工作流SHA和真实云端运行；另需适用的云函数、开发者工具和双真机证据 |
+| R02 | `.github/workflows/full-auto-update-replay.yml` 和 `docs/MINIPROGRAM_V2_4_1_FULL_CLOUD_REPLAY_20260802.md`：旧版本 `main@53ac616` 的云端运行 `30752209300` 已连续通过12轮普通月度隔离回放；该历史证据仍逐轮验证560条新增、历史零变化、错误候选阻断、隔离对象回读、完整70城启用和切城零下载，但不能替代当前6个月门槛。生产指针和正式目录未触及，自动发布仍关闭 | 当前精确候选单组6个月普通月度回放、独立历史修订12轮故障报告（绑定当前解析器、审计器、工作流SHA和真实云端运行），以及适用的云函数、开发者工具和双真机证据 |
 | R03 | `scripts/miniprogram/deterministic-candidate.mjs`、`deterministic-candidate.test.mjs`、`package.json` 的 `miniprogram:candidate` 命令；精确提交 `b854f8e6911986b556e45b760f27108596c24845` 的定向9项测试、完整仓库检查和336项小程序测试通过，已生成40文件的`v2.5.15`候选并回读ZIP、候选清单和文件清单哈希 | 在另一环境复现相同候选SHA-256；随后实现原字节晋级和稳定归档记录 |
 | R04 | 现有 `release/miniprogram/v2.0.*` 只有ZIP、版本说明和 `SHA256.txt` | 清单生成器、schema校验器、身份冲突故障测试和首个完整新格式归档 |
 | R05 | 用户明确不同意 | 无；保持现状，除非未来取得新的明确决定并使用新决策记录 |
@@ -287,7 +296,8 @@ I02在当前本地候选已有共享验证器和有限故障测试，登记为 `
 | `2026-07-29-C04-user-not-approved` | 2026-07-29 | C04 | `not_approved` | - | 稳定归档和回退条款保持现状，不实施备选方案 |
 | `2026-07-29-C05-user-approved` | 2026-07-29 | C05 | `approved` | - | 明确当前排名口径并登记六城差异，不改Web或小程序页面与逻辑 |
 | `2026-07-29-R01-user-approved` | 2026-07-29 | R01 | `approved` | - | 为当前 `v2.4.0` 建立独立审查、交接和双真机证据；本轮只治理文档 |
-| `2026-07-29-R02-user-approved` | 2026-07-29 | R02 | `approved` | - | 当前版本分别执行普通月度12轮和历史修订专项回放；本轮不运行云端回放 |
+| `2026-07-29-R02-user-approved` | 2026-07-29 | R02 | `superseded` | - | 原决策要求普通月度12轮和历史修订专项回放；仅保留为历史决策记录 |
+| `2026-08-25-R02-six-month-isolation-user-approved` | 2026-08-25 | R02 | `approved` | `2026-07-29-R02-user-approved` | 普通月度隔离验证永久改为单组连续6个月；历史修订专项仍12轮；同步当前规范、GitHub入口和安全测试，不改变生产开关状态 |
 | `2026-07-29-R03-user-approved` | 2026-07-29 | R03 | `approved` | - | 定义确定性可复现ZIP目标；本轮不实现归档脚本 |
 | `2026-07-29-R04-user-approved` | 2026-07-29 | R04 | `approved` | - | 定义机器可读发布清单；不追填或改写既有归档 |
 | `2026-07-29-R05-user-not-approved` | 2026-07-29 | R05 | `not_approved` | - | 不采用受保护Git Tag或GitHub Release；保持现行归档防篡改规则 |

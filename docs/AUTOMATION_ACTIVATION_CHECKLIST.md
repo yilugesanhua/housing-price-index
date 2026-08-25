@@ -12,7 +12,7 @@
 - 自动发现、候选生成、数据门禁、受限发布、发布后守卫、回滚、待发布恢复、私有审计和24小时监测已有基础实现；D01-D16仍存在未关闭的正确性、重跑、审计、客户端状态和回滚差距，不能概括为完整安全闭环。
 - 既有 `npm run check`、`npm run test:e2e`、小程序/自动化故障测试和GitHub Actions检查只证明对应提交与已覆盖场景，不能替代D01-D20的关闭证据。
 - 公开仓库 `yilugesanhua/housing-price-index` 已创建，初始提交 `4e0713e` 已推送，GitHub Actions `ci / verify` 已通过；仓库当前同时跟踪官方页面 `.html.gz` 和对应批次复现文件，它们不进入Web或小程序生产包。
-- `housing-data-production` Environment 已创建；写入与只读监测 Secrets 的名称已配置在环境中。2026-08-25 手动运行 `monthly-data-check`（`32749279961`）证明仓库级只读监测 Secrets 实际为空；由于候选准备任务按安全规则不得绑定生产环境，维护人还需把 `TENCENTCLOUD_MONITOR_SECRET_ID`、`TENCENTCLOUD_MONITOR_SECRET_KEY` 以同名方式配置到仓库级 Secrets。2026-08-24通过GitHub CLI现场回读：仓库级 `AUTOMATIC_RELEASE_ENABLED=false`，生产 Environment 级 `PRODUCTION_RELEASE_AUTHORIZED=false`；当前两级门禁均失败关闭。变量关闭不等于V16已完整验证，真实受保护Environment执行和未来启用时的独立授权证据仍未完成。
+- `housing-data-production` Environment 已创建；写入与只读监测 Secrets 的名称已配置在环境中。2026-08-25早先手动运行 `monthly-data-check`（`32749279961`）曾因仓库级只读监测 Secrets 为空而失败；随后截至本次复核，仓库级和 `housing-data-production` Environment 均已回读到 `TENCENTCLOUD_MONITOR_SECRET_ID`、`TENCENTCLOUD_MONITOR_SECRET_KEY` 两个名称，新的只读发现运行 `32823542147` 成功完成。该结果只证明名称存在和一次发现流程成功，不证明密钥值、生产发布或完整门槛已经通过。当前仓库级 `AUTOMATIC_RELEASE_ENABLED=false`、生产 Environment 级 `PRODUCTION_RELEASE_AUTHORIZED=false`，两级门禁仍失败关闭；变量关闭不等于V16已完整验证，真实受保护Environment执行、一真一假组合和未来启用时的独立授权证据仍未完成。
 - `main-production-guard` 规则集已启用，禁止删除、强制推送和非线性历史；生产Environment仅允许 `main` 分支进入。
 - GitHub个人仓库不允许内置Actions身份绕过“必需状态检查”，因此规则集不直接要求 `verify`；自动发布工作流必须在候选生成前通过GitHub API证明基础提交的普通 `ci / verify` 已成功。
 - COS/SCF 官方 SDK 联调、完整 70 城隔离上传/回读及有限指针/回滚演练已有历史通过记录；生产开关必须保持关闭，直到R02、D01-D16、I01-I03、I09、I12、候选绑定的开发者工具检查和双真机、平台证据回读及正式数据链路复核全部完成。维护人确认已发布不单独满足自动更新门槛。
@@ -21,6 +21,12 @@
 - 唯一旧生产控制指针迁移已完成并通过验证：不可变审计 `data/releases/legacy-control-migration-2026-08-02T08-30-08-467Z.json` 绑定迁移 ID `legacy-control-2026-06-e9788d0bddf3`，最终收尾 GitHub Actions 运行 `30750265475` 的 `prepare`、`migrate`、`audit` 均通过。审计已记录迁移前后原字节回读、两次完整70城重建、严格云函数回执及 `AUTOMATIC_RELEASE_ENABLED=false`、`PRODUCTION_RELEASE_AUTHORIZED=false`。这只解除旧控制指针兼容阻断；普通自动发布仍因其余清单项目未关闭而保持阻断。
 
 D01-D20与I01-I14的当前状态和关闭证据见 [实施状态登记](IMPLEMENTATION_STATUS.md)。本清单不得用“规范已更新”把任何实现或验证状态改为通过。
+
+## 当前普通月度隔离验证门槛（2026-08-25 起永久生效）
+
+- R02 的普通月度部分统一为**单组连续 6 个月**；当前 GitHub 手动回放入口默认且唯一可选值为 `6`，每轮仍必须执行本清单和 [`MINIPROGRAM_DATA_UPDATE.md`](MINIPROGRAM_DATA_UPDATE.md) 规定的完整失败关闭、隔离回读和客户端检查。
+- 既有 36 个月或 12 轮普通月度报告只保留为历史证据；脚本允许的更长手工回放只用于诊断，不能替代当前候选的 6 个月门槛。历史修订专项仍单独要求 12 轮，两者不得混用。
+- 本决定由维护人于 2026-08-25 明确确认，持续有效；只有新的、带日期并明确写出 `supersedes` 的决策，同时更新规范、工作流和安全测试后，才可改变该门槛。它不改变两个生产开关仍须失败关闭的要求。
 
 ## 一次性legacy迁移门槛
 
@@ -67,7 +73,7 @@ D01-D20与I01-I14的当前状态和关闭证据见 [实施状态登记](IMPLEMEN
 - I12关闭证据必须证明：生产信任链中读取Secrets或生成、传递其Artifact的全部外部GitHub Action固定到40位commit SHA，容器Action固定digest，并有机器扫描和可移动标签失败用例。当前本地扫描与失败fixture已通过，精确提交 `cdea2207ff8f570aa1d8725ea474f22df30f26c8` 的普通GitHub CI运行 `30736720927` 也已通过；受保护Environment执行和依赖更新流程仍未复核，因此只能记为 `passed_limited`，不得关闭I12或开放生产授权。
 - 测试云完整发布后，云函数、`current.json`、清单、bootstrap和70个城市分片全部回读一致。
 - 故障演练证明所有正确性失败均发生在指针切换前，旧指针原始字节和SHA-256保持不变；没有已完整验证的安全回退目标时不会切换，切换后的恢复只使用预验证目标。
-- `IMPLEMENTATION_STATUS.md` 中R02、D01-D16及I01-I03、I09、I12均有精确提交、自动测试及所需云端/真机证据，`implementation_status=implemented` 且 `verification_status=passed`；R02必须包含当前精确候选的普通月度12轮和历史修订专项12轮，两条证据不得互相替代。
+- `IMPLEMENTATION_STATUS.md` 中R02、D01-D16及I01-I03、I09、I12均有精确提交、自动测试及所需云端/真机证据，`implementation_status=implemented` 且 `verification_status=passed`；R02必须包含当前精确候选的普通月度连续6轮（6个月）和历史修订专项12轮，两条证据不得互相替代。
 - 唯一legacy迁移已有两阶段受保护运行证据：写入阶段绑定固定验证器契约并完成迁移前后原字节回读、双重撤销和直接70城校验；随后部署新版严格云函数，收尾阶段完成 `describe_validator` 精确身份预检、第二次完整70城验证、动态回执和不可变迁移审计。四个观察/验证字段分别留证，状态为 `migration_status=completed`、`migration_verification_status=passed`；未达到时不得让现行协议客户端依赖该生产指针，也不得开启普通自动发布。
 - 私有运行审计包包含当月压缩原始HTML副本、完整响应/批次元数据、官方日程、发现/生产门禁、发布报告和所有文件哈希；它只允许写入仅维护身份可读的私有云目录，不得进入GitHub运行Artifact。GitHub Artifact只允许保存非敏感证据和 `private-audit-reference.json` 哈希引用，不得与公开源码仓库中的 `.html.gz` 复现档案或完整私有审计混为一谈。
 - V14关闭证据必须包含一次真实待发布恢复运行：无Secrets作业拒绝危险pending字段/URL并重验官方来源和候选，受保护发布作业只消费已验证结构化输出。

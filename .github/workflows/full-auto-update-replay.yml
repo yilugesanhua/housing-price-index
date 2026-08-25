@@ -4,13 +4,12 @@ on:
   workflow_dispatch:
     inputs:
       months:
-        description: Consecutive historical months to replay
+        description: Current required consecutive historical months to replay
         required: true
-        default: "12"
+        default: "6"
         type: choice
         options:
-          - "12"
-          - "36"
+          - "6"
 
 permissions:
   contents: read
@@ -45,10 +44,15 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
+      - name: Build a current temporary audit report for this replay
+        env:
+          AUTO_RELEASE_AUDIT_REPORT_PATH: work/full-auto-update-replay/audit-report-${{ github.run_id }}-${{ github.run_attempt }}.json
+        run: npm run data:audit -- --report-only
       - name: Run isolated full historical replay
         env:
           TENCENTCLOUD_SECRET_ID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
           TENCENTCLOUD_SECRET_KEY: ${{ secrets.TENCENTCLOUD_SECRET_KEY }}
+          AUTO_RELEASE_AUDIT_REPORT_PATH: work/full-auto-update-replay/audit-report-${{ github.run_id }}-${{ github.run_attempt }}.json
         run: >-
           npm run miniprogram:data:replay --
           --cloud
