@@ -144,9 +144,56 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          count="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${BASE_SHA}&status=completed&per_page=20" --jq ".workflow_runs | map(select(.head_sha == \"${BASE_SHA}\" and .conclusion == \"success\")) | length")"
-          if [ "$count" -gt 0 ]; then
-            exit 0
+          if [[ ! "$BASE_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Base commit SHA is invalid." >&2
+            exit 1
+          fi
+
+          # The discovery workflow and the push-triggered ordinary CI can be
+          # scheduled at the same time. Wait for the exact base commit's CI
+          # instead of treating an in-progress run as a permanent failure.
+          # A completed non-success remains fail-closed; no other commit or
+          # workflow event can satisfy this gate.
+          base_ci_verdict() {
+            local runs_json
+            runs_json="$(gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${BASE_SHA}&per_page=50")"
+            export BASE_CI_RUNS="$runs_json"
+            node --input-type=module <<'NODE'
+            const runs = JSON.parse(process.env.BASE_CI_RUNS).workflow_runs || []
+            const matches = runs.filter((run) => run.head_sha === process.env.BASE_SHA && ['push', 'workflow_dispatch'].includes(run.event))
+            if (matches.some((run) => run.status === 'completed' && run.conclusion === 'success')) {
+              process.stdout.write('success')
+            } else if (matches.some((run) => run.status === 'completed' && run.conclusion !== 'success')) {
+              process.stdout.write('failed')
+            } else {
+              process.stdout.write('pending')
+            }
+            NODE
+          }
+
+          commit_subject="$(git show -s --format=%s "$BASE_SHA")"
+          if [ "$commit_subject" != "data: persist failed automated update state" ]; then
+            for attempt in $(seq 1 60); do
+              verdict="$(base_ci_verdict)"
+              case "$verdict" in
+                success)
+                  exit 0
+                  ;;
+                failed)
+                  echo "Ordinary CI failed for base commit ${BASE_SHA}." >&2
+                  exit 1
+                  ;;
+                pending)
+                  if [ "$attempt" -lt 60 ]; then sleep 10; fi
+                  ;;
+                *)
+                  echo "Could not classify ordinary CI for base commit ${BASE_SHA}." >&2
+                  exit 1
+                  ;;
+              esac
+            done
+            echo "Timed out waiting for ordinary CI for base commit ${BASE_SHA}." >&2
+            exit 1
           fi
 
           # A failed-update persistence commit is created with GITHUB_TOKEN, so
