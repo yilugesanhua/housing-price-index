@@ -1,5 +1,5 @@
 {
-  "status": "ready",
+  "status": "failed",
   "format": "housing-data-auto-update-state-v1",
   "official_url": "https://www.stats.gov.cn/sj/zxfb/202608/t20260817_1965050.html",
   "discovery_run_id": "32802656620",
@@ -9,8 +9,8 @@
   "source_raw_sha256": "e809bb80b569d1445bad7d69e23348c1f26b24627225845ab76affb9bd487bcc",
   "time_seed": "2026-08-25T02:49:00.866Z",
   "next_check_at": "2026-08-17T07:10:00.000Z",
-  "updated_at": "2026-08-25T02:49:00.866Z",
-  "error": "automatic update workflow failed in run 32816486380",
+  "updated_at": "2026-08-25T06:45:06.398Z",
+  "error": "automatic update workflow failed in run 32817878563",
   "dataset_version": "2026-07-ca615516ca63",
   "source_dataset_version": "2026-07-d4f7595cde59",
   "cloud_env_id": "cloud1-d3gpdx70w5d05c68c",
