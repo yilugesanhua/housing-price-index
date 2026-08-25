@@ -12,7 +12,7 @@ if (!ordinaryCiPath) throw new Error('Use --ordinary-ci=<ordinary-ci-evidence.js
 const gate = JSON.parse(await readFile(gatePath, 'utf8'))
 const ordinaryCi = JSON.parse(await readFile(resolve(root, ordinaryCiPath), 'utf8'))
 if (gate.status !== 'passed') throw new Error('Cannot bind a failed gate report')
-if (ordinaryCi.workflow !== 'ci.yml' || ordinaryCi.event !== 'push' || ordinaryCi.conclusion !== 'success'
+if (ordinaryCi.workflow !== 'ci.yml' || !['push', 'workflow_dispatch'].includes(ordinaryCi.event) || ordinaryCi.conclusion !== 'success'
   || !/^\d+$/.test(String(ordinaryCi.run_id || '')) || ordinaryCi.commit_sha !== commitSha) {
   throw new Error('Candidate ordinary CI evidence is invalid or belongs to another commit')
 }

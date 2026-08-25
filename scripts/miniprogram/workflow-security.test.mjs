@@ -93,6 +93,20 @@ test('publisher is triggered only by the named discovery workflow', () => {
   assert.match(publisher, /housing-data-auto-update-state-v1/)
 })
 
+test('candidate CI is explicitly dispatched only after the exact default-branch head is confirmed', () => {
+  assert.match(ci, /workflow_dispatch:/)
+  const prepare = publisher.slice(publisher.indexOf('  prepare:'), publisher.indexOf('  publish:'))
+  const commit = prepare.indexOf('git push origin "HEAD:${EXPECTED_BRANCH}"')
+  const dispatch = prepare.indexOf('Trigger ordinary CI for the exact candidate commit')
+  const candidateGate = prepare.indexOf('Require successful ordinary CI for the exact candidate commit')
+  assert.ok(commit >= 0 && dispatch > commit && candidateGate > dispatch)
+  assert.match(prepare, /actions: write\s+contents: write/)
+  assert.match(prepare.slice(dispatch, candidateGate), /git rev-parse "origin\/\$DEFAULT_BRANCH"\)" = "\$candidate_sha"/)
+  assert.match(prepare.slice(dispatch, candidateGate), /actions\/workflows\/ci\.yml\/dispatches/)
+  assert.match(prepare.slice(candidateGate), /\['push', 'workflow_dispatch'\]/)
+  assert.match(prepare.slice(candidateGate), /event: successful\.event/)
+})
+
 test('automatic publisher discovery gate uses one Node module format', () => {
   const inspect = publisher.slice(publisher.indexOf('  inspect:'), publisher.indexOf('  prepare:'))
   assert.match(inspect, /node --input-type=module <<'NODE'/)

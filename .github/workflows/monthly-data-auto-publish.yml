@@ -81,7 +81,7 @@ jobs:
       needs.inspect.outputs.update_available == 'true'
     runs-on: ubuntu-latest
     permissions:
-      actions: read
+      actions: write
       contents: write
     timeout-minutes: 45
     outputs:
@@ -238,6 +238,20 @@ jobs:
           git config user.email "housing-data-automation@users.noreply.github.com"
           git commit -m "data: prepare automated monthly release"
           git push origin "HEAD:${EXPECTED_BRANCH}"
+      - id: dispatch_candidate_ci
+        name: Trigger ordinary CI for the exact candidate commit
+        if: steps.recheck_state.outputs.handled != 'true'
+        env:
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          candidate_sha="$(git rev-parse HEAD)"
+          git fetch origin "$DEFAULT_BRANCH"
+          test "$(git rev-parse "origin/$DEFAULT_BRANCH")" = "$candidate_sha"
+          gh api --method POST "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/dispatches" \
+            -f ref="$DEFAULT_BRANCH"
       - id: candidate_ci
         name: Require successful ordinary CI for the exact candidate commit
         if: steps.recheck_state.outputs.handled != 'true'
@@ -247,17 +261,17 @@ jobs:
           candidate_sha="$(git rev-parse HEAD)"
           export CANDIDATE_SHA="$candidate_sha"
           for attempt in $(seq 1 60); do
-            gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${candidate_sha}&event=push&per_page=20" > work/auto-release/candidate-ci-runs.json
+            gh api "repos/${GITHUB_REPOSITORY}/actions/workflows/ci.yml/runs?head_sha=${candidate_sha}&per_page=50" > work/auto-release/candidate-ci-runs.json
             set +e
             node - <<'NODE'
             const fs = require('fs')
             const runs = JSON.parse(fs.readFileSync('work/auto-release/candidate-ci-runs.json', 'utf8')).workflow_runs || []
-            const matches = runs.filter((run) => run.head_sha === process.env.CANDIDATE_SHA && run.event === 'push')
+            const matches = runs.filter((run) => run.head_sha === process.env.CANDIDATE_SHA && ['push', 'workflow_dispatch'].includes(run.event))
             const failed = matches.find((run) => run.status === 'completed' && run.conclusion !== 'success')
             if (failed) throw new Error(`Candidate ordinary CI failed: ${failed.id} (${failed.conclusion})`)
             const successful = matches.find((run) => run.status === 'completed' && run.conclusion === 'success')
             if (!successful) process.exit(2)
-            const evidence = { workflow: 'ci.yml', event: 'push', conclusion: 'success', run_id: String(successful.id), commit_sha: successful.head_sha, verified_at: new Date().toISOString() }
+            const evidence = { workflow: 'ci.yml', event: successful.event, conclusion: 'success', run_id: String(successful.id), commit_sha: successful.head_sha, verified_at: new Date().toISOString() }
             fs.writeFileSync('work/auto-release/ordinary-ci-evidence.json', `${JSON.stringify(evidence, null, 2)}\n`)
             NODE
             status=$?

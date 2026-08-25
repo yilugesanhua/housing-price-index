@@ -31,7 +31,7 @@ function requireEqual(actual, expected, label) {
 function requireOrdinaryCi(gate, checkedOutSha, label) {
   if (!RUN_ID_PATTERN.test(String(gate.ordinary_ci?.run_id || ''))) throw new Error(`CI release authorization rejected: ${label} ordinary CI run ID is invalid`)
   requireEqual(gate.ordinary_ci?.workflow, 'ci.yml', `${label} ordinary CI workflow`)
-  requireEqual(gate.ordinary_ci?.event, 'push', `${label} ordinary CI event`)
+  if (!['push', 'workflow_dispatch'].includes(gate.ordinary_ci?.event)) throw new Error(`CI release authorization rejected: ${label} ordinary CI event mismatch`)
   requireEqual(gate.ordinary_ci?.conclusion, 'success', `${label} ordinary CI conclusion`)
   requireEqual(gate.ordinary_ci?.commit_sha, checkedOutSha, `${label} ordinary CI commit SHA`)
 }

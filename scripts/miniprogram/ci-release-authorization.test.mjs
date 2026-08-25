@@ -39,6 +39,13 @@ test('accepts only a complete production CI attestation', () => {
   assert.equal(validateCiReleaseAuthorization({ env: validEnv, datasetVersion, cloudEnvId, gateReportText, checkedOutSha: validEnv.CI_COMMIT_SHA }).status, 'passed')
 })
 
+test('accepts ordinary CI evidence from the explicit workflow dispatch used for candidates', () => {
+  const dispatchGate = { ...gate, ordinary_ci: { ...gate.ordinary_ci, event: 'workflow_dispatch' } }
+  const dispatchText = `${JSON.stringify(dispatchGate)}\n`
+  const env = { ...validEnv, CI_GATE_REPORT_SHA256: sha256(dispatchText) }
+  assert.equal(validateCiReleaseAuthorization({ env, datasetVersion, cloudEnvId, gateReportText: dispatchText, checkedOutSha: env.CI_COMMIT_SHA }).status, 'passed')
+})
+
 for (const [field, value, message] of [
   ['GITHUB_EVENT_NAME', 'pull_request', /workflow\/event identity mismatch/],
   ['GITHUB_REF', 'refs/heads/feature', /default branch mismatch/],
