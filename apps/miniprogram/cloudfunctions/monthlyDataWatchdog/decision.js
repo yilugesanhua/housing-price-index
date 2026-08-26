@@ -15,18 +15,10 @@ function floorMinute(value) {
 
 function isExpectedScheduleSlot(value) {
   const date = new Date(value)
-  const day = date.getUTCDate()
   const hour = date.getUTCHours()
   const minute = date.getUTCMinutes()
   if (hour === 1 && minute === 0) return true
-  if (day < 10 || day > 22) return false
-  if (hour === 1 && [27, 32, 37, 42, 47, 52, 57].includes(minute)) return true
-  if (hour === 2 && [2, 7, 12, 17, 22, 27, 30].includes(minute)) return true
-  if (hour === 6 && minute === 57) return true
-  if (hour === 7 && [2, 7, 12, 17, 22, 27, 32, 37, 42, 47, 52, 57].includes(minute)) return true
-  if (hour === 8 && minute === 0) return true
-  if ((hour === 4 || hour === 9) && minute === 0) return true
-  return false
+  return hour >= 1 && hour <= 9 && [15, 35, 55].includes(minute)
 }
 
 function latestExpectedScheduleAt(now = Date.now(), lookbackMinutes = DEFAULT_LOOKBACK_MINUTES) {

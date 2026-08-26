@@ -10,22 +10,23 @@ import {
 
 const at = (value) => Date.parse(value)
 
-test('matches the monthly check schedule expressed in UTC', () => {
-  assert.equal(isExpectedScheduleSlot(at('2026-08-10T01:27:00.000Z')), true)
-  assert.equal(isExpectedScheduleSlot(at('2026-08-10T02:30:00.000Z')), true)
-  assert.equal(isExpectedScheduleSlot(at('2026-08-10T01:22:00.000Z')), false)
-  assert.equal(isExpectedScheduleSlot(at('2026-08-09T01:27:00.000Z')), false)
+test('matches the daily calendar and discovery schedule expressed in UTC', () => {
+  assert.equal(isExpectedScheduleSlot(at('2026-08-10T01:00:00.000Z')), true)
+  assert.equal(isExpectedScheduleSlot(at('2026-08-10T01:15:00.000Z')), true)
+  assert.equal(isExpectedScheduleSlot(at('2026-08-10T09:55:00.000Z')), true)
+  assert.equal(isExpectedScheduleSlot(at('2026-08-10T01:05:00.000Z')), false)
+  assert.equal(isExpectedScheduleSlot(at('2026-08-10T10:15:00.000Z')), false)
 })
 
-test('finds the latest due slot without inventing a slot outside the configured windows', () => {
-  assert.equal(new Date(latestExpectedScheduleAt(at('2026-08-10T01:35:00.000Z'))).toISOString(), '2026-08-10T01:32:00.000Z')
-  assert.equal(latestExpectedScheduleAt(at('2026-08-09T03:00:00.000Z'), 30), null)
+test('finds the latest due slot without inventing a slot after the cutoff', () => {
+  assert.equal(new Date(latestExpectedScheduleAt(at('2026-08-10T01:43:00.000Z'))).toISOString(), '2026-08-10T01:35:00.000Z')
+  assert.equal(latestExpectedScheduleAt(at('2026-08-10T10:30:00.000Z'), 30), null)
 })
 
 test('waits through the grace period', () => {
   const result = decideWatchdog({
-    now: at('2026-08-10T01:35:00.000Z'),
-    expectedAt: at('2026-08-10T01:32:00.000Z'),
+    now: at('2026-08-10T01:38:00.000Z'),
+    expectedAt: at('2026-08-10T01:35:00.000Z'),
     graceMs: 10 * 60 * 1000,
   })
   assert.equal(result.shouldDispatch, false)
@@ -34,8 +35,8 @@ test('waits through the grace period', () => {
 
 test('dispatches once when the scheduled run is missing', () => {
   const result = decideWatchdog({
-    now: at('2026-08-10T01:45:00.000Z'),
-    expectedAt: at('2026-08-10T01:32:00.000Z'),
+    now: at('2026-08-10T01:50:00.000Z'),
+    expectedAt: at('2026-08-10T01:35:00.000Z'),
     scheduleRuns: [],
     dispatchRuns: [],
   })
@@ -44,19 +45,19 @@ test('dispatches once when the scheduled run is missing', () => {
 })
 
 test('does not dispatch when schedule is queued, successful, or already supplemented', () => {
-  const base = { now: at('2026-08-10T01:45:00.000Z'), expectedAt: at('2026-08-10T01:32:00.000Z') }
-  assert.equal(decideWatchdog({ ...base, scheduleRuns: [{ id: 1, status: 'queued', head_branch: 'main', created_at: '2026-08-10T01:33:00.000Z' }] }).reason, 'schedule_observed')
-  assert.equal(decideWatchdog({ ...base, scheduleRuns: [{ id: 2, status: 'completed', conclusion: 'success', head_branch: 'main', created_at: '2026-08-10T01:33:00.000Z' }] }).reason, 'schedule_observed')
-  assert.equal(decideWatchdog({ ...base, dispatchRuns: [{ id: 3, status: 'completed', conclusion: 'success', head_branch: 'main', created_at: '2026-08-10T01:40:00.000Z' }] }).reason, 'already_dispatched')
+  const base = { now: at('2026-08-10T01:50:00.000Z'), expectedAt: at('2026-08-10T01:35:00.000Z') }
+  assert.equal(decideWatchdog({ ...base, scheduleRuns: [{ id: 1, status: 'queued', head_branch: 'main', created_at: '2026-08-10T01:36:00.000Z' }] }).reason, 'schedule_observed')
+  assert.equal(decideWatchdog({ ...base, scheduleRuns: [{ id: 2, status: 'completed', conclusion: 'success', head_branch: 'main', created_at: '2026-08-10T01:36:00.000Z' }] }).reason, 'schedule_observed')
+  assert.equal(decideWatchdog({ ...base, dispatchRuns: [{ id: 3, status: 'completed', conclusion: 'success', head_branch: 'main', created_at: '2026-08-10T01:42:00.000Z' }] }).reason, 'already_dispatched')
 })
 
 test('ignores runs from another branch and reports a failed schedule separately', () => {
   const result = decideWatchdog({
-    now: at('2026-08-10T01:45:00.000Z'),
-    expectedAt: at('2026-08-10T01:32:00.000Z'),
+    now: at('2026-08-10T01:50:00.000Z'),
+    expectedAt: at('2026-08-10T01:35:00.000Z'),
     scheduleRuns: [
-      { id: 4, status: 'completed', conclusion: 'failure', head_branch: 'feature', created_at: '2026-08-10T01:33:00.000Z' },
-      { id: 5, status: 'completed', conclusion: 'failure', head_branch: 'main', created_at: '2026-08-10T01:33:00.000Z' },
+      { id: 4, status: 'completed', conclusion: 'failure', head_branch: 'feature', created_at: '2026-08-10T01:36:00.000Z' },
+      { id: 5, status: 'completed', conclusion: 'failure', head_branch: 'main', created_at: '2026-08-10T01:36:00.000Z' },
     ],
   })
   assert.equal(result.shouldDispatch, false)

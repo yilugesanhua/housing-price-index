@@ -31,6 +31,7 @@ const tencentCloudSdk = await readFile(resolve(root, 'scripts/miniprogram/tencen
 const candidateCleanupScript = await readFile(resolve(root, 'scripts/miniprogram/delete-remote-candidate.mjs'), 'utf8')
 const watchdogFunction = await readFile(resolve(root, 'apps/miniprogram/cloudfunctions/monthlyDataWatchdog/index.js'), 'utf8')
 const watchdogDecision = await readFile(resolve(root, 'apps/miniprogram/cloudfunctions/monthlyDataWatchdog/decision.js'), 'utf8')
+const dataUpdateSpec = await readFile(resolve(root, 'docs/MINIPROGRAM_DATA_UPDATE.md'), 'utf8')
 const ci = await readFile(resolve(root, '.github/workflows/ci.yml'), 'utf8')
 
 async function readWorkflowTree(directory) {
@@ -141,14 +142,12 @@ test('automatic publisher exposes only the isolated candidate directory', () => 
   assert.doesNotMatch(publisher, /work\/miniprogram-data/)
 })
 
-test('discovery schedule covers both the 09:30 and 15:00 official release windows', () => {
-  assert.match(discovery, /cron: "27,32,37,42,47,52,57 1 10-22 \* \*"/)
-  assert.match(discovery, /cron: "2,7,12,17,22,27,30 2 10-22 \* \*"/)
-  assert.match(discovery, /cron: "57 6 10-22 \* \*"/)
-  assert.match(discovery, /cron: "2,7,12,17,22,27,32,37,42,47,52,57 7 10-22 \* \*"/)
-  assert.match(discovery, /cron: "0 8 10-22 \* \*"/)
-  assert.match(discovery, /cron: "0 4,9 10-22 \* \*"/)
-  assert.doesNotMatch(discovery, /7,37 0-9 10-22/)
+test('daily discovery schedule, specification, and watchdog use the same time window', () => {
+  const crons = [...discovery.matchAll(/^\s*- cron: "([^"]+)"$/gm)].map((match) => match[1])
+  assert.deepEqual(crons, ['0 1 * * *', '15,35,55 1-9 * * *'])
+  assert.match(dataUpdateSpec, /\| 每日定时发现 \| 每天09:15至17:55，每20分钟 \| `15,35,55 1-9 \* \* \*` \|/)
+  assert.match(watchdogDecision, /hour >= 1 && hour <= 9 && \[15, 35, 55\]\.includes\(minute\)/)
+  assert.doesNotMatch(discovery, /10-22/)
 })
 
 test('a discovered update succeeds while genuine discovery anomalies fail', () => {

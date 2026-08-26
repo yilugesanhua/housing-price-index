@@ -3,7 +3,7 @@ import test from 'node:test'
 
 import watchdog from '../../apps/miniprogram/cloudfunctions/monthlyDataWatchdog/index.js'
 
-const NOW = Date.parse('2026-08-10T01:45:00.000Z')
+const NOW = Date.parse('2026-08-10T01:50:00.000Z')
 const baseEnv = {
   WATCHDOG_GITHUB_TOKEN: 'test-token',
   WATCHDOG_REPOSITORY: 'owner/repository',
@@ -78,7 +78,7 @@ test('state claim stores one deterministic slot and rejects a duplicate claim', 
       })
     },
   }
-  const expectedAt = '2026-08-10T01:32:00.000Z'
+  const expectedAt = '2026-08-10T01:35:00.000Z'
   assert.equal(await watchdog.claimDispatchSlot({ database, expectedAt, now: NOW }), true)
   assert.equal(await watchdog.claimDispatchSlot({ database, expectedAt, now: NOW }), false)
   assert.equal(stored.get(`monthly-data-check:${expectedAt}`).status, 'claimed')
@@ -91,7 +91,7 @@ test('does not dispatch when a schedule run is observed', async () => {
     now: NOW,
     request: mockRequest({
       calls,
-      scheduleRuns: [{ id: 123, status: 'completed', conclusion: 'success', head_branch: 'main', created_at: '2026-08-10T01:33:00.000Z' }],
+      scheduleRuns: [{ id: 123, status: 'completed', conclusion: 'success', head_branch: 'main', created_at: '2026-08-10T01:36:00.000Z' }],
     }),
   })
   assert.equal(result.status, 'idle')
