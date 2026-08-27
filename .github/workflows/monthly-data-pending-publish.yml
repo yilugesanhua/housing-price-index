@@ -22,6 +22,11 @@ jobs:
       official_url: ${{ steps.pending.outputs.official_url }}
       source_raw_sha256: ${{ steps.pending.outputs.source_raw_sha256 }}
       discovery_run_id: ${{ steps.pending.outputs.discovery_run_id }}
+      cloud_slot_id: ${{ steps.pending.outputs.cloud_slot_id }}
+      cloud_observation_id: ${{ steps.pending.outputs.cloud_observation_id }}
+      cloud_observation_payload_sha256: ${{ steps.pending.outputs.cloud_observation_payload_sha256 }}
+      cloud_timing_status: ${{ steps.pending.outputs.cloud_timing_status }}
+      cloud_handoff_identity: ${{ steps.pending.outputs.cloud_handoff_identity }}
       candidate_run_id: ${{ steps.pending.outputs.candidate_run_id }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -120,6 +125,17 @@ jobs:
           TENCENTCLOUD_MONITOR_SECRET_ID: ${{ secrets.TENCENTCLOUD_MONITOR_SECRET_ID }}
           TENCENTCLOUD_MONITOR_SECRET_KEY: ${{ secrets.TENCENTCLOUD_MONITOR_SECRET_KEY }}
         run: node scripts/miniprogram/auto-update-state.mjs --read-production-pointer --output=work/monthly-data-check/current.json
+      - name: Recheck the immutable CloudBase discovery observation
+        env:
+          TENCENTCLOUD_MONITOR_SECRET_ID: ${{ secrets.TENCENTCLOUD_MONITOR_SECRET_ID }}
+          TENCENTCLOUD_MONITOR_SECRET_KEY: ${{ secrets.TENCENTCLOUD_MONITOR_SECRET_KEY }}
+        run: >-
+          node scripts/miniprogram/cloud-observation-gate.mjs
+          --slot=${{ needs.inspect.outputs.cloud_slot_id }}
+          --expected-observation-id=${{ needs.inspect.outputs.cloud_observation_id }}
+          --expected-payload-sha256=${{ needs.inspect.outputs.cloud_observation_payload_sha256 }}
+          --expected-handoff-identity=${{ needs.inspect.outputs.cloud_handoff_identity }}
+          --output=work/monthly-data-check/cloud-observation.json
       - run: npx playwright install --with-deps chromium webkit
       - name: Re-fetch and hash-check the committed official source
         env:
@@ -213,7 +229,7 @@ jobs:
           CI_DATASET_VERSION: ${{ needs.recover.outputs.dataset_version }}
           CI_GATE_REPORT_SHA256: ${{ needs.recover.outputs.gate_report_sha256 }}
           CI_GATE_REPORT_PATH: work/auto-release/gate-report.json
-        run: npm run miniprogram:data:publish -- --env=cloud1-d3gpdx70w5d05c68c --dataset=${{ needs.recover.outputs.dataset_version }}
+        run: npm run miniprogram:data:publish -- --env=cloud1-d3gpdx70w5d05c68c --candidate-root=work/auto-release/candidate/remote-data --dataset=${{ needs.recover.outputs.dataset_version }}
       - id: rollback_monitor_event
         name: Validate a successful automatic rollback for monitor registration
         if: failure()
@@ -241,7 +257,7 @@ jobs:
           TENCENTCLOUD_SECRET_ID: ${{ secrets.TENCENTCLOUD_SECRET_ID }}
           TENCENTCLOUD_SECRET_KEY: ${{ secrets.TENCENTCLOUD_SECRET_KEY }}
           CI_COMMIT_SHA: ${{ needs.recover.outputs.commit_sha }}
-        run: npm run miniprogram:data:publish-audit -- --env=cloud1-d3gpdx70w5d05c68c --dataset=${{ needs.recover.outputs.dataset_version }}
+        run: npm run miniprogram:data:publish-audit -- --env=cloud1-d3gpdx70w5d05c68c --candidate-root=work/auto-release/candidate/remote-data --dataset=${{ needs.recover.outputs.dataset_version }}
       - name: Persist publish audit and clear pending state
         env:
           DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}

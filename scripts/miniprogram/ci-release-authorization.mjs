@@ -1,10 +1,14 @@
 import { timingSafeEqual } from 'node:crypto'
 import { execFile } from 'node:child_process'
 import { readFile } from 'node:fs/promises'
+import { createRequire } from 'node:module'
 import { resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { sha256 } from './remote-data-lib.mjs'
 import { COMPLETE_REMOTE_MONTHS, COMPLETE_REMOTE_SCHEMA_VERSION, completeCoverageStart } from './complete-remote-data.mjs'
+
+const require = createRequire(import.meta.url)
+const discoveryContract = require('../../apps/miniprogram/cloudfunctions/monthlyDataWatchdog/discovery-contract.js')
 
 const execFileAsync = promisify(execFile)
 
@@ -100,6 +104,10 @@ export function validateCiReleaseAuthorization({ env, datasetVersion, cloudEnvId
     requireEqual(gate.complete_snapshot_sha256, env.CI_COMPLETE_SNAPSHOT_SHA256, 'complete history snapshot SHA-256')
   } else {
     requireEqual(String(gate.discovery_run_id), env.CI_DISCOVERY_RUN_ID, 'discovery run ID')
+    if (!/^[a-f0-9]{64}$/.test(gate.cloud_observation_id || '') || !/^[a-f0-9]{64}$/.test(gate.cloud_observation_payload_sha256 || '')) throw new Error('CI release authorization rejected: CloudBase observation identity is invalid')
+    if (!discoveryContract.parseSlotId(gate.cloud_slot_id || '')) throw new Error('CI release authorization rejected: CloudBase slot identity is invalid')
+    requireEqual(gate.cloud_timing_status, 'on_time', 'CloudBase discovery timing')
+    requireEqual(gate.cloud_handoff_identity, `housing-data-discovery-v1:${gate.idempotency_key}`, 'CloudBase handoff identity')
     if (gate.recovery === true) {
       requireOrdinaryCi(gate, checkedOutSha, 'recovery')
     } else requireOrdinaryCi(gate, checkedOutSha, 'candidate')

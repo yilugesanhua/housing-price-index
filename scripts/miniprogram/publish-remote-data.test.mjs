@@ -24,6 +24,13 @@ test('production publication has no local interactive bypass and preserves local
   assert.doesNotMatch(source, /createInterface|stdin\.isTTY|prompt\.question/)
 })
 
+test('publication resolves an explicit repository-relative candidate root and keeps the legacy default', () => {
+  assert.match(source, /const candidateRootInput = argument\('candidate-root'\) \?\? 'work\/miniprogram-data'/)
+  assert.match(source, /Candidate root must be a repository-relative path/)
+  assert.match(source, /Candidate root must stay inside the repository/)
+  assert.match(source, /const localRoot = resolve\(candidateRoot, datasetVersion\)/)
+})
+
 test('candidate and automatic rollback writes verify their expected exact pointer baselines before upload', () => {
   const writerStart = source.indexOf('writePointer: async (text, label) =>')
   const writerEnd = source.indexOf('readPointerText:', writerStart)

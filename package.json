@@ -27,6 +27,7 @@
     "data:release-calendar": "tsx scripts/data/fetch-release-calendar.ts",
     "data:check-latest": "npm run data:release-calendar && tsx scripts/data/check-latest.ts --calendar=work/monthly-data-check/release-calendar.json",
     "data:validate-handoff": "node scripts/miniprogram/auto-update-gate.mjs",
+    "data:verify-cloud-observation": "node scripts/miniprogram/cloud-observation-gate.mjs",
     "data:discover-historical": "tsx scripts/data/discover-historical.ts",
     "data:import-search": "tsx scripts/data/import-search-discovery.ts",
     "data:fetch": "tsx scripts/data/fetch-official.ts",

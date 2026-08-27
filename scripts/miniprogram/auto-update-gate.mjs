@@ -3,6 +3,7 @@ import { resolve } from 'node:path'
 import { pathToFileURL } from 'node:url'
 import { sha256 } from './remote-data-lib.mjs'
 import { isOfficialReleaseUrl } from './official-source-url.mjs'
+import { validateCloudObservation } from './cloud-observation-gate.mjs'
 
 function assert(condition, message) {
   if (!condition) throw new Error(`Automatic update gate rejected: ${message}`)
@@ -18,7 +19,7 @@ function calendarText(calendar) {
   return JSON.stringify({ year: calendar.year, source_urls: calendar.source_urls ?? [calendar.source_url], raw_content_sha256: calendar.raw_content_sha256, entries: calendar.entries })
 }
 
-export function validateDiscoveryGate({ handoff, discoveryReportText, discoveryCalendar, freshReport, freshCalendar, trigger }) {
+export function validateDiscoveryGate({ handoff, discoveryReportText, discoveryCalendar, freshReport, freshCalendar, trigger, cloudObservation }) {
   assert(handoff?.format === 'housing-data-discovery-handoff-v1' && handoff.status === 'update_available', 'handoff format or status is invalid')
   assert(trigger.workflow_name === 'monthly-data-check', 'triggering workflow is not the read-only discovery workflow')
   assert(trigger.conclusion === 'success', 'discovery workflow did not complete successfully')
@@ -46,6 +47,12 @@ export function validateDiscoveryGate({ handoff, discoveryReportText, discoveryC
   assert(freshReport.latest_official_url === handoff.official_url, 'fresh official URL mismatch')
   assert(entry?.scheduled_at === freshReport.scheduled_release_at, 'candidate does not match the freshly verified release schedule')
   assert(handoff.release_identity_version === 'month-and-official-url-v1', 'discovery identity version is unsupported')
+  const cloudGate = validateCloudObservation({
+    observation: cloudObservation,
+    report: discoveryReport,
+    handoff,
+  })
+  assert(cloudGate.timing_status === 'on_time', 'CloudBase discovery was not on time')
   const handoffIdempotencyKey = sha256(`${handoff.expected_stat_month}\n${handoff.official_url}`)
   assert(handoff.idempotency_key === handoffIdempotencyKey, 'discovery idempotency key mismatch')
   const freshCalendarText = calendarText(freshCalendar)
@@ -65,6 +72,11 @@ export function validateDiscoveryGate({ handoff, discoveryReportText, discoveryC
     fresh_scheduled_release_at: entry.scheduled_at,
     handoff_sha256: sha256(`${JSON.stringify(handoff, null, 2)}\n`),
     fresh_checked_at: freshReport.checked_at,
+    cloud_slot_id: cloudGate.slot_id,
+    cloud_observation_id: cloudGate.observation_id,
+    cloud_observation_payload_sha256: cloudGate.observation_payload_sha256,
+    cloud_timing_status: cloudGate.timing_status,
+    cloud_handoff_identity: cloudGate.handoff_identity,
     verified_at: new Date().toISOString(),
   }
 }
@@ -77,16 +89,18 @@ async function main() {
   const calendarPath = argument('calendar')
   const discoveryCalendarPath = argument('discovery-calendar')
   const triggerPath = argument('trigger')
-  assert(handoffPath && discoveryReportPath && discoveryCalendarPath && freshReportPath && calendarPath && triggerPath, 'required input path is missing')
-  const [handoff, discoveryReportText, discoveryCalendar, freshReport, freshCalendar, trigger] = await Promise.all([
+  const cloudObservationPath = argument('cloud-observation')
+  assert(handoffPath && discoveryReportPath && discoveryCalendarPath && freshReportPath && calendarPath && triggerPath && cloudObservationPath, 'required input path is missing')
+  const [handoff, discoveryReportText, discoveryCalendar, freshReport, freshCalendar, trigger, cloudObservation] = await Promise.all([
     readFile(resolve(handoffPath), 'utf8').then(JSON.parse),
     readFile(resolve(discoveryReportPath), 'utf8'),
     readFile(resolve(discoveryCalendarPath), 'utf8').then(JSON.parse),
     readFile(resolve(freshReportPath), 'utf8').then(JSON.parse),
     readFile(resolve(calendarPath), 'utf8').then(JSON.parse),
     readFile(resolve(triggerPath), 'utf8').then(JSON.parse),
+    readFile(resolve(cloudObservationPath), 'utf8').then(JSON.parse),
   ])
-  const result = validateDiscoveryGate({ handoff, discoveryReportText, discoveryCalendar, freshReport, freshCalendar, trigger })
+  const result = validateDiscoveryGate({ handoff, discoveryReportText, discoveryCalendar, freshReport, freshCalendar, trigger, cloudObservation })
   const outputRoot = resolve('work/auto-release')
   await mkdir(outputRoot, { recursive: true })
   await writeFile(resolve(outputRoot, 'discovery-gate.json'), `${JSON.stringify(result, null, 2)}\n`, 'utf8')

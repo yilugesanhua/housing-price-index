@@ -20,6 +20,7 @@ const manualRollback = await readFile(resolve(root, '.github/workflows/manual-da
 const candidateCleanup = await readFile(resolve(root, '.github/workflows/monthly-data-candidate-cleanup.yml'), 'utf8')
 const pointerRepair = await readFile(resolve(root, 'scripts/miniprogram/repair-current-pointer.mjs'), 'utf8')
 const genericPublisher = await readFile(resolve(root, 'scripts/miniprogram/publish-remote-data.mjs'), 'utf8')
+const privateAuditPublisher = await readFile(resolve(root, 'scripts/miniprogram/publish-private-audit.mjs'), 'utf8')
 const rollbackPublisher = await readFile(resolve(root, 'scripts/miniprogram/rollback-remote-data.mjs'), 'utf8')
 const monitorSelector = await readFile(resolve(root, 'scripts/miniprogram/select-monitor-target.mjs'), 'utf8')
 const monitorRemote = await readFile(resolve(root, 'scripts/miniprogram/monitor-remote-release.mjs'), 'utf8')
@@ -30,6 +31,8 @@ const previewValidatorDeployment = await readFile(resolve(root, 'scripts/minipro
 const tencentCloudSdk = await readFile(resolve(root, 'scripts/miniprogram/tencent-cloud-sdk.mjs'), 'utf8')
 const candidateCleanupScript = await readFile(resolve(root, 'scripts/miniprogram/delete-remote-candidate.mjs'), 'utf8')
 const watchdogFunction = await readFile(resolve(root, 'apps/miniprogram/cloudfunctions/monthlyDataWatchdog/index.js'), 'utf8')
+const watchdogContract = await readFile(resolve(root, 'apps/miniprogram/cloudfunctions/monthlyDataWatchdog/discovery-contract.js'), 'utf8')
+const cloudObservationGate = await readFile(resolve(root, 'scripts/miniprogram/cloud-observation-gate.mjs'), 'utf8')
 const watchdogDecision = await readFile(resolve(root, 'apps/miniprogram/cloudfunctions/monthlyDataWatchdog/decision.js'), 'utf8')
 const dataUpdateSpec = await readFile(resolve(root, 'docs/MINIPROGRAM_DATA_UPDATE.md'), 'utf8')
 const ci = await readFile(resolve(root, '.github/workflows/ci.yml'), 'utf8')
@@ -62,6 +65,8 @@ test('discovery workflow remains read-only and has no production environment', (
 
 test('independent watchdog can only read Actions runs and dispatch the fixed discovery workflow', () => {
   assert.match(discovery, /workflow_dispatch:\s+inputs:\s+watchdog_slot:/)
+  assert.match(discovery, /DISCOVERY_SLOT_ID: \$\{\{ inputs\.watchdog_slot \|\| '' \}\}/)
+  assert.match(discovery, /--slot="\$DISCOVERY_SLOT_ID"/)
   assert.match(watchdogFunction, /actions\/workflows\/\$\{encodeURIComponent\(workflow\)\}\/runs/)
   assert.match(watchdogFunction, /actions\/workflows\/\$\{encodeURIComponent\(workflow\)\}\/dispatches/)
   assert.match(watchdogFunction, /inputs: \{ watchdog_slot: decision\.expectedAt \}/)
@@ -72,7 +77,9 @@ test('independent watchdog can only read Actions runs and dispatch the fixed dis
   assert.match(watchdogFunction, /candidate-stalled:/)
   assert.match(watchdogFunction, /already_alerted/)
   assert.match(watchdogFunction, /WATCHDOG_PUBLISH_WORKFLOW/)
-  assert.doesNotMatch(watchdogFunction, /TENCENTCLOUD_(?:SECRET|MONITOR_SECRET)|putObject|uploadFile|publish-remote-data|cosCall|scf\./i)
+  assert.doesNotMatch(watchdogFunction, /TENCENTCLOUD_(?:SECRET|MONITOR_SECRET)|putObject|publish-remote-data|cosCall|scf\./i)
+  assert.match(watchdogContract, /housing-data\/discovery\/observations/)
+  assert.match(watchdogFunction, /不可变观察对象身份冲突/)
   assert.match(watchdogDecision, /within_grace_period/)
   assert.match(watchdogDecision, /already_dispatched/)
   assert.match(watchdogDecision, /schedule_missing/)
@@ -98,6 +105,9 @@ test('publisher is triggered only by the named discovery workflow', () => {
   assert.match(publisher, /data: persist failed automated update state/)
   assert.match(publisher, /git diff --name-only/)
   assert.match(publisher, /housing-data-auto-update-state-v1/)
+  assert.match(publisher, /--cloud-observation=work\/discovery-artifact\/cloud-observation\.json/)
+  assert.match(cloudObservationGate, /TENCENTCLOUD_MONITOR_SECRET_ID/)
+  assert.match(cloudObservationGate, /verifyCloudObservationIdentity/)
 })
 
 test('candidate CI is explicitly dispatched only after the exact default-branch head is confirmed', () => {
@@ -140,6 +150,17 @@ test('automatic publisher exposes only the isolated candidate directory', () => 
   assert.match(prepare, /work\/auto-release\//)
   assert.doesNotMatch(prepare, /work\/miniprogram-data/)
   assert.doesNotMatch(publisher, /work\/miniprogram-data/)
+})
+
+test('monthly publication and private audit consume the same isolated release root', () => {
+  const isolatedRoot = /--candidate-root=work\/auto-release\/candidate\/remote-data/
+  assert.match(publisher, isolatedRoot)
+  assert.match(recovery, isolatedRoot)
+  assert.equal((publisher.match(new RegExp(isolatedRoot.source, 'g')) || []).length, 2)
+  assert.equal((recovery.match(new RegExp(isolatedRoot.source, 'g')) || []).length, 2)
+  assert.match(genericPublisher, /const candidateRootInput = argument\('candidate-root'\) \?\? 'work\/miniprogram-data'/)
+  assert.match(privateAuditPublisher, /const candidateRootInput = argument\('candidate-root'\) \?\? 'work\/miniprogram-data'/)
+  assert.match(privateAuditPublisher, /resolve\(candidateRoot, datasetVersion, 'release-report\.json'\)/)
 })
 
 test('daily discovery schedule, specification, and watchdog use the same time window', () => {
@@ -198,6 +219,8 @@ test('scheduled recovery restores the original candidate artifact instead of gen
   assert.match(recover, /run-id: \$\{\{ needs\.inspect\.outputs\.candidate_run_id \}\}/)
   assert.match(recover, /work\/auto-release\/candidate\/snapshot\.cjs/)
   assert.match(recover, /work\/auto-release\/candidate\/remote-data/)
+  assert.match(recover, /Recheck the immutable CloudBase discovery observation/)
+  assert.match(recover, /expected-observation-id=/)
   assert.doesNotMatch(recover, /npm run data:audit|miniprogram:data:stage|miniprogram:data:prepare-auto|miniprogram:data:publish\s+--/)
 
   const recoveryGate = await readFile(resolve(root, 'scripts/miniprogram/create-recovery-gate.mjs'), 'utf8')

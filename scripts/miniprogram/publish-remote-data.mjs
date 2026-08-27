@@ -1,6 +1,6 @@
 import { copyFile, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { execFile } from 'node:child_process'
-import { resolve } from 'node:path'
+import { isAbsolute, relative, resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { createTencentCloudClient, isMissingObjectError } from './tencent-cloud-sdk.mjs'
 import { sha256, stableJson } from './remote-data-lib.mjs'
@@ -29,10 +29,17 @@ const execFileAsync = promisify(execFile)
 const argument = (name) => process.argv.find((value) => value.startsWith(`--${name}=`))?.slice(name.length + 3)
 const datasetVersion = argument('dataset')
 const cloudEnvId = argument('env') || 'cloud1-d3gpdx70w5d05c68c'
+const candidateRootInput = argument('candidate-root') ?? 'work/miniprogram-data'
 const dryRun = process.argv.includes('--dry-run')
 if (!/^20\d{2}-(0[1-9]|1[0-2])-[a-f0-9]{12}$/.test(datasetVersion || '')) throw new Error('Use --dataset=<YYYY-MM-hash>')
 if (!/^cloud[\w-]+$/.test(cloudEnvId)) throw new Error('Invalid --env value')
-const localRoot = resolve(root, 'work/miniprogram-data', datasetVersion)
+if (!candidateRootInput || isAbsolute(candidateRootInput)) throw new Error('Candidate root must be a repository-relative path')
+const candidateRoot = resolve(root, candidateRootInput)
+const candidateRootRelative = relative(root, candidateRoot)
+if (!candidateRootRelative || candidateRootRelative.startsWith('..') || isAbsolute(candidateRootRelative)) throw new Error('Candidate root must stay inside the repository')
+// Historical/manual publishers keep the legacy work/miniprogram-data layout;
+// monthly automation passes its isolated work/auto-release candidate root.
+const localRoot = resolve(candidateRoot, datasetVersion)
 const report = JSON.parse(await readFile(resolve(localRoot, 'release-report.json'), 'utf8'))
 const manifestText = await readFile(resolve(localRoot, 'manifest.json'), 'utf8')
 const manifest = JSON.parse(manifestText)

@@ -128,6 +128,11 @@ if (isMain) {
     source_raw_sha256: gate.source_raw_sha256,
     candidate_run_id: candidateRunId,
     discovery_run_id: gate.discovery_run_id,
+    cloud_slot_id: gate.cloud_slot_id,
+    cloud_observation_id: gate.cloud_observation_id,
+    cloud_observation_payload_sha256: gate.cloud_observation_payload_sha256,
+    cloud_timing_status: gate.cloud_timing_status,
+    cloud_handoff_identity: gate.cloud_handoff_identity,
     idempotency_key: gate.idempotency_key,
     release_key: gate.release_key || buildReleaseKey(gate.dataset_as_of, gate.source_raw_sha256),
     // Exact source/code commit that produced the candidate. The later

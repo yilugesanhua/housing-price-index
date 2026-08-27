@@ -6,12 +6,20 @@ import { COMPLETE_REMOTE_SCHEMA_VERSION, completeCoverageStart } from './complet
 
 const datasetVersion = '2026-07-0123456789ab'
 const cloudEnvId = 'cloud1-d3gpdx70w5d05c68c'
+const cloudSlotId = '2026-08-26T01:15:00.000Z'
+const idempotencyKey = 'b'.repeat(64)
 const gate = {
   status: 'passed',
   dataset_version: datasetVersion,
   cloud_env_id: cloudEnvId,
   commit_sha: 'a'.repeat(40),
   discovery_run_id: '456',
+  cloud_slot_id: cloudSlotId,
+  cloud_observation_id: 'c'.repeat(64),
+  cloud_observation_payload_sha256: 'd'.repeat(64),
+  cloud_timing_status: 'on_time',
+  idempotency_key: idempotencyKey,
+  cloud_handoff_identity: `housing-data-discovery-v1:${idempotencyKey}`,
   ordinary_ci: { workflow: 'ci.yml', event: 'push', conclusion: 'success', run_id: '789', commit_sha: 'a'.repeat(40) },
 }
 const gateReportText = `${JSON.stringify(gate)}\n`

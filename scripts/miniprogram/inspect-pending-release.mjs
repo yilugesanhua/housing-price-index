@@ -1,8 +1,12 @@
 import { appendFileSync, readFileSync } from 'node:fs'
 import { createHash } from 'node:crypto'
+import { createRequire } from 'node:module'
 import { pathToFileURL } from 'node:url'
 import { resolve } from 'node:path'
 import { validateOfficialReleaseUrl } from './official-source-url.mjs'
+
+const require = createRequire(import.meta.url)
+const contract = require('../../apps/miniprogram/cloudfunctions/monthlyDataWatchdog/discovery-contract.js')
 
 const DATASET_VERSION = /^20\d{2}-(0[1-9]|1[0-2])-[a-f0-9]{12}$/
 const SOURCE_VERSION = /^20\d{2}-(0[1-9]|1[0-2])-[a-f0-9]{12}$/
@@ -24,6 +28,10 @@ export function validatePendingReleaseState(value) {
   if (value.candidate_id !== createHash('sha256').update(`${value.release_key}\n${value.candidate_commit_sha}\n${value.candidate_manifest_sha256}`).digest('hex')) throw new Error('Pending candidate ID does not match its identity')
   if (value.state_version !== 'housing-data-auto-update-state-v1') throw new Error('Pending state version is invalid')
   if (!RUN_ID.test(String(value.discovery_run_id || ''))) throw new Error('Pending discovery run ID is invalid')
+  if (!contract.parseSlotId(value.cloud_slot_id || '')) throw new Error('Pending CloudBase slot ID is invalid')
+  if (!SHA256.test(value.cloud_observation_id || '') || !SHA256.test(value.cloud_observation_payload_sha256 || '')) throw new Error('Pending CloudBase observation identity is invalid')
+  if (value.cloud_timing_status !== 'on_time') throw new Error('Pending CloudBase observation was not on time')
+  if (value.cloud_handoff_identity !== `housing-data-discovery-v1:${value.idempotency_key}`) throw new Error('Pending CloudBase handoff identity is invalid')
   if (!RUN_ID.test(String(value.candidate_run_id || ''))) throw new Error('Pending candidate workflow run ID is invalid')
   if (!SHA256.test(value.gate_report_sha256 || '')) throw new Error('Pending gate SHA-256 is invalid')
   return {
@@ -32,6 +40,11 @@ export function validatePendingReleaseState(value) {
     official_url: value.official_url,
     source_raw_sha256: value.source_raw_sha256,
     discovery_run_id: String(value.discovery_run_id),
+    cloud_slot_id: value.cloud_slot_id,
+    cloud_observation_id: value.cloud_observation_id,
+    cloud_observation_payload_sha256: value.cloud_observation_payload_sha256,
+    cloud_timing_status: value.cloud_timing_status,
+    cloud_handoff_identity: value.cloud_handoff_identity,
     candidate_run_id: String(value.candidate_run_id),
   }
 }
@@ -43,6 +56,11 @@ function writeOutput(result) {
     official_url: result.official_url || '',
     source_raw_sha256: result.source_raw_sha256 || '',
     discovery_run_id: result.discovery_run_id || '',
+    cloud_slot_id: result.cloud_slot_id || '',
+    cloud_observation_id: result.cloud_observation_id || '',
+    cloud_observation_payload_sha256: result.cloud_observation_payload_sha256 || '',
+    cloud_timing_status: result.cloud_timing_status || '',
+    cloud_handoff_identity: result.cloud_handoff_identity || '',
     candidate_run_id: result.candidate_run_id || '',
   }
   for (const [key, value] of Object.entries(values)) {

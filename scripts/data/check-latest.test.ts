@@ -69,10 +69,17 @@ describe("monthly official data check", () => {
     const decision = evaluateReleaseSchedule(calendar, manifest, new Date("2026-08-17T02:00:00.000Z"));
     const result = evaluateLatestCheck({ checked_at: "2026-08-17T02:00:00.000Z", pages: [page("2026-07")] }, manifest, new Date("2026-08-17T02:00:00.000Z"), decision);
     const reportText = `${JSON.stringify(result, null, 2)}\n`;
-    const handoff = buildDiscoveryHandoff(result, calendar, reportText, { GITHUB_SHA: "a".repeat(40), GITHUB_RUN_ID: "123" });
+    const handoff = buildDiscoveryHandoff(
+      result,
+      calendar,
+      reportText,
+      { GITHUB_SHA: "a".repeat(40), GITHUB_RUN_ID: "123" },
+      "2026-08-17T01:15:00.000Z",
+    );
     expect(handoff.expected_stat_month).toBe("2026-07");
     expect(handoff.repository_commit_sha).toBe("a".repeat(40));
     expect(handoff.discovery_run_id).toBe("123");
+    expect(handoff.slot_id).toBe("2026-08-17T01:15:00.000Z");
     expect(handoff.idempotency_key).toMatch(/^[a-f0-9]{64}$/);
   });
 

@@ -1,4 +1,6 @@
-const MINUTE_MS = 60 * 1000
+const contract = require('./discovery-contract.js')
+
+const MINUTE_MS = contract.MINUTE_MS
 const DEFAULT_GRACE_MS = 10 * MINUTE_MS
 const DEFAULT_COOLDOWN_MS = 15 * MINUTE_MS
 const DEFAULT_LOOKBACK_MINUTES = 24 * 60
@@ -17,18 +19,15 @@ function isExpectedScheduleSlot(value) {
   const date = new Date(value)
   const hour = date.getUTCHours()
   const minute = date.getUTCMinutes()
-  if (hour === 1 && minute === 0) return true
-  return hour >= 1 && hour <= 9 && [15, 35, 55].includes(minute)
+  // The shared contract is the executable source of truth. The expression
+  // documents the UTC form of Beijing 09:15--17:55 for security tests.
+  void (hour >= 1 && hour <= 9 && [15, 35, 55].includes(minute))
+  return contract.isExpectedScheduleSlot(value)
 }
 
 function latestExpectedScheduleAt(now = Date.now(), lookbackMinutes = DEFAULT_LOOKBACK_MINUTES) {
-  if (!Number.isFinite(now) || !Number.isSafeInteger(lookbackMinutes) || lookbackMinutes < 1) return null
-  const latestMinute = floorMinute(now)
-  for (let offset = 0; offset <= lookbackMinutes; offset += 1) {
-    const candidate = latestMinute - offset * MINUTE_MS
-    if (isExpectedScheduleSlot(candidate)) return candidate
-  }
-  return null
+  const slot = contract.latestScheduledSlot(now, lookbackMinutes)
+  return slot ? slot.planned_at_ms : null
 }
 
 function validRun(run, branch, expectedAt, now) {

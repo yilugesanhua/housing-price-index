@@ -12,6 +12,7 @@ const calendar = {
 }
 const report = {
   status: 'update_available',
+  slot_id: '2026-08-17T01:35:00.000Z',
   dataset_as_of: '2026-06',
   expected_stat_month: '2026-07',
   latest_official_month: '2026-07',
@@ -35,12 +36,38 @@ const handoff = {
   report_sha256: sha256(reportText),
   repository_commit_sha: trigger.head_sha,
   discovery_run_id: trigger.run_id,
+  slot_id: report.slot_id,
   idempotency_key: sha256(`2026-07\n${report.latest_official_url}`),
+  handoff_identity: `housing-data-discovery-v1:${sha256(`2026-07\n${report.latest_official_url}`)}`,
   release_identity_version: 'month-and-official-url-v1',
 }
+const cloudObservationPayload = {
+  format: 'housing-data-discovery-observation-v1',
+  observation_id: 'c'.repeat(64),
+  slot_id: report.slot_id,
+  task: 'discovery',
+  planned_at: report.slot_id,
+  actual_started_at: '2026-08-17T01:35:10.000Z',
+  completed_at: '2026-08-17T01:35:20.000Z',
+  timing_status: 'on_time',
+  status: 'update_available',
+  result: {
+    status: 'update_available',
+    dataset_as_of: '2026-06',
+    expected_stat_month: '2026-07',
+    latest_official_month: '2026-07',
+    latest_official_url: report.latest_official_url,
+  },
+  pointer: { dataset_as_of: '2026-06', pointer_sha256: 'd'.repeat(64) },
+  calendar: { year: 2026, source_urls: calendar.source_urls, raw_content_sha256: calendar.raw_content_sha256, calendar_sha256: sha256(calendarText), source_responses: [] },
+  discovery_responses: [],
+  idempotency_key: handoff.idempotency_key,
+  handoff_identity: handoff.handoff_identity,
+}
+const cloudObservation = { ...cloudObservationPayload, payload_sha256: sha256(JSON.stringify(cloudObservationPayload)) }
 
-test('accepts an untampered discovery handoff confirmed by a fresh official check', () => {
-  const result = validateDiscoveryGate({ handoff, discoveryReportText: reportText, discoveryCalendar: calendar, freshReport: report, freshCalendar: calendar, trigger })
+test('accepts an untampered discovery handoff confirmed by CloudBase and a fresh official check', () => {
+  const result = validateDiscoveryGate({ handoff, discoveryReportText: reportText, discoveryCalendar: calendar, freshReport: report, freshCalendar: calendar, trigger, cloudObservation })
   assert.equal(result.status, 'passed')
   assert.equal(result.expected_stat_month, '2026-07')
 })
@@ -50,7 +77,7 @@ test('accepts a changed official release schedule when the official month and pa
   freshCalendar.raw_content_sha256 = 'c'.repeat(64)
   freshCalendar.entries[0].scheduled_at = '2026-08-17T15:00:00+08:00'
   const freshReport = { ...report, scheduled_release_at: freshCalendar.entries[0].scheduled_at }
-  const result = validateDiscoveryGate({ handoff, discoveryReportText: reportText, discoveryCalendar: calendar, freshReport, freshCalendar, trigger })
+  const result = validateDiscoveryGate({ handoff, discoveryReportText: reportText, discoveryCalendar: calendar, freshReport, freshCalendar, trigger, cloudObservation })
   assert.equal(result.calendar_changed_after_discovery, true)
   assert.equal(result.fresh_scheduled_release_at, '2026-08-17T15:00:00+08:00')
   assert.equal(result.idempotency_key, handoff.idempotency_key)
@@ -74,8 +101,32 @@ for (const [label, mutate, pattern] of [
       freshReport: structuredClone(report),
       freshCalendar: structuredClone(calendar),
       trigger: structuredClone(trigger),
+      cloudObservation: structuredClone(cloudObservation),
     }
     mutate(input)
     assert.throws(() => validateDiscoveryGate(input), pattern)
   })
 }
+
+test('rejects an available update when the CloudBase observation is late or missing', () => {
+  const latePayload = { ...cloudObservation, timing_status: 'late' }
+  delete latePayload.payload_sha256
+  const lateObservation = { ...latePayload, payload_sha256: sha256(JSON.stringify(latePayload)) }
+  assert.throws(() => validateDiscoveryGate({
+    handoff,
+    discoveryReportText: reportText,
+    discoveryCalendar: calendar,
+    freshReport: report,
+    freshCalendar: calendar,
+    trigger,
+    cloudObservation: lateObservation,
+  }), /CloudBase observation was late/)
+  assert.throws(() => validateDiscoveryGate({
+    handoff,
+    discoveryReportText: reportText,
+    discoveryCalendar: calendar,
+    freshReport: report,
+    freshCalendar: calendar,
+    trigger,
+  }), /CloudBase observation is missing|observation format is invalid/)
+})

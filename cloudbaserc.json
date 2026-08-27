@@ -13,6 +13,20 @@
       "envVariables": {
         "HOUSING_DATA_CURRENT_FILE_ID": "cloud://cloud1-d3gpdx70w5d05c68c.636c-cloud1-d3gpdx70w5d05c68c-1456861154/housing-data/current.json"
       }
+    },
+    {
+      "name": "monthlyDataWatchdog",
+      "timeout": 600,
+      "memorySize": 256,
+      "runtime": "Nodejs20.19",
+      "handler": "index.main",
+      "description": "每分钟严格时段的70城数据只读发现；不持有生产数据写权限",
+      "envVariables": {
+        "MONTHLY_DISCOVERY_LEASE_SECONDS": "720",
+        "MONTHLY_DISCOVERY_MAX_ATTEMPTS": "3",
+        "WATCHDOG_GITHUB_AUDIT_ENABLED": "false",
+        "WATCHDOG_DRY_RUN": "true"
+      }
     }
   ]
 }

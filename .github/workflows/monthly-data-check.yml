@@ -10,6 +10,7 @@ on:
   schedule:
     # 北京时间每天09:00同步官方发布预告；是否检查正式发布列表由预告日期和时间决定。
     - cron: "0 1 * * *"
+    # GitHub 定时运行只用于审计和备用信号；严格时段由腾讯云只读控制器记录。
     # 北京时间每天09:15起每20分钟检查一次，17:55为最后一次；18:00仅为截止边界。
     - cron: "15,35,55 1-9 * * *"
 
@@ -41,9 +42,16 @@ jobs:
       - id: latest
         name: Sync release calendar and compare official and published months
         shell: bash
+        env:
+          # A delayed GitHub dispatch must retain the CloudBase-assigned slot.
+          DISCOVERY_SLOT_ID: ${{ inputs.watchdog_slot || '' }}
         run: |
           set +e
-          npm run data:check-latest -- --current=work/monthly-data-check/current.json
+          if [ -n "$DISCOVERY_SLOT_ID" ]; then
+            npm run data:check-latest -- --current=work/monthly-data-check/current.json --slot="$DISCOVERY_SLOT_ID"
+          else
+            npm run data:check-latest -- --current=work/monthly-data-check/current.json
+          fi
           status=$?
           set -e
           case "$status" in
@@ -58,6 +66,19 @@ jobs:
               exit "$status"
               ;;
           esac
+      - name: Verify the matching CloudBase observation
+        if: steps.latest.outcome == 'success'
+        env:
+          TENCENTCLOUD_MONITOR_SECRET_ID: ${{ secrets.TENCENTCLOUD_MONITOR_SECRET_ID }}
+          TENCENTCLOUD_MONITOR_SECRET_KEY: ${{ secrets.TENCENTCLOUD_MONITOR_SECRET_KEY }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=(--report=work/monthly-data-check/report.json --output=work/monthly-data-check/cloud-observation.json --env=cloud1-d3gpdx70w5d05c68c)
+          if [ -f work/monthly-data-check/handoff.json ]; then
+            args+=(--handoff=work/monthly-data-check/handoff.json)
+          fi
+          node scripts/miniprogram/cloud-observation-gate.mjs "${args[@]}"
       - name: Add report to job summary
         if: always()
         run: |

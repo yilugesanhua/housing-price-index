@@ -1,10 +1,43 @@
 # 实施状态登记
 
-更新日期：2026-08-25
+更新日期：2026-08-26
 
-## 2026-08-24 本轮收尾状态
+## 2026-08-26 腾讯云观察交接接入 GitHub 门禁（当前候选）
 
-- A01-A06 自动更新可靠性修复、独立守护器和小程序构建输入已提交到 `main`，实现提交为 `be351cca8a36c26898f4f46da372ef63205991c2`，文档收尾提交为 `783263de6795023a17dae7a82beec802ffc0af72`；`v2.5.16` 已写入唯一源码版本文件并同步到微信开发者工具目录。
+- 已新增固定对象 `housing-data/discovery/observations/<sha256(slot_id)>.json`：腾讯云函数在观察完成后写入并写后回读；对象只含非敏感的时段、正式指针摘要、官方来源摘要、结果和哈希，不含完整业务数据或密钥。
+- GitHub `monthly-data-check` 读取同一 `slot_id` 的观察对象；`monthly-data-auto-publish` 的发现门禁、候选持久化、CI 发布授权和待发布恢复均绑定腾讯云 `observation_id`、`payload_sha256`、`timing_status` 和 `handoff_identity`。缺失、迟到、身份冲突或哈希不一致时失败关闭。
+- 本地定向测试 `75/75` 通过，完整 `npm run check` 通过（小程序 `420/420`、数据测试 `64/64`、Web测试 `18/18`、发布门禁 `3/3`）；当前生产开关仍为关闭状态，未写正式数据。
+- 本轮候选版本为 `v2.5.25`，已同步 `70城小程序技术验证/` 并于2026-08-26 23:02（北京时间）重新部署 `monthlyDataWatchdog`；CloudBase函数列表回读为 `Deployment completed`，手动调用返回 `strict_status=idle`、`watchdog_status=disabled`。调用发生在当日发现窗口之后，不能作为完整窗口或准时发现证据。
+- GitHub 只读监测身份已在本机安全配置，并已写入仓库级只读 Secrets；已用该身份现场验证：可读取正式 `current.json`，读取不存在的观察对象返回 `NoSuchKey`，读取正式发布目录返回 `AccessDenied`。这证明最小权限边界，不替代 GitHub 工作流对同一观察对象的实际消费记录；完整27个时段线上窗口仍未完成，当前只能记为 `implemented / passed_limited`。
+- 本地 `npm run test:e2e` 为 `39 passed / 1 skipped`（桌面与手机流程均覆盖）；源目录与微信开发者工具目录的44个构建输入逐文件SHA-256一致，开发者工具私有配置按规则保留为允许的本地差异。
+- GitHub 仓库变量 `AUTOMATIC_RELEASE_ENABLED=false`、生产 Environment 变量 `PRODUCTION_RELEASE_AUTHORIZED=false` 已现场回读；仓库中两个只读监测 Secret 仅确认存在，未读取或打印其值。
+
+## 2026-08-26 严格发现器部署与有限验证（当前）
+
+- 严格发现器源码、共享发现契约和时段状态机已完成本地定向验证，并已部署到 CloudBase 环境 `cloud1-d3gpdx70w5d05c68c` 的 `monthlyDataWatchdog` 函数。当前唯一触发器为 `monthlyDataWatchdogCron`，七段 Cron 为 `0 * * * * * *`，由函数内部按北京时间领取 09:15 至 17:55 的 27 个发现时段。
+- 腾讯云函数只读取白名单正式 `current.json`、国家统计局公开页面，并将租约、尝试次数、时段状态和不可变观察报告写入 `monthlyDataWatchdog` 集合；不上传数据、不修改正式指针、不切换版本，也不持有生产数据写凭据。
+- 当前云端配置精确保留四个非敏感变量：`MONTHLY_DISCOVERY_LEASE_SECONDS=720`、`MONTHLY_DISCOVERY_MAX_ATTEMPTS=3`、`WATCHDOG_GITHUB_AUDIT_ENABLED=false`、`WATCHDOG_DRY_RUN=true`。GitHub 补发路径关闭时不读取 GitHub 令牌。
+- 一次部署后的安全手动调用在当日 18:00 截止后登记了 09:00 日程时段和 27 个发现时段，共 28 条 `expired` 记录；该证据证明部署、失败关闭和状态写入可用，但不能证明完整窗口内 27 个时段按时开始。
+- 当前源码版本为 `v2.5.25`，已同步到 `70城小程序技术验证/`；本轮只改动云函数、发现契约、工作流安全和数据自动更新相关构建输入，没有修改小程序页面布局或正式数据。
+- 本轮严格发现状态登记为 `implementation_status=implemented`、`verification_status=passed_limited`、`verification_scope=local_targeted_tests_and_cloud_deployment_readback`。在取得一个完整官方发布时间窗口的 27 条实际记录前，不得改记为 `passed`，也不得开启任何生产发布开关。
+- GitHub Actions 仍是独立审计、可复现报告、候选构建和未来受保护发布入口；晚到或漏投的 GitHub 运行不能覆盖腾讯云记录的 `late`、`failed` 或 `expired` 状态。仓库级 `AUTOMATIC_RELEASE_ENABLED` 和生产 Environment 级 `PRODUCTION_RELEASE_AUTHORIZED` 继续保持精确 `false` 或未设置。
+
+## 2026-08-26 自动发现补查与守护器状态
+
+> 历史快照：本节记录严格发现器部署前的状态，已被上方“严格发现器部署与有限验证（当前）”取代，不作为当前实现事实。
+
+- 今日北京时间 09:24 手动补查 `monthly-data-check` 已成功完成：GitHub Actions 运行 `32918833520`（`workflow_dispatch`，提交 `0a560edfae1d21cd22eeaff75d1f8856e096600c`）。随后 `monthly-data-auto-publish` 运行 `32918879532` 的 `inspect` 成功，`prepare` 与 `publish` 按关闭门禁跳过；没有生产写入。
+- 09:55 现场调用 CloudBase `monthlyDataWatchdog` 返回 `already_dispatched`，对应 09:00 北京时间窗口和补查运行 `32918833520`。这证明今天的漏投窗口已由人工补查覆盖，但不是 GitHub `schedule` 自身准时到达的证据。
+- 守护器当前仍为 `WATCHDOG_DRY_RUN=true`，因此尚未具备自动补触发资格。启用前必须先撤销已在函数详情中明文回显的旧 GitHub Fine-grained token，换成新的仓库级最小权限令牌，并在 CloudBase 现场回读新令牌已配置、dry-run 仍为 `true`；完成一个完整发布时间窗口观察后，维护人再单独确认是否改为 `false`。该项不涉及小程序页面或版本号，也不改变两个生产发布开关（仍为 `false`）。
+
+## 2026-08-26 月度自动更新执行方案
+
+- 用户已确认后续月度自动更新必须遵循 [`MONTHLY_DATA_AUTOMATION_PLAN.md`](MONTHLY_DATA_AUTOMATION_PLAN.md)。该方案定义严格20分钟发现、职责分离、失败关闭和验收边界；具体北京时间与Cron仍只以 `MINIPROGRAM_DATA_UPDATE.md` 为准。
+- 当时状态为 `approved / not_started`；该结论仅保留为部署前历史记录。后续严格发现器已完成部署，但完整发布时间窗口的线上 27 时段证据仍未完成。
+
+## 2026-08-25 本轮收尾状态
+
+- A01-A06 自动更新可靠性修复、独立守护器和小程序构建输入已提交到 `main`，实现提交为 `be351cca8a36c26898f4f46da372ef63205991c2`，文档收尾提交为 `783263de6795023a17dae7a82beec802ffc0af72`；当前候选版本号已由 `v2.5.16` 调整为 `v2.5.17`，并同步到微信开发者工具目录。历史 `v2.5.16` 候选曾在 `1a91ae2` 短暂使用，随后由 `958a9c6` 改回 `v2.5.15`，不作为当前候选或发布证据。
 - GitHub Actions 普通 `ci / verify` 运行 `32747632680` 已成功完成 `npm run check` 和 `npm run test:e2e`（39项通过、1项按配置跳过）。这只证明当前主分支提交的普通 CI 通过，不代表生产发布或微信平台发布。
 - GitHub 仓库级 `AUTOMATIC_RELEASE_ENABLED=false` 与生产 Environment 级 `PRODUCTION_RELEASE_AUTHORIZED=false` 已现场复读；CloudBase 守护器保持 `WATCHDOG_DRY_RUN=true`，没有触发线上工作流、生产数据、正式指针或生产发布写入。
 - 2026-08-25 手动触发只读 `monthly-data-check`（运行 `32749279961`）已实际执行到发现任务，但因仓库级 `TENCENTCLOUD_MONITOR_SECRET_ID`、`TENCENTCLOUD_MONITOR_SECRET_KEY` 为空而在“读取正式指针”步骤失败。两项同名密钥目前只存在于 `housing-data-production` Environment；按工作流安全测试，候选准备任务不得绑定该受保护环境，因此必须由维护人把只读密钥以同名方式配置到仓库级 Secrets 后再重跑。该失败未生成候选、未进入发布、未写生产数据。
@@ -41,7 +74,7 @@
 
 本文件记录权威规范与当前实现之间的差距，不另行定义产品、数据或发布规则。R01-R07、D01-D20、I01-I14与V01-V19涉及的目标要求以 `AGENTS.md`、`PRODUCT.md`、`DATA_CONTRACT.md`、`ACCEPTANCE.md`、`MINIPROGRAM_VERSIONING.md`、`RELEASE_READINESS.md` 和 `MINIPROGRAM_DATA_UPDATE.md` 的对应条款为准；项目全部权威规范及职责边界以 [文档索引](DOCUMENT_INDEX.md) 为准。
 
-当前界面和功能事实以 `apps/web/` 与 `apps/miniprogram/` 为准。当前源码版本为 `v2.5.16`，精确提交为 `be351cca8a36c26898f4f46da372ef63205991c2`；本轮自动更新修复已通过普通 CI，但微信开发者工具重新编译、双真机、微信平台审核/发布和正式远程数据回读仍未提供当前提交的证据。此前版本和候选记录按其日期保留为历史证据，不替代本轮结论。S00-S09及V01-V12最初的规范治理轮次没有修改 Web、小程序、生成数据、云端资源或当前页面；后续单独批准的S10只修改小程序远程数据运行时、控制面和发布/回滚工具，不修改正常数据页面。V13-V18与D08后续实施只修改已批准的数据审计、客户端元数据、工作流安全、测试和对应规范；2026-07-31另行批准实施D08-D14、I01-I03、I11、V01和V07后，小程序新增数据不可用错误态、定位披露及缓存清理。真实默认启动随后暴露“没有可信控制状态即禁用完整内置快照”的严重回退，原失败证据和重新打开记录继续保留；同日完成最小运行时修复及本地回归后，D10、D13恢复为 `implemented/passed_limited`，S10和I01恢复为 `partial/passed_limited`，仍不代表真实CI、云端、开发者工具、双真机、远程完整包或自动更新验收通过。下表中的 `approved` 只表示方案已经确认，不能理解为代码已经实现、测试已经通过或生产能力已经启用；各项实现与有限验证另按本文件专项登记。
+当前界面和功能事实以 `apps/web/` 与 `apps/miniprogram/` 为准。当前源码版本为 `v2.5.24`；自动发现可靠性实现已形成当前工作区候选，但尚未形成新的不可变发布候选。自动更新代码已通过此前登记的普通 CI 和当前本地定向测试，但 `v2.5.24` 的微信开发者工具重新编译、双真机、微信平台审核/发布和正式远程数据回读仍未提供证据。此前版本和候选记录按其日期保留为历史证据，不替代本轮结论。S00-S09及V01-V12最初的规范治理轮次没有修改 Web、小程序、生成数据、云端资源或当前页面；后续单独批准的S10只修改小程序远程数据运行时、控制面和发布/回滚工具，不修改正常数据页面。V13-V18与D08后续实施只修改已批准的数据审计、客户端元数据、工作流安全、测试和对应规范；2026-07-31另行批准实施D08-D14、I01-I03、I11、V01和V07后，小程序新增数据不可用错误态、定位披露及缓存清理。真实默认启动随后暴露“没有可信控制状态即禁用完整内置快照”的严重回退，原失败证据和重新打开记录继续保留；同日完成最小运行时修复及本地回归后，D10、D13恢复为 `implemented/passed_limited`，S10和I01恢复为 `partial/passed_limited`，仍不代表真实CI、云端、开发者工具、双真机、远程完整包或自动更新验收通过。下表中的 `approved` 只表示方案已经确认，不能理解为代码已经实现、测试已经通过或生产能力已经启用；各项实现与有限验证另按本文件专项登记。
 
 2026-08-01至2026-08-02完成唯一legacy控制迁移实现、固定验证器契约、两阶段写入/严格收尾、十分钟动态严格回执、精确旧包兼容和 `onShow` 同步非阻塞收口；这些变更已整理到精确提交 `cdea2207ff8f570aa1d8725ea474f22df30f26c8`，普通GitHub CI运行 `30736720927` 已通过 `npm run check` 与 `npm run test:e2e`。上述证据仍不代表云函数部署、生产迁移、开发者工具、双真机或微信平台/正式发布通过。写入阶段不再依赖旧云函数的`describe_validator`，收尾阶段才在新版云函数部署后执行真实预检和回执验证。
 
@@ -102,7 +135,7 @@
 | R04 | `approved` | 归档只有人工版本说明和ZIP SHA，未绑定代码、数据、解析器、审计器及CI运行 | 自动生成并校验 `release-manifest.json`，机器绑定Git SHA、数据身份、归档身份、解析器、审计器、CI和编译证据 | `not_started` | `not_tested` | 阻断可追溯稳定归档和精确恢复声明 |
 | R05 | `not_approved` | 曾提出用受保护Git Tag或GitHub Release增强防篡改 | 不实施该备选方案；继续使用只读归档目录与同目录ZIP SHA-256规则 | - | - | 不是待办，不得新增为发布前置条件 |
 | R06 | `approved` | Web声明与校验器仍为schema 1，只验证必填结构、`passed`和时间格式，不绑定具体构建，旧声明可被用于新构建 | schema 2绑定精确提交、规范化构建哈希、数据版本和清单哈希、正式域名、证据索引及有效期 | `partial` | `not_tested` | 阻断把当前 `release:check` 结果描述为构建级发布证明 |
-| R07 | `approved` | README曾写08:07至17:37每30分钟，与实际09:27至10:30集中检查及12:00/16:00补查冲突 | 具体时间只在自动更新规范维护，README只引用；CI规范化比较规范与工作流时间集合 | `partial` | `not_tested` | 文档冲突已消除，CI漂移门禁尚未实现 |
+| R07 | `approved` | 自动发现时段曾在多份文档和工作流中漂移 | 具体时间只在自动更新规范维护，README只引用；CI同时校验规范、工作流和守护器时段 | `implemented` | `passed_limited` | 本地机器测试可阻断时段漂移；仍需默认分支生效后观察GitHub与守护器实际运行 |
 
 ### 当前实现依据与关闭条件
 
@@ -191,7 +224,7 @@ S10相关路径为 `apps/miniprogram/utils/data-runtime.js`、`data-integrity.js
 | I05 | 产品、设计和验收条款缺少统一平台适用标记，Web专属要求可能被误套到小程序 | 统一使用 `[共同]`、`[Web]`、`[小程序]`、`[候选]`；当前未实现能力不得作为当前平台验收项 | 补充C03、C05 | `implemented`（文档分类） | `passed_limited`（未改页面） | 否 |
 | I06 | 上线准备清单把局部实现或旧证据勾选为当前候选已测试 | 定义 `[x]/[-]/[ ]/[N/A]` 证据语义，把无精确候选闭环的项目降为局部证据或待验证 | 补充R01-R02及D01-D16 | `implemented`（文档状态修正） | `passed_limited` | 否 |
 | I07 | 产品规范混写当前能力、有限实现和候选路线图 | 以状态表区分 `current`、`partial`、`approved_not_implemented`、`candidate`、`out_of_scope`，并写明平台和验收入口；已有基础但未闭环的远程数据能力不得整体写成当前已完成能力 | 独立范围治理 | `implemented`（文档分类） | `passed_limited`（只证明分类已修正） | 否 |
-| I08 | “无人值守”、有人监督、SLA层级、生产开关和带日期云端记录表达不统一 | 当前统一为 `automation_disabled`；仓库总开关使用 `AUTOMATIC_RELEASE_ENABLED`，生产Environment授权使用 `PRODUCTION_RELEASE_AUTHORIZED`，启用条件只引用统一硬门槛；满足正确性硬门槛但D19未关闭时才可称 `supervised_automation`，D19关闭后才可称 `unattended_automation`。10-25分钟为正常预期、30分钟为内部SLO、45分钟为预警、60分钟为正式SLA目标；带日期云端记录只证明当时状态。现有10:30后仅12:00/16:00补查不能覆盖任意可访问时点的60分钟目标，必须如实登记 | 补充C02保留决定、D17、D19、V02、V04、V10、V16 | `implemented`（术语与门槛文档） | `passed_limited`（SLA调度覆盖未通过；2026-07-31现场开关为仓库`false`、Environment未设置） | 否 |
+| I08 | “无人值守”、有人监督、SLA层级、生产开关和带日期云端记录表达不统一 | 当前统一为 `automation_disabled`；仓库总开关使用 `AUTOMATIC_RELEASE_ENABLED`，生产Environment授权使用 `PRODUCTION_RELEASE_AUTHORIZED`，启用条件只引用统一硬门槛；满足正确性硬门槛但D19未关闭时才可称 `supervised_automation`，D19关闭后才可称 `unattended_automation`。10-25分钟为正常预期、30分钟为内部SLO、45分钟为预警、60分钟为正式SLA目标；带日期云端记录只证明当时状态。计划发现现为每日09:15至17:55每20分钟，但GitHub定时可能延迟或丢失，尚未完成该配置的线上窗口观察，必须如实登记 | 补充C02保留决定、D17、D19、V02、V04、V10、V16 | `implemented`（术语与门槛文档） | `passed_limited`（本地时段一致性测试通过；SLA调度的线上覆盖仍未验证，生产开关保持关闭） | 否 |
 | I09 | 每次检查后的状态部署与只读发现边界缺少责任流程 | 只读发现只能产出报告；用户可见 `data_status` 变更必须经独立受保护状态部署作业，递增控制代次、保持数据身份和撤销身份并回读验证；未实现时由维护人按监督流程处理 | 补充D01、D19 | `partial` | `not_tested` | 未来只影响数据状态提示 |
 | I10 | 候选身份要求稳定归档清单，而稳定归档又要求全部候选证据，形成循环依赖 | 先生成不可变候选构件并固定ZIP/清单哈希，外部验收全部绑定该构件；通过后把原字节晋级到稳定归档，不重新打包。确定性候选生成器和基础自动测试已实现；原字节晋级、最终`release-manifest.json`和跨环境证据仍未实现 | 补充R03-R04及V05；不采用R05方案 | `partial` | `passed_limited`（本地工具和336项小程序测试） | 否 |
 | I11 | 小程序来源页和授权说明没有完整披露模糊位置处理、本地匹配城市缓存及保留边界 | 来源页和`app.json`披露模糊位置、项目云函数、腾讯位置服务、不持久化经纬度和本机`cityId/locatedAt`最长24小时；两条读取路径删除过期/无效缓存，来源页清除全部相关本地记录；平台隐私指引和双真机仍须核对 | 补充C03及V01 | `partial` | `passed_limited`（本地源码与定向测试） | 最小披露文案和错误态已变化，不改变正常定位功能或页面布局 |
@@ -299,6 +332,7 @@ I02在当前本地候选已有共享验证器和有限故障测试，登记为 `
 | `2026-07-29-R01-user-approved` | 2026-07-29 | R01 | `approved` | - | 为当前 `v2.4.0` 建立独立审查、交接和双真机证据；本轮只治理文档 |
 | `2026-07-29-R02-user-approved` | 2026-07-29 | R02 | `superseded` | - | 原决策要求普通月度12轮和历史修订专项回放；仅保留为历史决策记录 |
 | `2026-08-25-R02-six-month-isolation-user-approved` | 2026-08-25 | R02 | `approved` | `2026-07-29-R02-user-approved` | 普通月度隔离验证永久改为单组连续6个月；历史修订专项仍12轮；同步当前规范、GitHub入口和安全测试，不改变生产开关状态 |
+| `2026-08-26-monthly-data-automation-plan-user-approved` | 2026-08-26 | 月度自动更新流程 | `approved` | - | 后续月度自动更新必须遵循 `MONTHLY_DATA_AUTOMATION_PLAN.md`；先实现并隔离验收严格20分钟发现，再单独评估只读保障和自动发布，两个生产开关继续保持关闭 |
 | `2026-07-29-R03-user-approved` | 2026-07-29 | R03 | `approved` | - | 定义确定性可复现ZIP目标；本轮不实现归档脚本 |
 | `2026-07-29-R04-user-approved` | 2026-07-29 | R04 | `approved` | - | 定义机器可读发布清单；不追填或改写既有归档 |
 | `2026-07-29-R05-user-not-approved` | 2026-07-29 | R05 | `not_approved` | - | 不采用受保护Git Tag或GitHub Release；保持现行归档防篡改规则 |

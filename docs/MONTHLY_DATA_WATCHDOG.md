@@ -1,94 +1,67 @@
-# 月度自动更新独立守护器
+# 月度数据严格发现器与 GitHub 审计
 
-## 当前状态
+## 固定分工
 
-代码和本地测试已完成。2026-08-24 已部署到 CloudBase 环境 `cloud1-d3gpdx70w5d05c68c`，函数 `monthlyDataWatchdog` 当前为 `Active`，并已配置 `monthlyDataWatchdogCron` 定时触发器。首次线上 dry-run 返回 `schedule_observed`，确认能读取 GitHub Actions 且未触发工作流。守护器只查询 GitHub Actions 的运行记录：在一个应出现的定时检查超过宽限时间仍未出现时补触发 `monthly-data-check.yml`，并把长时间停留在排队/运行中的候选发布记录为一次性告警信号。
+`monthlyDataWatchdog` 不再是“每5分钟检查 GitHub 是否漏跑”的主守护器。它现在是腾讯云中的严格只读发现器，和 GitHub Actions 共同组成一条流程：
 
-它不读取腾讯云生产数据，不持有 `TENCENTCLOUD_SECRET_ID`、`TENCENTCLOUD_SECRET_KEY`、`TENCENTCLOUD_MONITOR_SECRET_ID` 或 `TENCENTCLOUD_MONITOR_SECRET_KEY`，也不能修改 GitHub 仓库变量、Environment 变量或 Secrets。
+| 部分 | 固定职责 | 不能做什么 |
+| --- | --- | --- |
+| 腾讯云 `monthlyDataWatchdog` | 每分钟被唤醒，按北京时间领取09:15至17:55的27个发现时段；读取固定生产 `current.json`、核验官方双源日程和正式列表，写时段记录及不可变观察报告/交接对象 | 不能上传业务数据、修改正式指针、切换版本、改小程序页面或使用生产数据写凭据 |
+| CloudBase 数据库 `monthlyDataWatchdog` 集合 | 保存时段租约、尝试次数、迟到/失败原因和观察报告 | 不保存完整70城数据，不作为正式数据源 |
+| GitHub `monthly-data-check.yml` | 日程同步、独立审计、可复现报告、人工重放和候选工作流入口 | 不能作为严格时段的唯一时钟；晚到结果不能覆盖腾讯云时段记录 |
+| GitHub 受保护发布工作流 | 仅在未来所有独立门槛通过且两个生产开关均为精确 `true` 时，构建候选并执行唯一正式数据写入 | 腾讯云发现器不拥有这条写入路径 |
 
-实现位置：
+腾讯云与 GitHub 使用同一个 `discovery-contract.js`。时段、官方URL白名单、双源日程、月份比较、交接身份和哈希规则不得各自复制或放宽。
 
-- `apps/miniprogram/cloudfunctions/monthlyDataWatchdog/`：可部署的腾讯云函数。
-- `scripts/miniprogram/watchdog-decision.mjs`：本地复用的决策入口。
-- `scripts/miniprogram/watchdog-decision.test.mjs`、`scripts/miniprogram/watchdog-cloud.test.mjs`：本地测试。
+## 运行规则
 
-## 需要维护人操作的部分
+- CloudBase 定时触发器使用七段 Cron：`0 * * * * * *`，即每分钟第0秒唤醒函数。
+- 函数内部使用北京时间计算时段。09:15至17:55共27个时段，每个时段最晚在计划时间后2分钟开始访问发现逻辑；晚于2分钟必须记为 `late`。
+- 时段由数据库事务和可过期租约领取。重复触发、并发调用和重试都使用同一个 `slot_id`，不会重复处理或制造第二份交接。
+- 单个时段最多尝试3次，租约为720秒。20分钟时段结束或18:00截止后不再开始新的发现；记录 `failed` 或 `expired` 后等待下一合法时段或人工处理。
+- 发现结果只有 `waiting`、`current`、`update_available` 或 `anomaly`。`update_available` 仅生成固定身份的观察报告和交接，不会修改正式数据。
+- 每个成功观察同时写入固定对象 `housing-data/discovery/observations/<sha256(slot_id)>.json`；对象只含时段、指针身份、官方来源摘要、结果和哈希，不含完整70城业务数据、令牌或密钥。重复写入必须逐字节一致，否则失败关闭。
+- GitHub 只读发现工作流按同一 `slot_id` 读取该对象；只有对象状态为 `update_available`、时序为 `on_time`，且与 GitHub `handoff.json` 的月份、官方URL、幂等键和交接身份全部一致时，候选门禁才可通过。
+- GitHub 审计补发默认关闭。`WATCHDOG_GITHUB_AUDIT_ENABLED=false` 时函数完全不读取 GitHub，也不需要 GitHub 令牌。
 
-### 1. 创建最小权限 GitHub 令牌
+## 云函数配置
 
-创建一个只属于本仓库的 Fine-grained personal access token，权限只给：
+云环境固定为 `cloud1-d3gpdx70w5d05c68c`，配置基线在 [`cloudbaserc.json`](../cloudbaserc.json)。部署时只保留下列非敏感变量：
 
-- Actions：Read and write（读取运行记录并补发 `workflow_dispatch` 必须用到）。
-- Metadata：只读（GitHub 自动要求）。
+| 变量 | 值 | 用途 |
+| --- | --- | --- |
+| `MONTHLY_DISCOVERY_LEASE_SECONDS` | `720` | 防止重复执行的可过期租约 |
+| `MONTHLY_DISCOVERY_MAX_ATTEMPTS` | `3` | 单个时段的最多尝试次数 |
+| `WATCHDOG_GITHUB_AUDIT_ENABLED` | `false` | 保持 GitHub 补发审计关闭 |
+| `WATCHDOG_DRY_RUN` | `true` | 仅适用于旧 GitHub 审计路径；不阻止严格只读发现 |
 
-不要给 Contents、Secrets、Variables、Administration、Deployments 或 Pull requests 权限。令牌值不要发给我，也不要写入仓库。
+函数不配置 `WATCHDOG_GITHUB_TOKEN`、旧的宽限/冷却/补查变量、腾讯云生产写凭据或任何可改写正式数据的密钥。GitHub 的只读监测身份只允许读取 `housing-data/discovery/observations/*` 和现有正式只读对象。旧令牌轮换记录仅作为历史证据，见 [`audit/2026-08-26/watchdog-token-rotation.md`](audit/2026-08-26/watchdog-token-rotation.md)。
 
-### 2. 部署云函数
+## 2026-08-26 当前部署回读
 
-在项目根目录打开 PowerShell，确认 `tcb` 命令可用后执行：
+- CloudBase 环境 `cloud1-d3gpdx70w5d05c68c` 中的 `monthlyDataWatchdog` 已部署为 `Nodejs20.19`、`index.main`、256 MB、600 秒，函数状态为 `Active`。
+- 旧触发器已删除，当前唯一启用触发器为 `monthlyDataWatchdogCron`，七段 Cron 精确为 `0 * * * * * *`，绑定状态为 `on`。
+- 配置现场回读确认只有本规范列出的4个非敏感变量；`WATCHDOG_GITHUB_AUDIT_ENABLED=false`，`WATCHDOG_DRY_RUN=true`。函数不读取 GitHub，也不会自动补发工作流。
+- 修复 SDK 不存在文档和 `_id` 写入问题后，手动调用返回 `strict_status=idle`，数据库成功保存28个合法时段记录；调用发生在当日18:00截止之后，因此这些记录按规则为 `expired`，不能作为准时发现证据。
+- 正式 `housing-data/current.json` 只读回读为 `2026-06`、原始 SHA-256 `d15b9ea0727f2e88b6aa936a3959396e8673ac32c60c873931ffac8934d0989c`；调用前后未改变正式指针或正式数据。
+- 该回读只证明函数已部署、触发器已启用和失败关闭可写入；完整27个发现时段的线上观察仍待下一官方发布时间窗口。
+- 本轮新增的 GitHub 观察门禁已在本地通过；CloudBase 函数重新部署后，必须现场回读一个观察对象，确认 GitHub 只读身份能够按 `slot_id` 读取且无法读取白名单外对象，才能关闭该连接的外部验证差距。
 
-```powershell
-tcb login
-tcb fn deploy monthlyDataWatchdog --dir apps/miniprogram/cloudfunctions/monthlyDataWatchdog --force -e cloud1-d3gpdx70w5d05c68c
-```
+## 部署与核验顺序
 
-这里的 `--dir` 明确告诉 CLI 从本项目的守护器目录部署，不会误选其他云函数。CloudBase 官方文档要求定时触发器使用 7 段格式（秒、分、时、日、月、周、年）。
+1. 部署函数源码和上表非敏感配置。
+2. 删除旧的5分钟触发器，创建每分钟触发器；确认函数和触发器均指向 `monthlyDataWatchdog`。
+3. 在不含生产写凭据的条件下手动调用一次函数，只检查返回的时段状态、函数日志和数据库记录，不读取或打印任何环境变量。
+4. 现场复读 GitHub 两个生产开关、生产 `current.json` 身份和最新函数运行，确认没有正式数据写入。
+5. 连续观察至少一个完整官方发布时间窗口。必须取得全部27个时段的实际记录，才能评价严格20分钟发现已通过线上验证。
 
-如果提示没有 `tcb`，先执行：
+部署成功或一次手动调用只证明“已部署”或“本次调用可用”，不能证明27个时段均准时，也不能证明自动发布已启用。
 
-```powershell
-npm install -g @cloudbase/cli
-```
+## 回退与故障处理
 
-### 3. 配置环境变量
+- 需要停止严格发现时，只停用 CloudBase 定时触发器；不要删除时段或观察报告，更不要修改生产数据。
+- 官方页面、日程、生产指针或数据库不可用时，函数保留原因和时间，保持上一份正式数据不变。
+- 发现 `late`、`failed`、`expired` 或 `anomaly` 时，先保留报告和日志，再核对官方来源、时段记录和云函数配置；不得通过重跑或改写记录把失败伪装成成功。
+- 任何正式发布、回滚、状态部署和待发布恢复仍只按 [`AUTOMATION_ACTIVATION_CHECKLIST.md`](AUTOMATION_ACTIVATION_CHECKLIST.md) 执行。当前 `AUTOMATIC_RELEASE_ENABLED` 和 `PRODUCTION_RELEASE_AUTHORIZED` 必须保持关闭。
 
-在腾讯云 CloudBase 控制台打开：云函数 → `monthlyDataWatchdog` → 配置 → 环境变量，填写：
-
-| 变量 | 值 |
-| --- | --- |
-| `WATCHDOG_GITHUB_TOKEN` | 第1步创建的令牌 |
-| `WATCHDOG_REPOSITORY` | `yilugesanhua/housing-price-index` |
-| `WATCHDOG_WORKFLOW` | `monthly-data-check.yml` |
-| `WATCHDOG_PUBLISH_WORKFLOW` | `monthly-data-auto-publish.yml` |
-| `WATCHDOG_DEFAULT_BRANCH` | `main` |
-| `WATCHDOG_DRY_RUN` | `true`（先观察，确认无误后再改为 `false`） |
-| `WATCHDOG_GRACE_MINUTES` | `10` |
-| `WATCHDOG_COOLDOWN_MINUTES` | `15` |
-| `WATCHDOG_STALL_MINUTES` | `30` |
-
-不要在这个函数配置任何腾讯云生产数据密钥或正式发布密钥。
-
-### 4. 创建守护器状态集合
-
-在 CloudBase 数据库中新建集合 `monthlyDataWatchdog`，保持默认安全规则，只允许该云函数使用。这个集合只保存“某个时间窗口是否已经领取补触发名额”的小记录，不保存业务数据。
-
-### 5. 增加定时触发器
-
-在同一云函数的触发器中新增“定时触发器”：
-
-- Cron：`0 */5 * * * * *`（每 5 分钟；CloudBase 的 7 段格式）
-- 事件内容：`{}`
-- 时区：函数内部按 GitHub 工作流使用的 UTC 时间判断窗口；创建后在控制台确认触发器显示的时区。
-
-如果使用 CLI 创建触发器，必须先在 `cloudbaserc.json` 写入该函数的触发器配置；为避免误改现有云函数，建议直接在 CloudBase 控制台点击“新增触发器”，然后确认它显示为 `0 */5 * * * * *`。
-
-先保持 `WATCHDOG_DRY_RUN=true` 运行至少一个完整的官方发布时间窗口。日志中看到 `would_dispatch` 只表示“判断应补触发”，不会真的触发；看到 `schedule_observed` 表示定时任务已经出现；看到 `already_dispatched` 表示本窗口已经补过，不会重复触发；看到 `would_alert` 表示候选发布运行超过30分钟仍未结束；看到 `schedule_failed` 表示原定时任务已经启动但失败，守护器不会盲目再开第二次，应先查看该运行的失败原因。
-
-确认日志和 GitHub Actions 运行记录正常后，才把 `WATCHDOG_DRY_RUN` 改为 `false`。第一次正式补触发后，应在 GitHub Actions 中看到一个 `workflow_dispatch` 的 `monthly-data-check` 运行。`candidate_stalled` 只产生 CloudBase 日志告警并按发布运行 ID 去重，不会自动重启或重复发布；应根据该运行日志人工处理。
-
-## 安全边界和回退
-
-- 守护器只拥有 GitHub Actions 运行读取和工作流补触发权限；它不能发布数据。
-- GitHub 工作流自身的生产开关、候选门禁和生产密钥仍按原有门禁执行。
-- 关闭守护器只需在 CloudBase 控制台停用该定时触发器，或把 `WATCHDOG_DRY_RUN` 保持为 `true`。
-- 本函数没有自动修改生产指针、生产数据或小程序页面。
-
-## 本地自测
-
-在项目根目录运行：
-
-```powershell
-node --test scripts/miniprogram/watchdog-decision.test.mjs scripts/miniprogram/watchdog-cloud.test.mjs
-```
-
-看到全部测试通过，才适合进入部署步骤。测试使用模拟 GitHub API，不会联网、不需要密钥，也不会触发工作流。
+当前实现与外部部署、实际窗口验证的分别状态只在 [`IMPLEMENTATION_STATUS.md`](IMPLEMENTATION_STATUS.md) 登记。

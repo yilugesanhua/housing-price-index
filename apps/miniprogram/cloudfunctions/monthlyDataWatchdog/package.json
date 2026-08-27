@@ -4,6 +4,7 @@
   "private": true,
   "main": "index.js",
   "dependencies": {
+    "cheerio": "1.2.0",
     "wx-server-sdk": "4.0.2"
   }
 }
