@@ -127,6 +127,13 @@ test('candidate CI is explicitly dispatched only after the exact default-branch 
 
 test('automatic publisher discovery gate uses one Node module format', () => {
   const inspect = publisher.slice(publisher.indexOf('  inspect:'), publisher.indexOf('  prepare:'))
+  const installDependencies = inspect.indexOf('Install locked workflow dependencies')
+  const discoveryGate = inspect.indexOf('Distinguish a verified update from a normal no-update check')
+  assert.match(inspect, /actions\/setup-node@820762786026740c76f36085b0efc47a31fe5020/)
+  assert.match(inspect, /node-version: 22/)
+  assert.ok(installDependencies >= 0, 'inspect must install its locked dependencies')
+  assert.ok(installDependencies < discoveryGate, 'inspect must install dependencies before importing the discovery gate')
+  assert.match(inspect.slice(installDependencies, discoveryGate), /run: npm ci/)
   assert.match(inspect, /node --input-type=module <<'NODE'/)
   assert.match(inspect, /import \{ appendFileSync, readFileSync \} from 'node:fs'/)
   assert.match(inspect, /import \{ isSameReleaseHandled \} from '\.\/scripts\/miniprogram\/auto-update-inspect\.mjs'/)
