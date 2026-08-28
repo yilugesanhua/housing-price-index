@@ -74,6 +74,18 @@ test('accepts one complete on-time record for every strict discovery slot', () =
   })
 })
 
+test('accepts the first ten strict discovery slots without waiting for the remaining daily slots', () => {
+  const records = validAuditRecords()
+  assert.deepEqual(assertStrictDiscoveryWindow({ dateText: '2026-08-27', records, slotCount: 10 }), {
+    status: 'passed',
+    date: '2026-08-27',
+    expected_slot_count: 10,
+    received_slot_count: 10,
+    unique_slot_count: 10,
+    errors: [],
+  })
+})
+
 test('accepts the JSON-lines format produced by CloudBase collection exports', () => {
   const records = validAuditRecords()
   const exported = records.map((record) => JSON.stringify(record)).join('\n')

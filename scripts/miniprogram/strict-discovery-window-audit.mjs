@@ -102,21 +102,33 @@ function validateObservationLink(record, observations, slotId) {
   if (observation.handoff_identity !== record.handoff_identity) throw new Error(`${slotId}: immutable observation handoff identity does not match`)
 }
 
-export function auditStrictDiscoveryWindow({ dateText, records }) {
-  const expectedSlots = contract.discoverySlotsForBeijingDate(dateText)
+function selectExpectedSlots(dateText, slotCount) {
+  const allSlots = contract.discoverySlotsForBeijingDate(dateText)
+  if (slotCount === undefined) return allSlots
+  if (!Number.isInteger(slotCount) || slotCount < 1 || slotCount > allSlots.length) {
+    throw new Error(`slotCount must be an integer from 1 to ${allSlots.length}`)
+  }
+  return allSlots.slice(0, slotCount)
+}
+
+export function auditStrictDiscoveryWindow({ dateText, records, slotCount }) {
+  const allSlots = contract.discoverySlotsForBeijingDate(dateText)
+  const expectedSlots = selectExpectedSlots(dateText, slotCount)
   const suppliedRecords = extractRecords(records)
+  const allExpectedIds = new Set(allSlots.map((slot) => `${SLOT_PREFIX}${slot.slot_id}`))
   const expectedIds = new Set(expectedSlots.map((slot) => `${SLOT_PREFIX}${slot.slot_id}`))
   const observations = suppliedRecords.filter((record) => typeof record?._id === 'string' && record._id.startsWith(OBSERVATION_PREFIX))
   // The collection also contains official-calendar records with this ID prefix.
   // Keep those out, but retain an expected ID with the wrong task so validation fails.
-  const targetRecords = suppliedRecords.filter((record) => (
+  const dayDiscoveryRecords = suppliedRecords.filter((record) => (
     isTargetDateSlot(record, dateText)
-    && (record.task === 'discovery' || expectedIds.has(record._id))
+    && (record.task === 'discovery' || allExpectedIds.has(record._id))
   ))
+  const targetRecords = dayDiscoveryRecords.filter((record) => expectedIds.has(record._id))
   const errors = []
 
-  for (const record of targetRecords) {
-    if (!expectedIds.has(record._id)) errors.push(`${record._id}: unexpected discovery slot`)
+  for (const record of dayDiscoveryRecords) {
+    if (!allExpectedIds.has(record._id)) errors.push(`${record._id}: unexpected discovery slot`)
   }
 
   for (const slot of expectedSlots) {
@@ -162,9 +174,11 @@ async function main() {
   const dateText = argument('date')
   const inputPath = argument('input')
   const outputPath = argument('output')
+  const rawSlotCount = argument('slot-count')
+  const slotCount = rawSlotCount === undefined ? undefined : Number(rawSlotCount)
   if (!dateText || !inputPath) throw new Error('Use --date=YYYY-MM-DD and --input=PATH')
   const records = parseAuditInputText(await readFile(resolve(inputPath), 'utf8'))
-  const result = auditStrictDiscoveryWindow({ dateText, records })
+  const result = auditStrictDiscoveryWindow({ dateText, records, slotCount })
   if (outputPath) await writeFile(resolve(outputPath), `${JSON.stringify(result, null, 2)}\n`, 'utf8')
   if (result.status !== 'passed') throw new Error(`Strict discovery window audit rejected: ${result.errors.join('; ')}`)
   console.log(JSON.stringify(result))
