@@ -2,7 +2,7 @@ import assert from 'node:assert/strict'
 import test from 'node:test'
 import { createRequire } from 'node:module'
 
-import { assertStrictDiscoveryWindow, auditStrictDiscoveryWindow } from './strict-discovery-window-audit.mjs'
+import { assertStrictDiscoveryWindow, auditStrictDiscoveryWindow, parseAuditInputText } from './strict-discovery-window-audit.mjs'
 
 const require = createRequire(import.meta.url)
 const contract = require('../../apps/miniprogram/cloudfunctions/monthlyDataWatchdog/discovery-contract.js')
@@ -43,11 +43,26 @@ function validWindow(dateText = '2026-08-27') {
   return contract.discoverySlotsForBeijingDate(dateText).map(validRecord)
 }
 
+function validObservation(record) {
+  return {
+    _id: `discovery-observation:${record.observation_id}`,
+    format: 'housing-data-discovery-observation-v1',
+    observation_id: record.observation_id,
+    slot_id: record.slot_id,
+    payload_sha256: record.observation_payload_sha256,
+    handoff_identity: record.handoff_identity,
+  }
+}
+
+function validAuditRecords(dateText = '2026-08-27') {
+  const records = validWindow(dateText)
+  return [...records, ...records.map(validObservation)]
+}
+
 test('accepts one complete on-time record for every strict discovery slot', () => {
   const records = [
-    { _id: 'discovery-observation:ignored', task: 'discovery', slot_id: '2026-08-27T01:15:00.000Z' },
     { _id: 'discovery-slot:2026-08-27T01:00:00.000Z', task: 'calendar', slot_id: '2026-08-27T01:00:00.000Z' },
-    ...validWindow(),
+    ...validAuditRecords(),
   ]
   assert.deepEqual(assertStrictDiscoveryWindow({ dateText: '2026-08-27', records }), {
     status: 'passed',
@@ -59,15 +74,22 @@ test('accepts one complete on-time record for every strict discovery slot', () =
   })
 })
 
+test('accepts the JSON-lines format produced by CloudBase collection exports', () => {
+  const records = validAuditRecords()
+  const exported = records.map((record) => JSON.stringify(record)).join('\n')
+  assert.deepEqual(parseAuditInputText(exported), records)
+})
+
 test('reports a missing strict discovery slot', () => {
-  const result = auditStrictDiscoveryWindow({ dateText: '2026-08-27', records: validWindow().slice(1) })
+  const records = validAuditRecords()
+  const result = auditStrictDiscoveryWindow({ dateText: '2026-08-27', records: records.filter((record) => record._id !== 'discovery-slot:2026-08-27T01:15:00.000Z') })
   assert.equal(result.status, 'failed')
   assert.equal(result.errors.length, 1)
   assert.match(result.errors[0], /2026-08-27T01:15:00\.000Z: missing discovery slot/)
 })
 
 test('reports duplicates and a late discovery separately', () => {
-  const records = validWindow()
+  const records = validAuditRecords()
   records[0].actual_started_at = '2026-08-27T01:17:00.001Z'
   records.push({ ...records[1] })
   const result = auditStrictDiscoveryWindow({ dateText: '2026-08-27', records })
@@ -77,7 +99,7 @@ test('reports duplicates and a late discovery separately', () => {
 })
 
 test('rejects a failed slot and incomplete immutable observation identity', () => {
-  const records = validWindow()
+  const records = validAuditRecords()
   records[0].status = 'failed'
   records[1].observation_id = 'not-a-sha256'
   const result = auditStrictDiscoveryWindow({ dateText: '2026-08-27', records })
@@ -87,7 +109,7 @@ test('rejects a failed slot and incomplete immutable observation identity', () =
 })
 
 test('rejects an unexpected discovery slot in the audited day', () => {
-  const records = validWindow()
+  const records = validAuditRecords()
   records.push({
     ...records[0],
     _id: 'discovery-slot:2026-08-27T10:15:00.000Z',
@@ -97,4 +119,13 @@ test('rejects an unexpected discovery slot in the audited day', () => {
   const result = auditStrictDiscoveryWindow({ dateText: '2026-08-27', records })
   assert.equal(result.status, 'failed')
   assert.ok(result.errors.some((error) => error.includes('unexpected discovery slot')))
+})
+
+test('rejects a slot whose immutable observation record has a different payload hash', () => {
+  const records = validAuditRecords()
+  const observation = records.find((record) => record._id.startsWith('discovery-observation:'))
+  observation.payload_sha256 = 'f'.repeat(64)
+  const result = auditStrictDiscoveryWindow({ dateText: '2026-08-27', records })
+  assert.equal(result.status, 'failed')
+  assert.ok(result.errors.some((error) => error.includes('payload hash does not match')))
 })

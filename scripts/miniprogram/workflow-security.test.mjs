@@ -218,6 +218,18 @@ test('scheduled recovery reads state without credentials and publishes only a re
   assert.match(publish, /PRODUCTION_RELEASE_AUTHORIZED:/)
 })
 
+test('scheduled recovery inspection installs locked dependencies before importing the pending state validator', () => {
+  const inspect = recovery.slice(recovery.indexOf('  inspect:'), recovery.indexOf('  recover:'))
+  const setupNode = inspect.indexOf('actions/setup-node@820762786026740c76f36085b0efc47a31fe5020')
+  const installDependencies = inspect.indexOf('Install locked workflow dependencies')
+  const pendingValidation = inspect.indexOf('Validate committed pending-release state')
+  assert.ok(setupNode >= 0, 'scheduled recovery inspection must use the pinned Node setup action')
+  assert.match(inspect, /node-version: 22/)
+  assert.ok(installDependencies > setupNode, 'scheduled recovery inspection must install dependencies after Node setup')
+  assert.ok(pendingValidation > installDependencies, 'scheduled recovery inspection must install dependencies before validating pending state')
+  assert.match(inspect.slice(installDependencies, pendingValidation), /run: npm ci/)
+})
+
 test('scheduled recovery restores the original candidate artifact instead of generating a new one', async () => {
   const recover = recovery.slice(recovery.indexOf('  recover:'), recovery.indexOf('  publish:'))
   assert.match(recovery, /candidate_run_id: \$\{\{ steps\.pending\.outputs\.candidate_run_id \}\}/)

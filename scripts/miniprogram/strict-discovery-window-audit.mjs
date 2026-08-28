@@ -6,6 +6,7 @@ const require = createRequire(import.meta.url)
 const contract = require('../../apps/miniprogram/cloudfunctions/monthlyDataWatchdog/discovery-contract.js')
 
 const SLOT_PREFIX = 'discovery-slot:'
+const OBSERVATION_PREFIX = 'discovery-observation:'
 const SHA256 = /^[a-f0-9]{64}$/
 const HANDOFF_IDENTITY = /^housing-data-discovery-v1:[a-f0-9]{64}$/
 
@@ -33,6 +34,28 @@ function extractRecords(input) {
     return input.data.results.flatMap((entry) => Array.isArray(entry) ? entry : [entry])
   }
   throw new Error('audit input must be an array, a records array, or a CloudBase query response')
+}
+
+export function parseAuditInputText(text) {
+  try {
+    return JSON.parse(text)
+  } catch (error) {
+    // CloudBase `db nosql dump --file-type json` exports one JSON document per
+    // line rather than wrapping the collection in a JSON array.
+    const lines = String(text).split(/\r?\n/).filter((line) => line.trim())
+    if (lines.length === 0) throw error
+    try {
+      return lines.map((line, index) => {
+        try {
+          return JSON.parse(line)
+        } catch (lineError) {
+          throw new Error(`CloudBase export line ${index + 1} is not valid JSON: ${errorText(lineError)}`)
+        }
+      })
+    } catch (lineError) {
+      throw new Error(`audit input is neither JSON nor a CloudBase JSON-lines export: ${errorText(lineError)}`)
+    }
+  }
 }
 
 function isTargetDateSlot(record, dateText) {
@@ -68,10 +91,22 @@ function validateRecord(record, slot) {
   }
 }
 
+function validateObservationLink(record, observations, slotId) {
+  const matches = observations.filter((observation) => observation.observation_id === record.observation_id)
+  if (matches.length === 0) throw new Error(`${slotId}: immutable observation record is missing`)
+  if (matches.length !== 1) throw new Error(`${slotId}: immutable observation record is duplicated`)
+  const observation = matches[0]
+  if (observation.format !== 'housing-data-discovery-observation-v1') throw new Error(`${slotId}: immutable observation format is invalid`)
+  if (observation.slot_id !== record.slot_id) throw new Error(`${slotId}: immutable observation slot identity does not match`)
+  if (observation.payload_sha256 !== record.observation_payload_sha256) throw new Error(`${slotId}: immutable observation payload hash does not match`)
+  if (observation.handoff_identity !== record.handoff_identity) throw new Error(`${slotId}: immutable observation handoff identity does not match`)
+}
+
 export function auditStrictDiscoveryWindow({ dateText, records }) {
   const expectedSlots = contract.discoverySlotsForBeijingDate(dateText)
   const suppliedRecords = extractRecords(records)
   const expectedIds = new Set(expectedSlots.map((slot) => `${SLOT_PREFIX}${slot.slot_id}`))
+  const observations = suppliedRecords.filter((record) => typeof record?._id === 'string' && record._id.startsWith(OBSERVATION_PREFIX))
   // The collection also contains official-calendar records with this ID prefix.
   // Keep those out, but retain an expected ID with the wrong task so validation fails.
   const targetRecords = suppliedRecords.filter((record) => (
@@ -97,6 +132,7 @@ export function auditStrictDiscoveryWindow({ dateText, records }) {
     }
     try {
       validateRecord(matches[0], slot)
+      validateObservationLink(matches[0], observations, slot.slot_id)
     } catch (error) {
       errors.push(errorText(error))
     }
@@ -127,7 +163,7 @@ async function main() {
   const inputPath = argument('input')
   const outputPath = argument('output')
   if (!dateText || !inputPath) throw new Error('Use --date=YYYY-MM-DD and --input=PATH')
-  const records = JSON.parse(await readFile(resolve(inputPath), 'utf8'))
+  const records = parseAuditInputText(await readFile(resolve(inputPath), 'utf8'))
   const result = auditStrictDiscoveryWindow({ dateText, records })
   if (outputPath) await writeFile(resolve(outputPath), `${JSON.stringify(result, null, 2)}\n`, 'utf8')
   if (result.status !== 'passed') throw new Error(`Strict discovery window audit rejected: ${result.errors.join('; ')}`)

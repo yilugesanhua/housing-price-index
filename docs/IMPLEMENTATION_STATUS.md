@@ -1,6 +1,6 @@
 # 实施状态登记
 
-更新日期：2026-08-27
+更新日期：2026-08-28
 
 ## 2026-08-27 GitHub 实际消费观察对象与候选检查依赖修复（当前）
 
@@ -13,6 +13,8 @@
 - 18:02（北京时间）已在截止后导出当天 CloudBase 记录并运行严格审计：`expected_slot_count=27`、`received_slot_count=27`、`unique_slot_count=27`，`errors=[]`。全部27个发现时段均为单次尝试、`succeeded`、`timing_status=on_time`，没有缺失、重复、迟到、失败或重试残留；日程记录没有被误算入发现时段。最后一个17:55时段于 `2026-08-27T09:55:05.562Z` 开始、`2026-08-27T09:55:10.802Z` 完成，其不可变观察对象 `6f14a983...` 的时段、载荷哈希和交接身份已用只读监测身份直接回读验证。
 - 同次生产只读回读确认 `current.json` 仍为 `2026-06-f80465ae29a5`，前后原字节 SHA-256 均为 `d15b9ea0727f2e88b6aa936a3959396e8673ac32c60c873931ffac8934d0989c`；仓库级 `AUTOMATIC_RELEASE_ENABLED=false`、生产 Environment 级 `PRODUCTION_RELEASE_AUTHORIZED=false`。本次没有写入正式数据、正式指针或开启发布。非敏感原始导出与审计结果保存在项目外 `C:\Users\user\CodexAuditEvidence\monthly-discovery-20260827\`。
 - 这是首个完整严格发现窗口通过。严格发现仍仅为 `passed_limited`，还需要连续两个完整窗口按同一规则通过；在此之前以及自动更新启用清单未全部通过前，两个生产发布开关必须继续保持关闭。
+- 18:17 与次日04:33（北京时间）`monthly-data-pending-publish` 的 `inspect` 作业分别在运行 `33060733457` 与 `33113912749` 失败：该工作流没有先执行 `npm ci`，而待发布状态检查间接依赖 `cheerio`。失败发生在 `inspect`，没有进入恢复或发布作业，也没有写入正式数据。已补上固定提交的 Node 22 安装、锁定依赖安装和防回归测试；修复后仍须以新的 GitHub 定时运行现场通过为准。
+- 2026-08-28 再次从 CloudBase 导出原始集合记录，并用升级后的严格审计器复核：它直接支持腾讯云JSON行导出，且把每个发现时段与唯一观察记录的时段、载荷哈希和交接身份逐项比对，但不把观察记录或日程记录计入27个业务时段。结果仍为 `expected_slot_count=27`、`received_slot_count=27`、`unique_slot_count=27`、`errors=[]`；27条均单次准时成功。正式 `current.json` 仍为 `2026-06-f80465ae29a5`，SHA-256 为 `d15b9ea0727f2e88b6aa936a3959396e8673ac32c60c873931ffac8934d0989c`，两个生产发布开关仍为 `false`。原始导出、审计、指针回读和测试日志已保存在项目外 `C:\Users\user\CodexAuditEvidence\monthly-discovery-20260827\recheck-20260828\`。
 
 ## 2026-08-26 腾讯云观察交接接入 GitHub 门禁（当前候选）
 
