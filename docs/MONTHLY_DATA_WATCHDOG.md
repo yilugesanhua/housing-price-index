@@ -22,7 +22,7 @@
 - 发现结果只有 `waiting`、`current`、`update_available` 或 `anomaly`。`update_available` 仅生成固定身份的观察报告和交接，不会修改正式数据。
 - 每个成功观察同时写入固定对象 `housing-data/discovery/observations/<sha256(slot_id)>.json`；对象只含时段、指针身份、官方来源摘要、结果和哈希，不含完整70城业务数据、令牌或密钥。重复写入必须逐字节一致，否则失败关闭。
 - GitHub 只读发现工作流按同一 `slot_id` 读取该对象；只有对象状态为 `update_available`、时序为 `on_time`，且与 GitHub `handoff.json` 的月份、官方URL、幂等键和交接身份全部一致时，候选门禁才可通过。
-- GitHub 审计补发默认关闭。`WATCHDOG_GITHUB_AUDIT_ENABLED=false` 时函数完全不读取 GitHub，也不需要 GitHub 令牌。
+- 仓库部署基线中的 GitHub 审计补发默认关闭。当前 CloudBase 运行时已按阶段C配置为 `WATCHDOG_GITHUB_AUDIT_ENABLED=true`、`WATCHDOG_DRY_RUN=false`，因此会使用安全环境中的永久正式令牌执行只读审计和固定工作流补触发；这不改变严格发现主流程，也不授予正式数据写入权限。
 
 ## 云函数配置
 
@@ -32,18 +32,24 @@
 | --- | --- | --- |
 | `MONTHLY_DISCOVERY_LEASE_SECONDS` | `720` | 防止重复执行的可过期租约 |
 | `MONTHLY_DISCOVERY_MAX_ATTEMPTS` | `3` | 单个时段的最多尝试次数 |
-| `WATCHDOG_GITHUB_AUDIT_ENABLED` | `false` | 保持 GitHub 补发审计关闭 |
+| `WATCHDOG_GITHUB_AUDIT_ENABLED` | `false` | 仓库部署基线保持失败关闭；现场启用需走阶段C专用脚本 |
 | `WATCHDOG_DRY_RUN` | `true` | 仅适用于旧 GitHub 审计路径；不阻止严格只读发现 |
 
-函数不配置 `WATCHDOG_GITHUB_TOKEN`、旧的宽限/冷却/补查变量、腾讯云生产写凭据或任何可改写正式数据的密钥。GitHub 的只读监测身份只允许读取 `housing-data/discovery/observations/*` 和现有正式只读对象。旧令牌轮换记录仅作为历史证据，见 [`audit/2026-08-26/watchdog-token-rotation.md`](audit/2026-08-26/watchdog-token-rotation.md)。
+`cloudbaserc.json`和仓库文件不保存 `WATCHDOG_GITHUB_TOKEN`；当前运行时令牌只通过阶段C专用脚本从本机安全环境注入。函数不配置旧的宽限/冷却/补查变量、腾讯云生产写凭据或任何可改写正式数据的密钥。GitHub 的只读监测身份只允许读取 `housing-data/discovery/observations/*` 和现有正式只读对象。历史令牌轮换记录见 [`audit/2026-08-26/watchdog-token-rotation.md`](audit/2026-08-26/watchdog-token-rotation.md)。
 
-## 2026-08-26 当前部署回读
+阶段C启用时不得把令牌写入`cloudbaserc.json`或任意仓库文件；只能使用 `scripts/miniprogram/configure-watchdog-readonly-audit.mjs --apply` 从本机安全环境提交固定5个变量。该脚本只更新函数运行变量，不部署代码、不修改触发器、不写正式数据，也不输出令牌。2026-08-29 GitHub Actions API预检返回HTTP `200`后，已执行该配置；CloudBase 请求编号为 `6d9a8cc9-02b0-42a3-9540-3f867b3d104d`，函数现场回读为 `Active`。当前令牌为无过期日期的 `housing-watchdog-2026-permanent`，仅作脱敏核对；`WATCHDOG_GITHUB_AUDIT_ENABLED=true`、`WATCHDOG_DRY_RUN=false` 仅表示备用审计/补发路径可运行，不表示生产发布已启用。该最小令牌没有读取仓库变量或生产 Environment 变量的权限（接口返回HTTP `403`），两个生产开关须由独立授权身份复读。到期的 `housing-watchdog-2026-rotated-2` 与 `housing-watchdog-2026-rotated-3` 已撤销。
+
+## 2026-08-26 部署回读（历史快照）
+
+> 本节保留部署当日的原始状态；2026-08-29永久令牌替换后的当前状态以本节上方的阶段C记录和最终回读为准。
 
 - CloudBase 环境 `cloud1-d3gpdx70w5d05c68c` 中的 `monthlyDataWatchdog` 已部署为 `Nodejs20.19`、`index.main`、256 MB、600 秒，函数状态为 `Active`。
 - 旧触发器已删除，当前唯一启用触发器为 `monthlyDataWatchdogCron`，七段 Cron 精确为 `0 * * * * * *`，绑定状态为 `on`。
 - 配置现场回读确认只有本规范列出的4个非敏感变量；`WATCHDOG_GITHUB_AUDIT_ENABLED=false`，`WATCHDOG_DRY_RUN=true`。函数不读取 GitHub，也不会自动补发工作流。
 - 修复 SDK 不存在文档和 `_id` 写入问题后，手动调用返回 `strict_status=idle`，数据库成功保存28个合法时段记录；调用发生在当日18:00截止之后，因此这些记录按规则为 `expired`，不能作为准时发现证据。
 - 正式 `housing-data/current.json` 只读回读为 `2026-06`、原始 SHA-256 `d15b9ea0727f2e88b6aa936a3959396e8673ac32c60c873931ffac8934d0989c`；调用前后未改变正式指针或正式数据。
+- 2026-08-29配置后再次只读回读：函数仍为 `Active`、唯一触发器仍为 `monthlyDataWatchdogCron`，七段 Cron 精确为 `0 * * * * * *`；正式 `current.json` 仍为 `2026-06-f80465ae29a5`，SHA-256 仍为 `d15b9ea0727f2e88b6aa936a3959396e8673ac32c60c873931ffac8934d0989c`。非敏感证据见项目外 `C:\Users\user\CodexAuditEvidence\stage-c-readonly-audit-20260829\readonly-recheck.json`。
+- 2026-08-29永久令牌替换后的最终回读：令牌与本机安全环境一致，GitHub Actions API返回HTTP `200`；函数仍为 `Active`、唯一触发器仍为 `monthlyDataWatchdogCron`，七段 Cron精确为 `0 * * * * * *`；正式 `current.json` 仍为 `2026-06-f80465ae29a5`，SHA-256仍为 `d15b9ea0727f2e88b6aa936a3959396e8673ac32c60c873931ffac8934d0989c`。非敏感证据见项目外 `C:\Users\user\CodexAuditEvidence\permanent-watchdog-token-20260829\readonly-recheck.json`。
 - 该回读只证明函数已部署、触发器已启用和失败关闭可写入；完整27个发现时段的线上观察仍待下一官方发布时间窗口。
 - 本轮新增的 GitHub 观察门禁已在本地通过；CloudBase 函数重新部署后，必须现场回读一个观察对象，确认 GitHub 只读身份能够按 `slot_id` 读取且无法读取白名单外对象，才能关闭该连接的外部验证差距。
 
@@ -53,9 +59,9 @@
 2. 删除旧的5分钟触发器，创建每分钟触发器；确认函数和触发器均指向 `monthlyDataWatchdog`。
 3. 在不含生产写凭据的条件下手动调用一次函数，只检查返回的时段状态、函数日志和数据库记录，不读取或打印任何环境变量。
 4. 现场复读 GitHub 两个生产开关、生产 `current.json` 身份和最新函数运行，确认没有正式数据写入。
-5. 严格发现的有限观察门槛按`MONTHLY_DATA_AUTOMATION_PLAN.md`执行：连续10个计划发现时段均须单次、准时、成功且与唯一观察对象身份一致。第10个时段完成后立即只读复核并登记结论，不等待当天27个时段结束。当天17:55后如另行进行27时段完整审计，它仅作为持续运行健康检查；必须如实记录后续异常，但不是有限观察门槛，也不能拖延或改写已完成的10次结论。
+5. 第27个时段完成后，按[`MONTHLY_DATA_AUTOMATION_PLAN.md`第2.1节](MONTHLY_DATA_AUTOMATION_PLAN.md#21-严格发现观察阶段的唯一验收门槛)导出当天记录并完成完整27时段只读审计。本文件只说明部署和审计操作，不另行定义观察门槛。
 
-部署成功或一次手动调用只证明“已部署”或“本次调用可用”，不能证明连续10个时段均准时，也不能证明自动发布已启用。
+部署成功或一次手动调用只证明“已部署”或“本次调用可用”，不能证明已满足执行方案第2.1节，也不能证明自动发布已启用。
 
 ## 回退与故障处理
 

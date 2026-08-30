@@ -6,6 +6,7 @@ import { createRequire } from 'node:module'
 import { resolve } from 'node:path'
 import { promisify } from 'node:util'
 import { actualBusinessChanges, recordKey, validateHistoricalCorrection } from './historical-correction-lib.mjs'
+import { auditReportSha256, auditedRecordsSha256 } from './publication-identity.mjs'
 import {
   appendHistoricalCorrectionRevocations,
   assertTargetNotRevoked,
@@ -60,10 +61,14 @@ function correctionRequest({ previousData, currentData, recordsToCorrect, round,
     const record = currentData.records.find((item) => recordKey(item) === change.record_key)
     return { ...change, source_url: record.source_url, source_record_locator: record.source_record_locator }
   })
-  const sourceBatchIds = [...new Set(recordsToCorrect.map((record) => record.source_batch_id))].sort()
+  const changedKeys = new Set(recordsToCorrect.map(recordKey))
+  const latestMonth = currentData.records.reduce((latest, record) => record.stat_month > latest ? record.stat_month : latest, '')
+  const latestSourceBatchIds = [...new Set(currentData.records.filter((record) => record.stat_month === latestMonth).map((record) => record.source_batch_id))].sort()
+  const revisionSourceBatchIds = [...new Set(currentData.records.filter((record) => changedKeys.has(recordKey(record))).map((record) => record.source_batch_id))].sort()
   return {
     revision_id: `revision-replay-${String(round).padStart(2, '0')}-historical`,
-    revision_type: 'historical_data_correction',
+    release_type: 'historical_correction',
+    reason_type: 'official_revision',
     approval_status: 'approved',
     baseline_commit_sha: commitSha,
     dataset_as_of: currentData.records.reduce((latest, record) => record.stat_month > latest ? record.stat_month : latest, ''),
@@ -73,13 +78,47 @@ function correctionRequest({ previousData, currentData, recordsToCorrect, round,
     revoked_source_dataset_versions: [previousData.dataset_version],
     reason: `隔离历史修订回放第${round}轮，验证逐字段批准、撤销和失败关闭。`,
     official_urls: [...new Set(recordsToCorrect.map((record) => record.source_url))].sort(),
-    source_batch_ids: sourceBatchIds,
+    latest_source_batch_ids: latestSourceBatchIds,
+    revision_source_batch_ids: revisionSourceBatchIds,
     parser_version: currentData.records[0].parser_version,
     audit_version: auditVersion,
     approved_at: '2026-08-06T00:00:00.000Z',
     approved_by: 'historical-correction-replay',
     changes,
   }
+}
+
+function auditReportFor(records, auditVersion, commitSha) {
+  const sourceBatchIds = [...new Set(records.map((record) => record.source_batch_id))].sort()
+  const parserVersions = [...new Set(records.map((record) => record.parser_version))].sort()
+  const months = records.map((record) => record.stat_month).sort()
+  const report = {
+    result: 'passed', audit_version: auditVersion, record_count: records.length,
+    records_sha256: auditedRecordsSha256(records), source_index_sha256: 'a'.repeat(64),
+    audit_code_sha256: 'c'.repeat(64), repository_commit_sha: commitSha, parser_versions: parserVersions,
+    coverage_start: months[0], coverage_end: months.at(-1),
+    batches: sourceBatchIds.map((source_batch_id) => ({ source_batch_id })),
+  }
+  return { ...report, report_sha256: auditReportSha256(report) }
+}
+
+function ledgerAppend({ previousData, currentData, request, recordedAt, previousLedger }) {
+  const previous = new Map(previousData.records.map((record) => [recordKey(record), record]))
+  const current = new Map(currentData.records.map((record) => [recordKey(record), record]))
+  const changedKeys = [...new Set(request.changes.map((change) => change.record_key))].sort()
+  const latestByRecord = new Map((previousLedger || []).map((entry) => [entry.record_key, entry.revision_id]))
+  return changedKeys.map((key, index) => ({
+    revision_id: `ledger-${request.revision_id}-${String(index + 1).padStart(3, '0')}`,
+    release_type: request.release_type,
+    reason_type: request.reason_type,
+    record_key: key,
+    previous_value: previous.get(key),
+    revised_value: current.get(key),
+    detected_at: recordedAt,
+    source_batch_id: current.get(key).source_batch_id,
+    reason: request.reason,
+    supersedes_revision_id: latestByRecord.get(key) ?? null,
+  }))
 }
 
 function rejected(label, action) {
@@ -166,6 +205,7 @@ export async function runHistoricalCorrectionReplay({ records, auditVersion, com
   assert(/^[a-f0-9]{40}$/.test(commitSha || ''), 'commit SHA is invalid')
   assert(typeof auditVersion === 'string' && auditVersion.length > 0, 'audit version is required')
   let previousData = { dataset_version: version(1), records: clone(records) }
+  let revisionLedger = []
   let registry = createRevocationRegistry({ generatedAt: '2026-08-06T00:00:00.000Z' })
   const state = new Map()
   const replays = []
@@ -177,17 +217,18 @@ export async function runHistoricalCorrectionReplay({ records, auditVersion, com
     const candidateDatasetVersion = version(100 + round)
     const currentData = correctedData(previousData, targets, round, candidateSourceVersion)
     const request = correctionRequest({ previousData, currentData, recordsToCorrect: targets, round, commitSha, auditVersion })
-    const auditReport = { result: 'passed', audit_version: auditVersion, record_count: currentData.records.length }
-    const accepted = validateHistoricalCorrection({ request, previousData, currentData, auditReport })
+    const auditReport = auditReportFor(currentData.records, auditVersion, commitSha)
+    const currentLedger = [...revisionLedger, ...ledgerAppend({ previousData, currentData, request, recordedAt: '2026-08-06T00:00:00.000Z', previousLedger: revisionLedger })]
+    const accepted = validateHistoricalCorrection({ request, previousData, currentData, auditReport, previousLedger: revisionLedger, currentLedger, candidateCommitSha: commitSha, githubRunId: String(round) })
     assert.equal(verifyRunState(state, request), 'old_active')
     assert.equal(verifyRunState(state, request), 'candidate_active')
     const conflict = { ...request, revision_id: `revision-replay-${String(round).padStart(2, '0')}-conflict` }
     const failures = [
-      rejected('unapproved_difference', () => validateHistoricalCorrection({ request: { ...request, approval_status: 'pending' }, previousData, currentData, auditReport })),
-      rejected('missing_approved_change', () => validateHistoricalCorrection({ request: { ...request, changes: request.changes.slice(1) }, previousData, currentData, auditReport })),
-      rejected('wrong_old_value', () => validateHistoricalCorrection({ request: { ...request, changes: request.changes.map((item, index) => index === 0 ? { ...item, old_value: '__wrong__' } : item) }, previousData, currentData, auditReport })),
-      rejected('source_locator_mismatch', () => validateHistoricalCorrection({ request: { ...request, changes: request.changes.map((item, index) => index === 0 ? { ...item, source_record_locator: 'wrong-locator' } : item) }, previousData, currentData, auditReport })),
-      rejected('revision_chain_break', () => validateHistoricalCorrection({ request: { ...request, source_version_chain: [previousData.dataset_version, previousData.dataset_version, currentData.dataset_version] }, previousData, currentData, auditReport })),
+      rejected('unapproved_difference', () => validateHistoricalCorrection({ request: { ...request, approval_status: 'pending' }, previousData, currentData, auditReport, previousLedger: revisionLedger, currentLedger, candidateCommitSha: commitSha })),
+      rejected('missing_approved_change', () => validateHistoricalCorrection({ request: { ...request, changes: request.changes.slice(1) }, previousData, currentData, auditReport, previousLedger: revisionLedger, currentLedger, candidateCommitSha: commitSha })),
+      rejected('wrong_old_value', () => validateHistoricalCorrection({ request: { ...request, changes: request.changes.map((item, index) => index === 0 ? { ...item, old_value: '__wrong__' } : item) }, previousData, currentData, auditReport, previousLedger: revisionLedger, currentLedger, candidateCommitSha: commitSha })),
+      rejected('source_locator_mismatch', () => validateHistoricalCorrection({ request: { ...request, changes: request.changes.map((item, index) => index === 0 ? { ...item, source_record_locator: 'wrong-locator' } : item) }, previousData, currentData, auditReport, previousLedger: revisionLedger, currentLedger, candidateCommitSha: commitSha })),
+      rejected('revision_chain_break', () => validateHistoricalCorrection({ request: { ...request, source_version_chain: [previousData.dataset_version, previousData.dataset_version, currentData.dataset_version] }, previousData, currentData, auditReport, previousLedger: revisionLedger, currentLedger, candidateCommitSha: commitSha })),
       rejected('conflict', () => verifyRunState(state, conflict)),
     ]
     assert(failures.every((item) => item.rejected), `round ${round}: every invalid correction must fail closed`)
@@ -228,6 +269,7 @@ export async function runHistoricalCorrectionReplay({ records, auditVersion, com
       duration_ms: Math.round(performance.now() - startedAt),
     })
     previousData = currentData
+    revisionLedger = currentLedger
   }
   return {
     format: 'housing-historical-correction-replay-v1',

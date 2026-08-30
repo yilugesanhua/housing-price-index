@@ -5,6 +5,7 @@ const DATASET_VERSION_PATTERN = /^20\d{2}-(0[1-9]|1[0-2])-[a-f0-9]{12}$/
 const MONTH_PATTERN = /^20\d{2}-(0[1-9]|1[0-2])$/
 const SHA256_PATTERN = /^[a-f0-9]{64}$/
 const REVISION_ID_PATTERN = /^revision-[a-z0-9][a-z0-9-]{5,80}$/
+const SOURCE_BATCH_ID_PATTERN = /^official-html-20\d{2}-(0[1-9]|1[0-2])-[a-f0-9]{12}$/
 const DEFAULT_CLOUD_ENV_ID = 'cloud1-d3gpdx70w5d05c68c'
 const DEFAULT_STORAGE_BUCKET = '636c-cloud1-d3gpdx70w5d05c68c-1456861154'
 const ALLOWED_DATA_ROOTS = new Set(['housing-data', 'housing-data/preview'])
@@ -39,6 +40,14 @@ const CONTROLLED_FIELDS = [
 const CONTROL_MARKER_FIELDS = CONTROLLED_FIELDS.filter((field) => !LEGACY_FIELDS.includes(field))
 const DATASET_REVOCATION_FIELDS = ['dataset_version', 'reason', 'replacement_dataset_version', 'revision_id', 'revoked_at']
 const SOURCE_REVOCATION_FIELDS = ['reason', 'replacement_source_dataset_version', 'revision_id', 'revoked_at', 'source_dataset_version']
+const PUBLICATION_IDENTITY_HASH_FIELDS = [
+  'candidate_records_sha256',
+  'audit_records_sha256',
+  'source_index_sha256',
+  'audit_report_sha256',
+  'audit_code_sha256',
+]
+const CORRECTION_REASON_TYPES = new Set(['official_revision', 'parser_error', 'transform_error', 'mapping_error'])
 
 function reject(message) {
   throw new Error(`Housing data control pointer rejected: ${message}`)
@@ -74,6 +83,79 @@ function assertDatasetVersion(value, label) {
 function assertRevisionId(value, label, nullable = false) {
   if (nullable && value === null) return
   assert(REVISION_ID_PATTERN.test(value || ''), `${label} is invalid`)
+}
+
+function assertCanonicalStringList(values, label, pattern) {
+  assert(Array.isArray(values) && values.length > 0, `${label} are missing`)
+  assert(values.every((value) => typeof value === 'string' && pattern.test(value)), `${label} are invalid`)
+  assert(new Set(values).size === values.length, `${label} contain duplicates`)
+  const sorted = [...values].sort((left, right) => left.localeCompare(right, 'en'))
+  assert(values.every((value, index) => value === sorted[index]), `${label} are not sorted`)
+}
+
+function assertPublicationIdentity(value, label) {
+  for (const field of PUBLICATION_IDENTITY_HASH_FIELDS) {
+    assert(SHA256_PATTERN.test(value[field] || ''), `${label} ${field} is invalid`)
+  }
+  assert(/^[a-f0-9]{40}$/.test(value.audit_commit_sha || ''), `${label} audit commit is invalid`)
+  assert(typeof value.audit_version === 'string' && value.audit_version.trim() === value.audit_version && value.audit_version.length > 0, `${label} audit version is invalid`)
+  assertCanonicalStringList(value.parser_versions, `${label} parser versions`, /\S/)
+}
+
+function assertHistoricalCorrectionManifest(manifest, current, releaseRoot) {
+  assert(isPlainObject(manifest), 'historical correction manifest is invalid')
+  assert(manifest.release_type === 'historical_correction', 'historical correction manifest release type is invalid')
+  assert(manifest.revision_type === undefined, 'historical correction manifest contains legacy revision_type')
+  assertRevisionId(manifest.revision_id, 'historical correction manifest revision ID')
+  assertDatasetVersion(manifest.supersedes_source_dataset_version, 'historical correction manifest superseded source')
+  if (current.transition_type === 'historical_correction') {
+    assert(manifest.supersedes_source_dataset_version === current.superseded_source_dataset_version, 'historical correction manifest superseded source differs from the pointer')
+  }
+  assert(manifest.revision_manifest_file_id === `${releaseRoot}${current.dataset_version}/revision-manifest.json`, 'historical correction revision manifest path is invalid')
+  assert(SHA256_PATTERN.test(manifest.revision_manifest_sha256 || ''), 'historical correction revision manifest hash is invalid')
+  assert(Number.isSafeInteger(manifest.revision_manifest_bytes) && manifest.revision_manifest_bytes > 0 && manifest.revision_manifest_bytes <= 512 * 1024, 'historical correction revision manifest size is invalid')
+  assertCanonicalStringList(manifest.latest_source_batch_ids, 'historical correction latest source batch IDs', SOURCE_BATCH_ID_PATTERN)
+  assertCanonicalStringList(manifest.revision_source_batch_ids, 'historical correction revision source batch IDs', SOURCE_BATCH_ID_PATTERN)
+  assertPublicationIdentity(manifest, 'historical correction manifest')
+  for (const field of ['ledger_before_sha256', 'ledger_after_sha256', 'ledger_append_sha256']) {
+    assert(SHA256_PATTERN.test(manifest[field] || ''), `historical correction manifest ${field} is invalid`)
+  }
+  assert(Number.isSafeInteger(manifest.ledger_append_start) && manifest.ledger_append_start >= 0, 'historical correction manifest ledger append start is invalid')
+  assert(Number.isSafeInteger(manifest.ledger_append_count) && manifest.ledger_append_count > 0, 'historical correction manifest ledger append count is invalid')
+  assert(Number.isSafeInteger(manifest.changed_record_count) && manifest.changed_record_count > 0, 'historical correction manifest changed record count is invalid')
+}
+
+function assertHistoricalCorrectionRevision(manifest, revision) {
+  assert(isPlainObject(revision), 'historical correction revision manifest is invalid')
+  assert(revision.format === 'housing-historical-correction' && revision.schema_version === '1.0.0', 'historical correction revision manifest format is invalid')
+  assert(revision.release_type === 'historical_correction' && revision.revision_type === undefined, 'historical correction revision manifest type is invalid')
+  assert(CORRECTION_REASON_TYPES.has(revision.reason_type), 'historical correction reason type is invalid')
+  assert(revision.approval_status === 'approved', 'historical correction revision is not approved')
+  assert(revision.revision_id === manifest.revision_id, 'historical correction revision ID differs from its manifest')
+  assert(revision.dataset_as_of === manifest.dataset_as_of && revision.source_dataset_version === manifest.source_dataset_version, 'historical correction revision dataset differs from its manifest')
+  assert(revision.supersedes_source_dataset_version === manifest.supersedes_source_dataset_version, 'historical correction revision superseded source differs from its manifest')
+  assert(Array.isArray(revision.source_version_chain) && revision.source_version_chain.length >= 2, 'historical correction source version chain is invalid')
+  assert(revision.source_version_chain.every((value) => DATASET_VERSION_PATTERN.test(value)), 'historical correction source version chain contains an invalid version')
+  assert(new Set(revision.source_version_chain).size === revision.source_version_chain.length, 'historical correction source version chain contains duplicates')
+  assert(revision.source_version_chain.at(-2) === revision.supersedes_source_dataset_version && revision.source_version_chain.at(-1) === revision.source_dataset_version, 'historical correction source version chain endpoints are invalid')
+  assert(Array.isArray(revision.revoked_source_dataset_versions) && revision.revoked_source_dataset_versions.includes(revision.supersedes_source_dataset_version), 'historical correction source revocations are invalid')
+  assert(revision.revoked_source_dataset_versions.every((value) => revision.source_version_chain.includes(value) && value !== revision.source_dataset_version), 'historical correction source revocations include an invalid version')
+  assertCanonicalStringList(revision.latest_source_batch_ids, 'historical correction revision latest source batch IDs', SOURCE_BATCH_ID_PATTERN)
+  assertCanonicalStringList(revision.revision_source_batch_ids, 'historical correction revision source batch IDs', SOURCE_BATCH_ID_PATTERN)
+  assert(stableJson(revision.latest_source_batch_ids) === stableJson(manifest.latest_source_batch_ids), 'historical correction latest source batch IDs differ from its manifest')
+  assert(stableJson(revision.revision_source_batch_ids) === stableJson(manifest.revision_source_batch_ids), 'historical correction revision source batch IDs differ from its manifest')
+  assert(typeof revision.parser_version === 'string' && manifest.parser_versions.includes(revision.parser_version), 'historical correction parser identity differs from its manifest')
+  assert(revision.audit_version === manifest.audit_version, 'historical correction audit version differs from its manifest')
+  for (const field of [...PUBLICATION_IDENTITY_HASH_FIELDS, 'audit_commit_sha', 'ledger_before_sha256', 'ledger_after_sha256', 'ledger_append_sha256']) {
+    assert(revision[field] === manifest[field], `historical correction ${field} differs from its manifest`)
+  }
+  assert(revision.ledger_append_start === manifest.ledger_append_start && revision.ledger_append_count === manifest.ledger_append_count, 'historical correction ledger append range differs from its manifest')
+  assert(Number.isFinite(Date.parse(revision.approved_at || '')) && typeof revision.approved_by === 'string' && revision.approved_by.trim().length > 0, 'historical correction approval metadata is invalid')
+  assert(Array.isArray(revision.changes) && revision.changes.length > 0, 'historical correction changes are missing')
+  const changeKeys = revision.changes.map((change) => `${change?.record_key || ''}|${change?.field || ''}`)
+  assert(changeKeys.every((key) => key !== '|'), 'historical correction change identity is invalid')
+  assert(new Set(changeKeys).size === changeKeys.length, 'historical correction changes contain duplicates')
+  assert(new Set(revision.changes.map((change) => change.record_key)).size === manifest.changed_record_count, 'historical correction changed record count differs from its manifest')
 }
 
 function stableJson(value) {
@@ -263,6 +345,12 @@ function validateCurrent(value, options = {}) {
     if (value.transition_type === 'historical_correction') {
       assert(manifest.release_type === 'historical_correction', 'historical correction transition does not reference a correction manifest')
       assert(manifest.supersedes_source_dataset_version === value.superseded_source_dataset_version, 'historical correction source chain differs from the pointer')
+    }
+    if (manifest.release_type === 'historical_correction') {
+      assert(['historical_correction', 'rollback'].includes(value.transition_type), 'historical correction manifest is referenced by an invalid transition')
+      assertHistoricalCorrectionManifest(manifest, value, releaseRoot)
+      if (options.revisionManifest) assertHistoricalCorrectionRevision(manifest, options.revisionManifest)
+      else if (options.requireContext) reject('historical correction revision manifest context is required')
     }
     if (value.transition_type === 'migration') {
       assert(manifest.release_type === undefined, 'migration must preserve the immutable legacy manifest type')

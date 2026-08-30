@@ -8,6 +8,7 @@ import TencentCloudScf from 'tencentcloud-sdk-nodejs-scf'
 import { validateManifestFunctionOutput } from './post-publish-guard.mjs'
 import { classifyRemoteFreshness, sha256 } from './remote-data-lib.mjs'
 import { validateControlPointer } from './control-plane.mjs'
+import { loadHistoricalRevisionManifest } from './revision-manifest-context.mjs'
 import {
   validateControlAuditTransitions,
   validatePostWriteValidationReceiptInvocation,
@@ -171,10 +172,16 @@ const registryKey = `housing-data/control/revocations-${current.revocations_sha2
 const registryText = (await cosCall('getObject', registryKey)).Body.toString('utf8')
 if (sha256(registryText) !== current.revocations_sha256) throw new Error('Monitored revocations registry hash mismatch')
 const registry = JSON.parse(registryText)
+const revisionManifest = await loadHistoricalRevisionManifest(manifest, {
+  releaseRoot: cloudRoot,
+  readText: async (key) => (await cosCall('getObject', key)).Body.toString('utf8'),
+  label: 'monitored revision manifest',
+})
 validateControlPointer(current, {
   allowLegacy: false,
   requireContext: true,
   manifest,
+  revisionManifest,
   registry,
   cloudEnvId,
   storageBucket: storageBucketId,

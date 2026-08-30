@@ -6,9 +6,10 @@ const { buildValidationReceipt, describeValidator } = require('./validation-rece
 cloud.init({ env: cloud.DYNAMIC_CURRENT_ENV })
 
 const DEFAULT_CURRENT_FILE_ID = 'cloud://cloud1-d3gpdx70w5d05c68c.636c-cloud1-d3gpdx70w5d05c68c-1456861154/housing-data/current.json'
-async function downloadJson(fileID, maximumBytes, expectedSha256 = '') {
+async function downloadJson(fileID, maximumBytes, expectedSha256 = '', expectedBytes = null) {
   const response = await cloud.downloadFile({ fileID })
   if (!response || !response.fileContent || response.fileContent.length > maximumBytes) throw new Error(`Housing data control file is unavailable or too large: ${fileID}`)
+  if (expectedBytes !== null && response.fileContent.length !== expectedBytes) throw new Error(`Housing data control file byte length mismatch: ${fileID}`)
   if (expectedSha256) {
     const actual = createHash('sha256').update(response.fileContent).digest('hex')
     if (actual !== expectedSha256) throw new Error(`Housing data control file hash mismatch: ${fileID}`)
@@ -25,7 +26,11 @@ exports.main = async (event = {}) => {
     downloadJson(current.manifest_file_id, 16 * 1024, current.manifest_sha256),
     downloadJson(current.revocations_file_id, 512 * 1024, current.revocations_sha256),
   ])
-  validateCurrent(current, { allowLegacy: false, requireContext: true, manifest, registry })
+  validateCurrent(current, { allowLegacy: false, manifest, registry })
+  const revisionManifest = manifest.release_type === 'historical_correction'
+    ? await downloadJson(manifest.revision_manifest_file_id, 512 * 1024, manifest.revision_manifest_sha256, manifest.revision_manifest_bytes)
+    : undefined
+  validateCurrent(current, { allowLegacy: false, requireContext: true, manifest, revisionManifest, registry })
   return { current, validation_receipt: buildValidationReceipt(current) }
 }
 

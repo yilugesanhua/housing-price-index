@@ -46,6 +46,7 @@ export function buildAutomaticRollbackPointer(previousCurrent, failedDatasetVers
   rollbackRevisionId,
   targetSourceDatasetVersion,
   targetManifest,
+  targetRevisionManifest,
   statusReason = 'post_publish_guard_failed',
 } = {}) {
   assert(previousCurrent && /^20\d{2}-(0[1-9]|1[0-2])-[a-f0-9]{12}$/.test(previousCurrent.dataset_version || ''), 'previous pointer is invalid')
@@ -95,6 +96,7 @@ export function buildAutomaticRollbackPointer(previousCurrent, failedDatasetVers
     allowLegacy: false,
     requireContext: Boolean(targetManifest),
     manifest: targetManifest,
+    revisionManifest: targetRevisionManifest,
     registry: registryArtifact.registry,
     ...pointerAuthority(pointer),
   })

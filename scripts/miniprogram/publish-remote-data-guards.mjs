@@ -50,6 +50,7 @@ function inspectHistoricalCorrectionPublishState({
     allowLegacy: false,
     requireContext: true,
     manifest: previousManifest,
+    revisionManifest: candidateRevisionManifest,
     registry,
     cloudEnvId,
     storageBucket,

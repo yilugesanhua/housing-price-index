@@ -3,7 +3,7 @@ import { createHash } from 'node:crypto'
 import { createRequire } from 'node:module'
 import { resolve } from 'node:path'
 import test from 'node:test'
-import { buildRemoteRelease } from './remote-data-lib.mjs'
+import { buildRemoteRelease, sha256 as remoteSha256, stableJson as remoteStableJson } from './remote-data-lib.mjs'
 import { buildCompleteRemoteRelease } from './complete-remote-data.mjs'
 import {
   appendFailedDatasetRevocation,
@@ -13,6 +13,8 @@ import {
   buildRevocationRegistryArtifact,
   createRevocationRegistry,
 } from './control-plane.mjs'
+import { buildAutomaticRollbackPointer } from './post-publish-guard.mjs'
+import { buildDataStatusDeployment } from './deploy-data-status.mjs'
 
 const root = resolve(import.meta.dirname, '../..')
 const require = createRequire(import.meta.url)
@@ -23,6 +25,22 @@ const { sha256, sha256Async, utf8Bytes } = require(resolve(root, 'apps/miniprogr
 const { createDataRuntime, validateCurrent: validateRuntimeCurrent, STATE_KEY, CONTROL_TOMBSTONE_KEY, POINTER_KEY, CHECK_KEY, REVOKED_SOURCES_KEY } = require(resolve(root, 'apps/miniprogram/utils/data-runtime.js'))
 const { validateCurrent } = require(resolve(root, 'apps/miniprogram/cloudfunctions/getHousingDataManifest/validate-current.js'))
 const { buildValidationReceipt } = require(resolve(root, 'apps/miniprogram/cloudfunctions/getHousingDataManifest/validation-receipt.js'))
+
+function publicationIdentity() {
+  return {
+    candidate_records_sha256: 'a'.repeat(64), audit_records_sha256: 'b'.repeat(64), source_index_sha256: 'c'.repeat(64),
+    audit_report_sha256: 'd'.repeat(64), audit_commit_sha: 'e'.repeat(40), audit_code_sha256: 'f'.repeat(64),
+    audit_version: 'full-record-audit-v7', parser_versions: ['official-html-v9-product-housing-only-strict-release-date'],
+  }
+}
+
+function correctionPublicationIdentity() {
+  return {
+    candidate_records_sha256: 'a'.repeat(64), audit_records_sha256: 'b'.repeat(64), source_index_sha256: 'c'.repeat(64),
+    audit_report_sha256: 'd'.repeat(64), audit_commit_sha: 'e'.repeat(40), audit_code_sha256: 'f'.repeat(64),
+    audit_version: 'full-record-audit-v7', parser_versions: ['official-html-v7-product-housing-only'],
+  }
+}
 
 test('development builds select only the isolated preview manifest and data root', () => {
   const configPath = resolve(root, 'apps/miniprogram/config/data.js')
@@ -48,7 +66,8 @@ function makeRelease(minimumAppVersion = versionConfig.version, snapshot = bundl
     storageBucket: config.storageBucket,
     minimumAppVersion,
     nextCheckAt: '2026-08-17T01:40:00.000Z',
-    sourceBatchIds: ['official-html-test'],
+    sourceBatchIds: ['official-html-2026-06-aaaaaaaaaaaa'],
+    publicationIdentity: publicationIdentity(),
   })
   return attachControl(release)
 }
@@ -59,7 +78,8 @@ function makeLegacyRelease(minimumAppVersion = versionConfig.version, snapshot =
     storageBucket: config.storageBucket,
     minimumAppVersion,
     nextCheckAt: '2026-08-17T01:40:00.000Z',
-    sourceBatchIds: ['official-html-test'],
+    sourceBatchIds: ['official-html-2026-06-aaaaaaaaaaaa'],
+    publicationIdentity: publicationIdentity(),
   })
 }
 
@@ -382,14 +402,17 @@ function correctionRelease(base = correctionBaseSnapshot()) {
     storageBucket: config.storageBucket,
     minimumAppVersion: config.correctionMinimumAppVersion,
     nextCheckAt: '2026-08-17T01:40:00.000Z',
-    sourceBatchIds: ['official-html-test-corrected'],
+    sourceBatchIds: ['official-html-2026-06-bbbbbbbbbbbb'],
+    publicationIdentity: correctionPublicationIdentity(),
     correction: {
-      revision_id: 'revision-2026-06-audited-fix', revision_type: 'historical_data_correction', approval_status: 'approved',
+      revision_id: 'revision-2026-06-audited-fix', release_type: 'historical_correction', reason_type: 'official_revision', approval_status: 'approved',
       dataset_as_of: '2026-06', supersedes_source_dataset_version: base.sourceDatasetVersion, source_dataset_version: corrected.sourceDatasetVersion,
       source_version_chain: [base.sourceDatasetVersion, corrected.sourceDatasetVersion], revoked_source_dataset_versions: [base.sourceDatasetVersion],
       reason: '国家统计局官方原始表经全量复核后的历史数据修订', official_urls: ['https://www.stats.gov.cn/source'],
-      source_batch_ids: ['official-html-test-corrected'], parser_version: 'official-html-v7-product-housing-only', audit_version: 'full-record-audit-v4',
-      audit_report_sha256: 'a'.repeat(64), commit_sha: 'b'.repeat(40), github_run_id: '12345',
+      latest_source_batch_ids: ['official-html-2026-06-bbbbbbbbbbbb'], revision_source_batch_ids: ['official-html-2026-06-bbbbbbbbbbbb'], parser_version: 'official-html-v7-product-housing-only', audit_version: 'full-record-audit-v7',
+      candidate_records_sha256: 'a'.repeat(64), audit_records_sha256: 'b'.repeat(64), source_index_sha256: 'c'.repeat(64), audit_report_sha256: 'd'.repeat(64),
+      audit_commit_sha: 'e'.repeat(40), audit_code_sha256: 'f'.repeat(64), ledger_before_sha256: '1'.repeat(64), ledger_after_sha256: '2'.repeat(64),
+      ledger_append_start: 0, ledger_append_count: 1, ledger_append_sha256: '3'.repeat(64), commit_sha: '4'.repeat(40), github_run_id: '12345',
       approved_at: '2026-07-20T00:00:00Z', approved_by: 'data-owner', changes: [{
         record_key: '2026-06|fuzhou|new|all', field: 'mom_index', old_value: 99.8, new_value: 99.9,
         source_url: 'https://www.stats.gov.cn/source', source_record_locator: 'table[0] row[1]',
@@ -1862,4 +1885,112 @@ test('cloud manifest function rejects unsafe current pointers', () => {
   }
   const rollback = { ...controlled.current, transition_type: 'rollback', rollback_from_dataset_version: '2026-07-aaaaaaaaaaaa', previous_dataset_version: '2026-07-aaaaaaaaaaaa' }
   assert.throws(() => validateCurrent(rollback), /unsafe previous/)
+
+  const correction = correctionRelease()
+  const correctionOptions = {
+    allowLegacy: false,
+    requireContext: true,
+    manifest: correction.manifest,
+    revisionManifest: correction.revisionManifest,
+    registry: correction.revocationArtifact.registry,
+  }
+  assert.equal(validateCurrent(correction.current, correctionOptions), correction.current)
+  const mismatchedRevisionSources = structuredClone(correction.revisionManifest)
+  mismatchedRevisionSources.revision_source_batch_ids = ['official-html-2026-06-cccccccccccc']
+  assert.throws(() => validateCurrent(correction.current, {
+    ...correctionOptions,
+    revisionManifest: mismatchedRevisionSources,
+  }), /revision source batch IDs differ/)
+  const missingAuditCode = structuredClone(correction.manifest)
+  delete missingAuditCode.audit_code_sha256
+  assert.throws(() => validateCurrent(correction.current, {
+    ...correctionOptions,
+    manifest: missingAuditCode,
+  }), /audit_code_sha256 is invalid/)
+})
+
+test('a rollback to a historical correction keeps its revision manifest mandatory', () => {
+  const correction = correctionRelease()
+  const failedDatasetVersion = '2026-07-444444444444'
+  const failedSourceDatasetVersion = '2026-07-555555555555'
+  const rollbackRevisionId = buildRollbackRevisionId(failedDatasetVersion)
+  const registry = appendFailedReleaseRevocations(correction.revocationArtifact.registry, {
+    datasetVersion: failedDatasetVersion,
+    sourceDatasetVersion: failedSourceDatasetVersion,
+    revokedAt: '2026-08-01T00:00:00.000Z',
+    replacementDatasetVersion: correction.current.dataset_version,
+    replacementSourceDatasetVersion: correction.current.source_dataset_version,
+    revisionId: rollbackRevisionId,
+    reason: 'test rollback to the audited historical correction',
+  })
+  const registryArtifact = buildRevocationRegistryArtifact(registry, {
+    cloudEnvId: config.cloudEnvId,
+    storageBucket: config.storageBucket,
+  })
+  const rollback = buildAutomaticRollbackPointer(correction.current, failedDatasetVersion, {
+    rolledBackAt: '2026-08-01T00:00:00.000Z',
+    controlGeneration: correction.current.control_generation + 1,
+    registryArtifact,
+    failedSourceDatasetVersion,
+    rollbackRevisionId,
+    targetSourceDatasetVersion: correction.current.source_dataset_version,
+    targetManifest: correction.manifest,
+    targetRevisionManifest: correction.revisionManifest,
+  })
+  const options = {
+    allowLegacy: false,
+    requireContext: true,
+    manifest: correction.manifest,
+    registry,
+  }
+  assert.equal(validateCurrent(rollback, { ...options, revisionManifest: correction.revisionManifest }), rollback)
+  assert.throws(() => validateCurrent(rollback, options), /revision manifest context is required/)
+})
+
+test('status deployment preserves historical correction identity only with its verified revision manifest', () => {
+  const correction = correctionRelease()
+  const currentText = remoteStableJson(correction.current)
+  const payload = {
+    format: 'housing-data-discovery-observation-v1',
+    observation_id: 'd'.repeat(64),
+    slot_id: '2026-08-30T01:15:00.000Z',
+    task: 'discovery',
+    planned_at: '2026-08-30T01:15:00.000Z',
+    actual_started_at: '2026-08-30T01:15:04.000Z',
+    completed_at: '2026-08-30T01:15:10.000Z',
+    timing_status: 'on_time',
+    status: 'current',
+    result: {
+      status: 'current',
+      dataset_as_of: correction.current.dataset_as_of,
+      expected_stat_month: '2026-07',
+      latest_official_month: correction.current.dataset_as_of,
+      latest_official_url: 'https://www.stats.gov.cn/sj/zxfb/202607/t20260720_1.html',
+    },
+    pointer: {
+      dataset_as_of: correction.current.dataset_as_of,
+      dataset_version: correction.current.dataset_version,
+      pointer_sha256: remoteSha256(currentText),
+    },
+    calendar: { calendar_sha256: 'e'.repeat(64) },
+    discovery_responses: [],
+    idempotency_key: null,
+    handoff_identity: null,
+  }
+  const observation = { ...payload, payload_sha256: remoteSha256(JSON.stringify(payload)) }
+  const options = {
+    currentText,
+    manifestText: correction.manifestText,
+    registryText: correction.revocationArtifact.text,
+    observation,
+    cloudEnvId: config.cloudEnvId,
+    storageBucket: config.storageBucket,
+    generatedAt: '2026-08-30T02:00:00.000Z',
+  }
+  assert.throws(() => buildDataStatusDeployment(options), /active revision manifest is unavailable/)
+  const result = buildDataStatusDeployment({ ...options, revisionManifestText: correction.revisionManifestText })
+  assert.equal(result.state, 'ready')
+  assert.equal(result.candidate.dataset_version, correction.current.dataset_version)
+  assert.equal(result.candidate.source_dataset_version, correction.current.source_dataset_version)
+  assert.equal(result.candidate.control_generation, correction.current.control_generation + 1)
 })

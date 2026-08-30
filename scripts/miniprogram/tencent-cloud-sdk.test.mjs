@@ -3,6 +3,7 @@ import test from 'node:test'
 import {
   assertRehearsalKey,
   assertReleaseCleanupPrefix,
+  buildScfUpdateEnvironmentRequest,
   cosTimeoutForKey,
   DEFAULT_COS_TIMEOUT_MS,
   LARGE_TRANSFER_COS_TIMEOUT_MS,
@@ -28,4 +29,23 @@ test('complete bootstrap transfers get a longer SDK-enforced timeout', () => {
   assert.equal(cosTimeoutForKey('housing-data/releases/test/complete-snapshot.json'), LARGE_TRANSFER_COS_TIMEOUT_MS)
   assert.equal(cosTimeoutForKey('housing-data/releases/test/manifest.json'), DEFAULT_COS_TIMEOUT_MS)
   assert.equal(cosTimeoutForKey('housing-data/releases/test/cities/beijing.json'), DEFAULT_COS_TIMEOUT_MS)
+})
+
+test('SCF environment update accepts only explicit, unique non-multiline variables', () => {
+  const request = buildScfUpdateEnvironmentRequest('monthlyDataWatchdog', 'cloud1-d3gpdx70w5d05c68c', [
+    { Key: 'WATCHDOG_DRY_RUN', Value: 'false' },
+  ])
+  assert.deepEqual(request, {
+    FunctionName: 'monthlyDataWatchdog',
+    Namespace: 'cloud1-d3gpdx70w5d05c68c',
+    Environment: { Variables: [{ Key: 'WATCHDOG_DRY_RUN', Value: 'false' }] },
+  })
+  assert.throws(() => buildScfUpdateEnvironmentRequest('monthlyDataWatchdog', 'cloud1-d3gpdx70w5d05c68c', []), /environment variables/)
+  assert.throws(() => buildScfUpdateEnvironmentRequest('monthlyDataWatchdog', 'cloud1-d3gpdx70w5d05c68c', [
+    { Key: 'WATCHDOG_DRY_RUN', Value: 'false' },
+    { Key: 'WATCHDOG_DRY_RUN', Value: 'true' },
+  ]), /duplicated/)
+  assert.throws(() => buildScfUpdateEnvironmentRequest('monthlyDataWatchdog', 'cloud1-d3gpdx70w5d05c68c', [
+    { Key: 'WATCHDOG_TOKEN', Value: 'a\nb' },
+  ]), /invalid/)
 })

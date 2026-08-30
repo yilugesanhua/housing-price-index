@@ -13,6 +13,7 @@ const LEGACY_COMPLETE_HISTORY_MONITOR_BINDING = Object.freeze({
 
 const GITHUB_RUN_PATTERN = /^[1-9]\d*$/
 const COMMIT_SHA_PATTERN = /^[a-f0-9]{40}$/
+const SOURCE_BATCH_ID_PATTERN = /^official-html-20\d{2}-(0[1-9]|1[0-2])-[a-f0-9]{12}$/
 
 function assert(condition, message) {
   if (!condition) throw new Error(`Monitor release audit rejected: ${message}`)
@@ -43,9 +44,10 @@ function isBoundLegacyCompleteHistoryAudit(audit, auditText, datasetVersion) {
     && audit.release_authorization?.production_environment_authorized === true
 }
 
-function sortedUniqueSourceBatchIds(value, label) {
+function sortedUniqueSourceBatchIds(value, label, { requireOfficialFormat = false } = {}) {
   assert(Array.isArray(value), `${label} source batch IDs are missing`)
   assert(value.every((id) => typeof id === 'string' && id.length > 0), `${label} source batch IDs are invalid`)
+  if (requireOfficialFormat) assert(value.every((id) => SOURCE_BATCH_ID_PATTERN.test(id)), `${label} source batch IDs use an unsupported format`)
   assert(new Set(value).size === value.length, `${label} source batch IDs contain duplicates`)
   return [...value].sort()
 }
@@ -58,7 +60,15 @@ export function validateMonitoredManifestMetadata({ manifest, audit, usedLegacyB
   assert(manifest.source_dataset_version === audit.source_dataset_version, 'monitored manifest source dataset identity differs')
   assert(manifest.dataset_as_of === audit.dataset_as_of, 'monitored manifest month differs')
 
-  const manifestSourceBatchIds = sortedUniqueSourceBatchIds(manifest.source_batch_ids, 'monitored manifest')
+  const correction = manifest.release_type === 'historical_correction' || audit.release_type === 'historical_correction'
+  assert((manifest.release_type === 'historical_correction') === (audit.release_type === 'historical_correction'), 'monitored release type differs from immutable publish audit')
+  const sourceField = correction ? 'revision_source_batch_ids' : 'latest_source_batch_ids'
+  const legacySourceField = correction ? null : 'source_batch_ids'
+  const manifestSourceBatchIds = sortedUniqueSourceBatchIds(
+    manifest[sourceField] ?? (legacySourceField ? manifest[legacySourceField] : undefined),
+    'monitored manifest',
+    { requireOfficialFormat: !usedLegacyBinding },
+  )
   if (usedLegacyBinding) {
     assert(Number.isInteger(audit.source_batch_count) && audit.source_batch_count >= 0,
       'trusted legacy audit source batch count is invalid')
@@ -67,9 +77,23 @@ export function validateMonitoredManifestMetadata({ manifest, audit, usedLegacyB
     return
   }
 
-  const auditSourceBatchIds = sortedUniqueSourceBatchIds(audit.source_batch_ids, 'monitor release audit')
+  const auditSourceBatchIds = sortedUniqueSourceBatchIds(
+    audit[sourceField] ?? (legacySourceField ? audit[legacySourceField] : undefined),
+    'monitor release audit',
+    { requireOfficialFormat: true },
+  )
   assert(JSON.stringify(manifestSourceBatchIds) === JSON.stringify(auditSourceBatchIds),
     'monitored manifest source batch IDs differ from the immutable publish audit')
+  if (correction) {
+    assert(/^revision-[a-z0-9][a-z0-9-]{5,80}$/.test(manifest.revision_id || '') && manifest.revision_id === audit.revision_id, 'monitored revision identity differs from immutable publish audit')
+    for (const field of [
+      'candidate_records_sha256', 'audit_records_sha256', 'source_index_sha256',
+      'audit_report_sha256', 'audit_commit_sha', 'audit_code_sha256',
+      'ledger_before_sha256', 'ledger_after_sha256', 'ledger_append_sha256',
+    ]) {
+      assert(typeof manifest[field] === 'string' && manifest[field] === audit[field], `monitored correction ${field} differs from immutable publish audit`)
+    }
+  }
 }
 
 export function validateMonitorReleaseAudit({
