@@ -99,6 +99,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           BASE_SHA: ${{ steps.identity.outputs.commit_sha }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
         shell: bash
         run: |
           set -euo pipefail
@@ -107,7 +108,12 @@ jobs:
           node - <<'NODE'
           const fs = require('fs')
           const value = JSON.parse(fs.readFileSync('work/auto-release/ordinary-ci-runs.json', 'utf8'))
-          const matches = (value.workflow_runs || []).filter((run) => run.head_sha === process.env.BASE_SHA && run.event === 'push' && run.conclusion === 'success')
+          const matches = (value.workflow_runs || []).filter((run) =>
+            run.head_sha === process.env.BASE_SHA
+            && run.head_branch === process.env.DEFAULT_BRANCH
+            && run.event === 'push'
+            && run.conclusion === 'success'
+          )
           if (matches.length === 0) throw new Error(`No successful ordinary CI push run found for ${process.env.BASE_SHA}`)
           matches.sort((left, right) => String(right.created_at).localeCompare(String(left.created_at)))
           const run = matches[0]

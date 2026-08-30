@@ -799,6 +799,8 @@ test('repository and production-environment release authorization are independen
 test('recovery verifies same-commit ordinary CI before the production environment job', () => {
   const recover = recovery.slice(recovery.indexOf('  recover:'), recovery.indexOf('  publish:'))
   assert.match(recover, /actions\/workflows\/ci\.yml\/runs/)
+  assert.match(recover, /DEFAULT_BRANCH: \$\{\{ github\.event\.repository\.default_branch \}\}/)
+  assert.match(recover, /run\.head_branch === process\.env\.DEFAULT_BRANCH/)
   assert.match(recover, /ordinary-ci-evidence\.json/)
   assert.match(recover, /CI_EVIDENCE_RUN_ID:/)
   assert.doesNotMatch(recover, /environment: housing-data-production|TENCENTCLOUD_SECRET/)
