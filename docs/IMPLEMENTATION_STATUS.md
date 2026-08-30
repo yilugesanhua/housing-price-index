@@ -5,11 +5,11 @@
 ## 2026-08-30 阶段D后续推进记录
 
 - 候选 PR #6 已合并到默认分支，合并提交为 `06365d8debadb12c6a62bf4145270fe84f5f4155`；该提交的默认分支 CI 运行 `33298180368` 成功。随后修复 `stage-remote-data.mjs` 对 Node.js 异步 glob 的兼容问题，PR #7 已合并，当前默认分支提交为 `e47b9105673c4d97e15e9384238d0b976fa3248b`，修复提交 CI 运行 `33299310891` 成功。
-- D19 Actions 评估运行 `33298388664` 成功；D19 负责人变量仍为 `yilugesanhua`。D18 默认分支季度复核运行 `33298387289` 已结束但失败：复核180个来源中 `changed_count=170`、`failed_count=1`，因此只保留隔离人工任务，不能登记通过。该失败暴露 D19 `workflow_run.updated_at` 秒级时间戳与脚本毫秒级规范不兼容；修复提交 `7e5ac33cabbfee952aa727d462bb929a465282b8` 的普通 CI 和工作流安全验证均通过。
+- D19 Actions 评估运行 `33298388664` 成功；D19 负责人变量仍为 `yilugesanhua`。D18 首次复核运行 `33298387289` 复核180个来源后失败（`changed_count=170`、`failed_count=1`）；修复后重跑 `33300833376` 仍按隔离策略以需人工处理状态退出（`source_count=180`、`changed_count=171`、`failed_count=0`），两次均未写入数据或正式指针。修复提交 `7e5ac33cabbfee952aa727d462bb929a465282b8` 的普通 CI 和工作流安全验证均通过。
 - 云端隔离链路运行 `33299529772` 成功：在 `housing-data/rehearsals/33299529772-1/` 完成对象上传、HEAD、下载、哈希回读、隔离指针切换、故意守卫失败和自动回滚，以及70个城市分片完整重建。报告明确 `production_pointer_untouched=true`、`production_release_prefix_untouched=true`。Artifact 已保存到项目外 `C:\Users\user\AppData\Local\Temp\stage-d-followup-20260830\cloud-write-rehearsal-33299529772`。
 - 微信开发者工具已对 `v2.5.27` 当前候选重新编译；模拟器继续显示首页、2026-06 数据和70城图表，问题面板为0个问题。工具调试器显示7条警告，未取得主包大小报告，因此开发者工具项仍只能记为有限通过，不能替代双真机验收。
 - D19 真实受控演练已完成：Issue #8 直连脚本验证超时升级、负责人确认去重和 SHA-256 恢复关闭；Issue #9 通过 Actions `workflow_dispatch` 完成负责人确认与恢复关闭。D18 失败回调运行 `33300284569` 因时间格式问题失败；修复合并后，受控无效时段月度检查 `33300872049` 的失败回调 `33300899238` 成功自动打开 Issue #11，随后 Actions `33300990998`/`33300991022` 完成确认和带 SHA-256 证据恢复关闭。故障通知闭环已在线验证。
-- 本轮仍未开启 `AUTOMATIC_RELEASE_ENABLED` 或 `PRODUCTION_RELEASE_AUTHORIZED`，未写入正式 `current.json`、未修改正式指针、未上传或发布小程序。D18 的170条人工判断、失败来源处置、双真机和平台审核仍待完成。
+- 本轮仍未开启 `AUTOMATIC_RELEASE_ENABLED` 或 `PRODUCTION_RELEASE_AUTHORIZED`，未写入正式 `current.json`、未修改正式指针、未上传或发布小程序。D18 的171条人工判断、失败来源处置、双真机和平台审核仍待完成。
 
 ## 2026-08-30 阶段D第1-6项执行记录（本地/隔离证据）
 
