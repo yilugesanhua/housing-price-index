@@ -132,7 +132,7 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p work/auto-release
-          cp -R work/candidate-artifact/work/auto-release/. work/auto-release/
+          cp -R work/candidate-artifact/auto-release/. work/auto-release/
           test -f work/auto-release/candidate/snapshot.cjs
           test -f work/auto-release/candidate/latest-candidate.json
       - name: Read production current pointer (read-only)
@@ -226,8 +226,8 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p work/auto-release work/monthly-data-check
-          cp -R work/recovery-artifact/work/auto-release/. work/auto-release/
-          cp -R work/recovery-artifact/work/monthly-data-check/. work/monthly-data-check/
+          cp -R work/recovery-artifact/auto-release/. work/auto-release/
+          cp -R work/recovery-artifact/monthly-data-check/. work/monthly-data-check/
           node -e "const fs=require('fs'),c=require('crypto'); const actual=c.createHash('sha256').update(fs.readFileSync('work/auto-release/gate-report.json')).digest('hex'); if(actual!==process.env.EXPECTED_GATE_SHA256) throw Error('Recovered gate artifact hash mismatch')"
       - name: Retry guarded publication
         env:
