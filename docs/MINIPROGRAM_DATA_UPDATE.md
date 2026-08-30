@@ -548,7 +548,7 @@ npm run miniprogram:data:verify-remote
 npm run miniprogram:data:publish -- --env=cloud1-d3gpdx70w5d05c68c --dataset=<dataset_version>
 ```
 
-- 本地脚本不得执行生产发布或回滚；本地只允许无生产凭据的 `--dry-run`。人工回滚没有可直接复制执行的通用CLI，必须通过 `.github/workflows/manual-data-rollback.yml` 的受保护 `workflow_dispatch` 入口；生产发布、历史修订、固定修正和人工回滚都必须从受保护的默认分支工作流进入，并由统一授权器核对双开关、同提交普通CI、Environment和目标身份。
+- 本地脚本不得执行生产发布或回滚；本地只允许无生产凭据的 `--dry-run`。人工回滚没有可直接复制执行的通用CLI，必须通过 `.github/workflows/manual-data-rollback.yml` 的受保护 `workflow_dispatch` 入口。已持久化待发布候选的恢复可由 `monthly-data-pending-publish.yml` 定时运行，或仅在默认分支手动输入固定确认词 `recover-pending-release` 后运行；两种入口都必须经过同一双开关、同提交普通CI、Environment、候选哈希和目标身份校验。生产发布、历史修订、固定修正和人工回滚都必须从受保护的默认分支工作流进入。
 - 旧 `miniprogram:data:repair-current` 会在不完整控制协议下直接覆盖 `current.json`，已按失败关闭原则禁用。需要改变当前控制指针时必须使用受审计发布/回滚流程；未来若恢复独立修复工具，必须保留不可变撤销登记、递增 `control_generation`、写前逐字节复核线上基线并通过云函数守卫。
 - CI自动发布模式必须验证受保护环境、默认分支、固定提交SHA、GitHub运行ID、统计月份、目标云环境和门禁报告哈希；它不是可供本地使用的跳过确认开关。
 - 先检查远端版本目录不存在；若已存在，只允许内容哈希完全一致的幂等重试。

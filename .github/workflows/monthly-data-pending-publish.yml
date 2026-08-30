@@ -1,6 +1,12 @@
 name: monthly-data-pending-publish
 
 on:
+  workflow_dispatch:
+    inputs:
+      confirmation:
+        description: Enter recover-pending-release to run the guarded pending-release recovery
+        required: true
+        type: string
   schedule:
     - cron: "17 * * * *"
 
@@ -44,7 +50,10 @@ jobs:
 
   recover:
     needs: inspect
-    if: needs.inspect.outputs.ready == 'true' && vars.AUTOMATIC_RELEASE_ENABLED == 'true'
+    if: >-
+      needs.inspect.outputs.ready == 'true' &&
+      vars.AUTOMATIC_RELEASE_ENABLED == 'true' &&
+      (github.event_name != 'workflow_dispatch' || inputs.confirmation == 'recover-pending-release')
     permissions:
       actions: read
       contents: read
@@ -235,6 +244,7 @@ jobs:
           CI_DATASET_VERSION: ${{ needs.recover.outputs.dataset_version }}
           CI_GATE_REPORT_SHA256: ${{ needs.recover.outputs.gate_report_sha256 }}
           CI_GATE_REPORT_PATH: work/auto-release/gate-report.json
+          CI_MANUAL_RECOVERY_CONFIRMATION: ${{ inputs.confirmation || '' }}
         run: npm run miniprogram:data:publish -- --env=cloud1-d3gpdx70w5d05c68c --candidate-root=work/auto-release/candidate/remote-data --dataset=${{ needs.recover.outputs.dataset_version }}
       - id: rollback_monitor_event
         name: Validate a successful automatic rollback for monitor registration

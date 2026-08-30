@@ -14,6 +14,7 @@ const execFileAsync = promisify(execFile)
 
 const SHA_PATTERN = /^[a-f0-9]{40}$/
 const RUN_ID_PATTERN = /^\d+$/
+const PENDING_RECOVERY_CONFIRMATION = 'recover-pending-release'
 const CORRECTED_RELEASE = Object.freeze({
   workflow: 'manual-corrected-data-publish',
   workflowFile: 'manual-corrected-data-publish.yml',
@@ -53,7 +54,7 @@ export function validateCiReleaseAuthorization({ env, datasetVersion, cloudEnvId
         ? 'complete-history-data-publish.yml'
     : env.GITHUB_EVENT_NAME === 'workflow_run' && env.GITHUB_WORKFLOW === 'monthly-data-auto-publish'
       ? 'monthly-data-auto-publish.yml'
-      : env.GITHUB_EVENT_NAME === 'schedule' && env.GITHUB_WORKFLOW === 'monthly-data-pending-publish'
+    : ['schedule', 'workflow_dispatch'].includes(env.GITHUB_EVENT_NAME) && env.GITHUB_WORKFLOW === 'monthly-data-pending-publish'
         ? 'monthly-data-pending-publish.yml'
         : null
   if (!allowedWorkflow) throw new Error('CI release authorization rejected: workflow/event identity mismatch')
@@ -77,6 +78,9 @@ export function validateCiReleaseAuthorization({ env, datasetVersion, cloudEnvId
   requireEqual(gate.commit_sha, checkedOutSha, 'gate commit SHA')
   requireEqual(env.AUTOMATIC_RELEASE_ENABLED, 'true', 'repository automatic release flag')
   requireEqual(env.PRODUCTION_RELEASE_AUTHORIZED, 'true', 'production environment authorization')
+  if (env.GITHUB_WORKFLOW === 'monthly-data-pending-publish' && env.GITHUB_EVENT_NAME === 'workflow_dispatch') {
+    requireEqual(env.CI_MANUAL_RECOVERY_CONFIRMATION, PENDING_RECOVERY_CONFIRMATION, 'manual pending recovery confirmation')
+  }
   gate.release_authorization = {
     repository_automatic_release_enabled: true,
     production_environment_authorized: true,
