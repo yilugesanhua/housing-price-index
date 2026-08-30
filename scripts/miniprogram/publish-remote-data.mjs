@@ -9,6 +9,7 @@ import { authorizeCiRelease } from './ci-release-authorization.mjs'
 import { buildAutomaticRollbackPointer, validateManifestFunctionOutput } from './post-publish-guard.mjs'
 import { activatePointerWithRollback } from './guarded-activation.mjs'
 import { assertPointerBaseline, assertProductionPointerBaseline, validateHistoricalCorrectionPublishState } from './publish-remote-data-guards.mjs'
+import { loadHistoricalRevisionManifest } from './revision-manifest-context.mjs'
 import {
   appendFailedReleaseRevocations,
   appendRevocations,
@@ -98,6 +99,7 @@ async function assertRemoteCurrentBaseline(expectedText, label) {
   return assertPointerBaseline(await readRemoteCurrentTextOrNull(), expectedText, label)
 }
 let previousManifest = null
+let previousRevisionManifest = null
 if (previous?.dataset_version) {
   const previousManifestPath = resolve(localRoot, 'previous-manifest.json')
   await rm(previousManifestPath, { force: true })
@@ -106,6 +108,11 @@ if (previous?.dataset_version) {
   if (sha256(previousManifestText) !== previous.manifest_sha256) throw new Error('Active manifest hash differs from current.json')
   previousManifest = JSON.parse(previousManifestText)
   if (previousManifest.dataset_version !== previous.dataset_version) throw new Error('Active manifest dataset version differs from current.json')
+  previousRevisionManifest = await loadHistoricalRevisionManifest(previousManifest, {
+    releaseRoot: `housing-data/releases/${previous.dataset_version}`,
+    readText: async (key) => (await cloud.getObject(key)).toString('utf8'),
+    label: 'active revision manifest',
+  })
 }
 let stagedRevisionManifestText = null
 let stagedRevisionManifest = null
@@ -166,6 +173,7 @@ async function loadBaseRevocationRegistry(generatedAt) {
       allowLegacy: false,
       requireContext: true,
       manifest: previousManifest,
+      revisionManifest: previousRevisionManifest,
       registry,
       cloudEnvId,
       storageBucket: cloud.bucket,
@@ -189,6 +197,7 @@ if (previous?.transition_type === 'rollback' && previous.rollback_from_dataset_v
     allowLegacy: false,
     requireContext: true,
     manifest: previousManifest,
+    revisionManifest: previousRevisionManifest,
     registry: activeRegistry,
     cloudEnvId,
     storageBucket: cloud.bucket,
@@ -287,6 +296,11 @@ async function verifyRollbackTargetRelease(pointer, registry, label) {
     || targetManifest.source_dataset_version !== pointer.source_dataset_version) {
     throw new Error('Rollback target manifest identity differs from its pointer')
   }
+  const targetRevisionManifest = await loadHistoricalRevisionManifest(targetManifest, {
+    releaseRoot: targetReleaseRoot,
+    readText: async (key) => (await cloud.getObject(key)).toString('utf8'),
+    label: 'rollback target revision manifest',
+  })
   await cloud.downloadObject(`${targetReleaseRoot}/bootstrap.json`, resolve(targetRoot, 'bootstrap.json'))
   if (targetManifest.release_type === 'historical_correction') {
     await cloud.downloadObject(`${targetReleaseRoot}/revision-manifest.json`, resolve(targetRoot, 'revision-manifest.json'))
@@ -309,6 +323,7 @@ async function verifyRollbackTargetRelease(pointer, registry, label) {
     allowLegacy: false,
     requireContext: true,
     manifest: targetManifest,
+    revisionManifest: targetRevisionManifest,
     registry,
     cloudEnvId,
     storageBucket: cloud.bucket,
@@ -355,7 +370,8 @@ console.log(JSON.stringify({
   dataset_version: datasetVersion,
   dataset_as_of: report.dataset_as_of,
   official_url: report.official_url,
-  source_batch_ids: report.source_batch_ids,
+  latest_source_batch_ids: report.latest_source_batch_ids,
+  revision_source_batch_ids: report.revision_source_batch_ids,
   bootstrap_bytes: report.bootstrap_bytes,
   total_release_bytes: report.total_release_bytes,
   previous_dataset_version: previousDatasetVersion,
@@ -423,6 +439,7 @@ validateControlPointer(current, {
   allowLegacy: false,
   requireContext: true,
   manifest,
+  revisionManifest: stagedRevisionManifest,
   registry: revocationRegistry,
   previousPointer: previous && classifyControlPointer(previous) === 'controlled' ? previous : undefined,
   previousRegistry: previous && classifyControlPointer(previous) === 'controlled' ? baseRevocationRegistry : undefined,
@@ -498,6 +515,7 @@ await activatePointerWithRollback({
       rollbackRevisionId,
       targetSourceDatasetVersion: previousManifest.source_dataset_version,
       targetManifest: previousManifest,
+      targetRevisionManifest: previousRevisionManifest,
     })
   },
   recordRollback: async ({ failedAt, guardError, rollbackPointer, rollbackText }) => {

@@ -1,0 +1,11 @@
+{
+  "schema_version": 1,
+  "release_id": null,
+  "source_commit_sha": null,
+  "build_manifest_sha256": null,
+  "dataset_version": null,
+  "dataset_manifest_sha256": null,
+  "public_origin": null,
+  "evidence_bundle_sha256": null,
+  "entries": []
+}

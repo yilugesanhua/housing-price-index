@@ -18,6 +18,7 @@
 - [当前产品验收](docs/ACCEPTANCE.md)
 - [小程序版本管理](docs/MINIPROGRAM_VERSIONING.md)
 - [小程序每月自动数据更新](docs/MINIPROGRAM_DATA_UPDATE.md)
+- [月度数据自动更新执行方案](docs/MONTHLY_DATA_AUTOMATION_PLAN.md)
 - [实施状态登记](docs/IMPLEMENTATION_STATUS.md)
 
 根目录 `PRODUCT.md` 和 `DESIGN.md` 同时是权威规范和Impeccable等设计skill自动读取的上下文入口，不维护重复副本。历史审计、回放、交接和生成式设计文件只能证明其标注日期或版本，不能覆盖当前源码和权威规范。
@@ -91,6 +92,7 @@ npm run check           依次执行lint、typecheck、test、validate:data和bu
 - 小程序以 `apps/miniprogram/` 为源目录；每次修改完成后必须同步到微信开发者工具目录 `70城小程序技术验证/`，并确认本次涉及的文件内容一致。凡是修改 `apps/miniprogram/` 中会进入客户端构件的源码、运行时校验、配置、内置数据、云函数源码或其他构建输入，必须在同一候选中递增 `apps/miniprogram/config/version.js` 的版本号；只改文档、测试报告或不进入小程序构件的云端脚本不触发小程序版本递增。提交前必须检查变更路径与版本文件是否成对变化，路径已变而版本未变时该候选不合格，不得继续同步、验收、归档或发布。
 - 小程序稳定版本按 `docs/MINIPROGRAM_VERSIONING.md` 归档到 `release/miniprogram/`；已归档版本只读，不得覆盖或补改。
 - 小程序远程数据的生成、上传、缓存、回退和回滚按 `docs/MINIPROGRAM_DATA_UPDATE.md` 执行；发现任务不得直接发布线上数据。
+- 后续涉及月度自动更新的设计、实现、部署、运行复核和故障处理，必须遵循 `docs/MONTHLY_DATA_AUTOMATION_PLAN.md` 的执行顺序、严格发现定义和证据边界；该方案不替代数据契约、数据更新规范、实施状态登记或自动发布启用清单。
 - 权威规范描述目标要求，`docs/IMPLEMENTATION_STATUS.md` 只登记当前实现和验证差距。不得把“规范已写入”当成“代码已实现”，也不得用旧版本或有限演练证据关闭当前问题。
 - 生产自动发布完整启用硬门槛只在 `docs/AUTOMATION_ACTIVATION_CHECKLIST.md` 维护；本文件、`docs/MINIPROGRAM_DATA_UPDATE.md`、`docs/IMPLEMENTATION_STATUS.md` 和其他文档只能引用该清单或登记逐项状态，不得复制门槛集合。该清单任一适用项没有当前可复查通过证据时，仓库级 `AUTOMATIC_RELEASE_ENABLED` 必须保持 `false`，生产 Environment 级 `PRODUCTION_RELEASE_AUTHORIZED` 必须保持 `false` 或未设置；普通发布、历史修订、回滚、状态部署和待发布恢复只有在两者独立验证且同时为精确字符串 `true` 时才能授权生产写入。关闭任何编号都必须同时更新实现、测试和证据状态。
 - 上述双开关规则只有一个极窄、一次性例外：把精确旧生产控制指针迁移到现行控制协议的 `legacy-control-2026-06-e9788d0bddf3`。该例外必须由默认分支精确提交上的专用受保护工作流执行，绑定同一提交普通CI成功、精确迁移ID和生产 Environment 人工批准；`LEGACY_CONTROL_MIGRATION_AUTHORIZED=true` 不得保存为仓库级或 Environment 级持久变量，只能在受保护 job 已完成人工批准、精确提交和全部写前门禁后写入该 job 的临时环境，job 结束即失效。仓库级 `AUTOMATIC_RELEASE_ENABLED` 与生产 Environment 级 `PRODUCTION_RELEASE_AUTHORIZED` 在迁移前后都必须保持 `false` 或未设置。迁移授权不得被任何普通发布、历史修订、回滚、状态部署、恢复或其他生产写入读取或复用。迁移的详细原字节身份、双重撤销、写前耐久意图、写后中断恢复、前后全量回读和失败关闭规则只在 `docs/MINIPROGRAM_DATA_UPDATE.md` 维护；本例外不表示迁移已经执行，也不表示自动发布已经启用。

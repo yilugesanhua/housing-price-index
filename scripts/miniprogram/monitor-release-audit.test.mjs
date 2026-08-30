@@ -126,13 +126,13 @@ test('modern audits still require the immutable source batch ID list', () => {
     dataset_version: '2026-07-0123456789ab',
     source_dataset_version: '2026-07-abcdefabcdef',
     dataset_as_of: '2026-07',
-    source_batch_ids: ['batch-a', 'batch-b'],
+    source_batch_ids: ['official-html-2026-07-aaaaaaaaaaaa', 'official-html-2026-07-bbbbbbbbbbbb'],
   }
   const manifest = {
     dataset_version: audit.dataset_version,
     source_dataset_version: audit.source_dataset_version,
     dataset_as_of: audit.dataset_as_of,
-    source_batch_ids: ['batch-b', 'batch-a'],
+    source_batch_ids: ['official-html-2026-07-bbbbbbbbbbbb', 'official-html-2026-07-aaaaaaaaaaaa'],
   }
 
   assert.doesNotThrow(() => validateMonitoredManifestMetadata({ manifest, audit, usedLegacyBinding: false }))
@@ -141,8 +141,48 @@ test('modern audits still require the immutable source batch ID list', () => {
   assert.throws(() => validateMonitoredManifestMetadata({ manifest, audit: missingIds, usedLegacyBinding: false }),
     /source batch IDs are missing/)
   assert.throws(() => validateMonitoredManifestMetadata({
-    manifest: { ...manifest, source_batch_ids: ['batch-a', 'batch-c'] },
+    manifest: { ...manifest, source_batch_ids: ['official-html-2026-07-aaaaaaaaaaaa', 'official-html-2026-07-cccccccccccc'] },
     audit,
     usedLegacyBinding: false,
   }), /source batch IDs differ/)
+  assert.throws(() => validateMonitoredManifestMetadata({
+    manifest: { ...manifest, source_batch_ids: ['batch-a', 'batch-b'] },
+    audit,
+    usedLegacyBinding: false,
+  }), /unsupported format/)
+})
+
+test('historical correction monitoring binds the separate revision source set and ledger identity', () => {
+  const identity = {
+    candidate_records_sha256: 'a'.repeat(64),
+    audit_records_sha256: 'b'.repeat(64),
+    source_index_sha256: 'c'.repeat(64),
+    audit_report_sha256: 'd'.repeat(64),
+    audit_commit_sha: 'e'.repeat(40),
+    audit_code_sha256: 'f'.repeat(64),
+    ledger_before_sha256: '1'.repeat(64),
+    ledger_after_sha256: '2'.repeat(64),
+    ledger_append_sha256: '3'.repeat(64),
+  }
+  const audit = {
+    dataset_version: '2026-07-0123456789ab',
+    source_dataset_version: '2026-07-abcdefabcdef',
+    dataset_as_of: '2026-07',
+    release_type: 'historical_correction',
+    revision_id: 'revision-2026-07-audited-fix',
+    revision_source_batch_ids: ['official-html-2026-06-aaaaaaaaaaaa', 'official-html-2026-07-bbbbbbbbbbbb'],
+    ...identity,
+  }
+  const manifest = { ...audit }
+  assert.doesNotThrow(() => validateMonitoredManifestMetadata({ manifest, audit, usedLegacyBinding: false }))
+  assert.throws(() => validateMonitoredManifestMetadata({
+    manifest: { ...manifest, revision_source_batch_ids: ['official-html-2026-06-aaaaaaaaaaaa'] },
+    audit,
+    usedLegacyBinding: false,
+  }), /source batch IDs differ/)
+  assert.throws(() => validateMonitoredManifestMetadata({
+    manifest: { ...manifest, ledger_after_sha256: '0'.repeat(64) },
+    audit,
+    usedLegacyBinding: false,
+  }), /ledger_after_sha256 differs/)
 })

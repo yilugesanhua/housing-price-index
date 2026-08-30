@@ -371,6 +371,19 @@ function syntheticNextMonthSnapshot() {
   return snapshot
 }
 
+function ordinaryPublicationIdentity() {
+  return {
+    candidate_records_sha256: 'a'.repeat(64),
+    audit_records_sha256: 'b'.repeat(64),
+    source_index_sha256: 'c'.repeat(64),
+    audit_report_sha256: 'd'.repeat(64),
+    audit_commit_sha: 'e'.repeat(40),
+    audit_code_sha256: 'f'.repeat(64),
+    audit_version: 'full-record-audit-v7',
+    parser_versions: ['official-html-v9-product-housing-only-strict-release-date'],
+  }
+}
+
 function ordinaryRelease(previousCurrent, registryArtifact) {
   const publishedAt = '2026-08-17T01:40:00.000Z'
   const release = buildRemoteRelease(syntheticNextMonthSnapshot(), {
@@ -378,7 +391,8 @@ function ordinaryRelease(previousCurrent, registryArtifact) {
     storageBucket: config.storageBucket,
     minimumAppVersion: versionConfig.version,
     nextCheckAt: '2026-09-15T01:40:00.000Z',
-    sourceBatchIds: ['official-html-runtime-fixture'],
+    sourceBatchIds: ['official-html-2026-06-aaaaaaaaaaaa'],
+    publicationIdentity: ordinaryPublicationIdentity(),
   })
   release.revocationArtifact = registryArtifact
   Object.assign(release.current, {

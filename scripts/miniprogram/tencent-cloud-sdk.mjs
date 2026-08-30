@@ -56,6 +56,25 @@ export function buildScfInvokeRequest(functionName, cloudEnvId, event) {
   return { ...request, ClientContext: '{"action":"describe_validator"}' }
 }
 
+export function buildScfUpdateEnvironmentRequest(functionName, cloudEnvId, variables) {
+  if (!/^[A-Za-z][A-Za-z0-9_-]{0,59}$/.test(functionName || '')) throw new Error('SCF function name is invalid')
+  if (!/^cloud[\w-]+$/.test(cloudEnvId || '')) throw new Error('Invalid CloudBase environment ID')
+  if (!Array.isArray(variables) || variables.length === 0) throw new Error('SCF environment variables are required')
+  const keys = new Set()
+  for (const variable of variables) {
+    if (!/^[A-Z][A-Z0-9_]{0,127}$/.test(variable?.Key || '') || typeof variable?.Value !== 'string' || /[\r\n]/.test(variable.Value)) {
+      throw new Error('SCF environment variable is invalid')
+    }
+    if (keys.has(variable.Key)) throw new Error('SCF environment variable key is duplicated')
+    keys.add(variable.Key)
+  }
+  return {
+    FunctionName: functionName,
+    Namespace: cloudEnvId,
+    Environment: { Variables: variables.map((variable) => ({ Key: variable.Key, Value: variable.Value })) },
+  }
+}
+
 export function createTencentCloudClient({
   secretId = process.env.TENCENTCLOUD_SECRET_ID,
   secretKey = process.env.TENCENTCLOUD_SECRET_KEY,
@@ -131,6 +150,9 @@ export function createTencentCloudClient({
     }
   }
   const invokeFunction = (functionName, event) => scf.Invoke(buildScfInvokeRequest(functionName, cloudEnvId, event))
+  const updateFunctionEnvironment = ({ functionName, variables }) => scf.UpdateFunctionConfiguration(
+    buildScfUpdateEnvironmentRequest(functionName, cloudEnvId, variables),
+  )
   const updateFunctionCode = ({ functionName, zipFile, handler = 'index.main' }) => {
     if (!Buffer.isBuffer(zipFile) || zipFile.length === 0 || zipFile.length > 20 * 1024 * 1024) {
       throw new Error('Function deployment zip is missing or exceeds the SCF inline limit')
@@ -159,6 +181,7 @@ export function createTencentCloudClient({
     uploadDirectory,
     objectExists,
     invokeFunction,
+    updateFunctionEnvironment,
     updateFunctionCode,
   }
 }

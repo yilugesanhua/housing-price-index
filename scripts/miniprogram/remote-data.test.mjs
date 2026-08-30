@@ -9,6 +9,14 @@ const require = createRequire(import.meta.url)
 const snapshot = require(resolve(root, 'apps/miniprogram/data/snapshot.js'))
 const versionConfig = require(resolve(root, 'apps/miniprogram/config/version.js'))
 
+function publicationIdentity() {
+  return {
+    candidate_records_sha256: 'a'.repeat(64), audit_records_sha256: 'b'.repeat(64), source_index_sha256: 'c'.repeat(64),
+    audit_report_sha256: 'd'.repeat(64), audit_commit_sha: 'e'.repeat(40), audit_code_sha256: 'f'.repeat(64),
+    audit_version: 'full-record-audit-v7', parser_versions: ['official-html-v9-product-housing-only-strict-release-date'],
+  }
+}
+
 function release() {
   return buildRemoteRelease(snapshot, {
     cloudEnvId: 'cloud1-d3gpdx70w5d05c68c',
@@ -16,6 +24,7 @@ function release() {
     minimumAppVersion: versionConfig.version,
     nextCheckAt: '2026-08-17T01:40:00.000Z',
     sourceBatchIds: ['official-html-2026-06-4bb4edcce261'],
+    publicationIdentity: publicationIdentity(),
   })
 }
 
@@ -45,13 +54,13 @@ test('remote mini program release is compact and exactly reconstructs bundled da
 test('remote release rejects false or discontinuous client-window coverage metadata', () => {
   assert.throws(() => buildRemoteRelease({ ...snapshot, coverageStart: snapshot.sourceCoverageStart }, {
     cloudEnvId: 'cloud1-d3gpdx70w5d05c68c', storageBucket: '636c-cloud1-d3gpdx70w5d05c68c-1456861154',
-    minimumAppVersion: versionConfig.version, nextCheckAt: '2026-08-17T01:40:00.000Z', sourceBatchIds: ['official-html-test'],
+    minimumAppVersion: versionConfig.version, nextCheckAt: '2026-08-17T01:40:00.000Z', sourceBatchIds: ['official-html-2026-06-aaaaaaaaaaaa'], publicationIdentity: publicationIdentity(),
   }), /coverageStart must match/)
   const discontinuous = structuredClone(snapshot)
   discontinuous.months[1] = discontinuous.months[0]
   assert.throws(() => buildRemoteRelease(discontinuous, {
     cloudEnvId: 'cloud1-d3gpdx70w5d05c68c', storageBucket: '636c-cloud1-d3gpdx70w5d05c68c-1456861154',
-    minimumAppVersion: versionConfig.version, nextCheckAt: '2026-08-17T01:40:00.000Z', sourceBatchIds: ['official-html-test'],
+    minimumAppVersion: versionConfig.version, nextCheckAt: '2026-08-17T01:40:00.000Z', sourceBatchIds: ['official-html-2026-06-aaaaaaaaaaaa'], publicationIdentity: publicationIdentity(),
   }), /months must be continuous/)
 })
 
@@ -59,13 +68,13 @@ test('remote release accepts null-only pre-source padding and rejects values bef
   const padded = snapshotWithNullPreSourcePadding()
   assert.doesNotThrow(() => buildRemoteRelease(padded, {
     cloudEnvId: 'cloud1-d3gpdx70w5d05c68c', storageBucket: '636c-cloud1-d3gpdx70w5d05c68c-1456861154',
-    minimumAppVersion: versionConfig.version, nextCheckAt: '2026-08-17T01:40:00.000Z', sourceBatchIds: ['official-html-test'],
+    minimumAppVersion: versionConfig.version, nextCheckAt: '2026-08-17T01:40:00.000Z', sourceBatchIds: ['official-html-2026-06-aaaaaaaaaaaa'], publicationIdentity: publicationIdentity(),
   }))
 
   padded.series.beijing.n_a[0] = 100
   assert.throws(() => buildRemoteRelease(padded, {
     cloudEnvId: 'cloud1-d3gpdx70w5d05c68c', storageBucket: '636c-cloud1-d3gpdx70w5d05c68c-1456861154',
-    minimumAppVersion: versionConfig.version, nextCheckAt: '2026-08-17T01:40:00.000Z', sourceBatchIds: ['official-html-test'],
+    minimumAppVersion: versionConfig.version, nextCheckAt: '2026-08-17T01:40:00.000Z', sourceBatchIds: ['official-html-2026-06-aaaaaaaaaaaa'], publicationIdentity: publicationIdentity(),
   }), /pre-source padding must be null/)
 })
 
@@ -110,14 +119,17 @@ test('historical correction binds an audited revision manifest into the release'
   }
   const candidate = buildRemoteRelease(corrected, {
     cloudEnvId: 'cloud1-d3gpdx70w5d05c68c', storageBucket: '636c-cloud1-d3gpdx70w5d05c68c-1456861154',
-    minimumAppVersion: 'v2.4.0', nextCheckAt: '2026-08-17T01:40:00.000Z', sourceBatchIds: ['official-html-corrected'],
+    minimumAppVersion: 'v2.4.0', nextCheckAt: '2026-08-17T01:40:00.000Z', sourceBatchIds: ['official-html-2026-06-bbbbbbbbbbbb'], publicationIdentity: publicationIdentity(),
     correction: {
-      revision_id: `revision-${correctionMonth}-audited-fix`, revision_type: 'historical_data_correction', approval_status: 'approved', dataset_as_of: correctionMonth,
+      revision_id: `revision-${correctionMonth}-audited-fix`, release_type: 'historical_correction', reason_type: 'official_revision', approval_status: 'approved', dataset_as_of: correctionMonth,
       supersedes_source_dataset_version: snapshot.sourceDatasetVersion, source_dataset_version: corrected.sourceDatasetVersion,
       source_version_chain: [snapshot.sourceDatasetVersion, corrected.sourceDatasetVersion], revoked_source_dataset_versions: [snapshot.sourceDatasetVersion],
-      reason: '国家统计局官方原始表经全量复核后的历史数据修订', official_urls: ['https://www.stats.gov.cn/source'], source_batch_ids: ['official-html-corrected'],
-      parser_version: 'official-html-v7-product-housing-only', audit_version: 'full-record-audit-v4', approved_at: '2026-07-20T00:00:00Z', approved_by: 'data-owner',
-      audit_report_sha256: 'a'.repeat(64), commit_sha: 'b'.repeat(40), github_run_id: '12345',
+      reason: '国家统计局官方原始表经全量复核后的历史数据修订', official_urls: ['https://www.stats.gov.cn/source'],
+      latest_source_batch_ids: ['official-html-2026-06-bbbbbbbbbbbb'], revision_source_batch_ids: ['official-html-2026-06-bbbbbbbbbbbb'],
+      parser_version: 'official-html-v7-product-housing-only', audit_version: 'full-record-audit-v7', approved_at: '2026-07-20T00:00:00Z', approved_by: 'data-owner',
+      candidate_records_sha256: 'a'.repeat(64), audit_records_sha256: 'b'.repeat(64), source_index_sha256: 'c'.repeat(64), audit_report_sha256: 'd'.repeat(64),
+      audit_commit_sha: 'e'.repeat(40), audit_code_sha256: 'f'.repeat(64), ledger_before_sha256: '1'.repeat(64), ledger_after_sha256: '2'.repeat(64),
+      ledger_append_start: 0, ledger_append_count: 1, ledger_append_sha256: '3'.repeat(64), commit_sha: '4'.repeat(40), github_run_id: '12345',
       changes: [{ record_key: `${correctionMonth}|fuzhou|new|all`, field: 'mom_index', old_value: 99.8, new_value: 99.9, source_url: 'https://www.stats.gov.cn/source', source_record_locator: 'table[0] row[1]' }],
     },
   })

@@ -1,8 +1,8 @@
 # 文档索引与状态
 
-更新日期：2026-08-27
+更新日期：2026-08-30
 
-本文件是项目文档的统一入口。当前产品与界面事实以 `apps/web/` 和 `apps/miniprogram/` 为准；小程序唯一机器可读源码版本来自 `apps/miniprogram/config/version.js`，截至本次整理其值为 `v2.5.25`。本文中的版本文字只是该次整理快照，不是第二版本源。`70城小程序技术验证/` 是同步副本，`release/miniprogram/` 是只读稳定归档。源码版本、历史测试或旧交接单均不等于微信平台已审核或发布。
+本文件是项目文档的统一入口。当前产品与界面事实以 `apps/web/` 和 `apps/miniprogram/` 为准；小程序唯一机器可读源码版本来自 `apps/miniprogram/config/version.js`，截至本次整理其值为 `v2.5.27`。本文中的版本文字只是该次整理快照，不是第二版本源。`70城小程序技术验证/` 是同步副本，`release/miniprogram/` 是只读稳定归档。源码版本、历史测试或旧交接单均不等于微信平台已审核或发布。
 
 ## 当前权威规范
 
@@ -31,6 +31,7 @@
 | [`RELEASE_READINESS.md`](RELEASE_READINESS.md) | Web正式HTTPS发布检查及绑定当前提交、构建、数据、域名和有效期的目标声明契约 |
 | [`MINIPROGRAM_LAUNCH_PREP.md`](MINIPROGRAM_LAUNCH_PREP.md) | 小程序账号、备案、审核和试运行准备 |
 | [`AUTOMATION_ACTIVATION_CHECKLIST.md`](AUTOMATION_ACTIVATION_CHECKLIST.md) | 自动更新生产开关启用前的外部事项 |
+| [`STAGE_D_REMAINING_WORK.md`](STAGE_D_REMAINING_WORK.md) | 阶段 D 剩余外部验收、交接步骤和完成标准；不替代启用清单或实施状态登记 |
 | [`IMPLEMENTATION_STATUS.md`](IMPLEMENTATION_STATUS.md) | S/C/D/R/I/V已批准结论、当前实现差距、阻断范围和关闭证据的唯一登记；不另行定义产品或技术规则，定义缺失的历史项目必须明确标为不可复核 |
 | [`MINIPROGRAM_LOCATION_SETUP.md`](MINIPROGRAM_LOCATION_SETUP.md) | 小程序模糊定位、腾讯位置服务、城市匹配和隐私边界配置 |
 | [`MINIPROGRAM_PROJECT_RETROSPECTIVE_AND_WORKFLOW.md`](MINIPROGRAM_PROJECT_RETROSPECTIVE_AND_WORKFLOW.md) | 项目历史复盘、后续小程序维护指南和个人工作流来源；不覆盖当前权威规范或外部平台状态 |
@@ -41,11 +42,11 @@
 
 ## 当前版本待完成证据
 
-当前 `v2.5.25` 是包含月度严格只读发现器与观察对象门禁的源码候选。它尚未取得绑定该候选的微信开发者工具编译、Android/iPhone 真机、微信审核/发布或正式数据链路证据；这些外部事项不能由旧 `v2.5.15` 的线上截图或历史交接替代。正式数据自动发布仍保持关闭。历史 `v2.5.15` 的候选身份和待补证据见 [`MINIPROGRAM_V2_5_15_RELEASE_HANDOFF.md`](MINIPROGRAM_V2_5_15_RELEASE_HANDOFF.md)。
+当前 `v2.5.27` 是包含月度严格只读发现器、历史修订身份校验、历史页面隔离复核和故障通知闭环本地实现的源码候选；它进一步覆盖发布、状态部署、监测和回滚中的历史修订清单上下文。它尚未取得绑定该候选的微信开发者工具编译、Android/iPhone 真机、GitHub线上工作流演练、微信审核/发布或正式数据链路证据；这些外部事项不能由旧 `v2.5.26`、`v2.5.25` 或 `v2.5.15` 的历史证据替代。正式数据自动发布仍保持关闭。
 
 ## 历史证据与记录
 
-以下文件只证明其标注日期、提交、运行或候选版本。它们不得用于证明当前 `v2.5.25` 已通过验收，也不得反向要求当前页面恢复旧设计：
+以下文件只证明其标注日期、提交、运行或候选版本。它们不得用于证明当前 `v2.5.27` 已通过验收，也不得反向要求当前页面恢复旧设计：
 
 - [`MONTHLY_DATA_AUTOMATION_AUDIT_20260820.md`](MONTHLY_DATA_AUTOMATION_AUDIT_20260820.md)：2026-08-20月度自动数据更新可靠性只读审计，记录定时漏投、候选契约、重试、幂等和恢复问题及建议方案；状态为 `historical_evidence / plan_only`，不表示修复、部署或重新启用已经完成。
 - [`ACCEPTANCE_EVIDENCE.md`](ACCEPTANCE_EVIDENCE.md)：始建于2026-07-19、部分数据证据更新至2026-07-28的Web验收矩阵。
@@ -65,7 +66,7 @@
 
 1. 新的当前规则写入对应权威规范，不在审计或交接文件中另建一套冲突规则。
 2. 历史证据保留原始结论，只增加状态边界；不得把旧候选名称或旧测试结果改写成当前事实。
-3. `apps/miniprogram/config/version.js` 是当前小程序版本的唯一机器源。当前源码版本发生变化时，更新本索引、产品基线和对应版本验收入口；版本绑定模板与历史证据保留其固定版本号，不得批量替换。未来CI必须校验入口快照、候选证据文件名和身份字段与机器源一致；该门禁实现前按 `IMPLEMENTATION_STATUS.md` 的I14保持未通过。
+3. `apps/miniprogram/config/version.js` 是当前小程序版本的唯一机器源。当前源码版本发生变化时，更新本索引、产品基线和对应版本验收入口；版本绑定模板与历史证据保留其固定版本号，不得批量替换。普通CI执行 `npm run miniprogram:version:check`，校验当前入口快照；传入候选或稳定归档目录时还校验候选证据文件名和身份字段与机器源一致。该门禁的本地/CI验证状态见 `IMPLEMENTATION_STATUS.md` 的I14。
 4. 用户未明确要求的界面、文案、结构、交互或功能不得因文档整理而修改。
 5. 权威规范中的目标要求不等于当前实现；实现与验证状态只在 `IMPLEMENTATION_STATUS.md` 登记，并必须绑定可复查证据。
 6. 文档修改不能关闭代码问题。只有实现、测试和必要的云端或真机证据全部完成后，才允许把状态改为通过。

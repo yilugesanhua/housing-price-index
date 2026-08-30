@@ -285,11 +285,37 @@ function validateManifest(manifest, current, config, expectedCityIds = bundledSn
     assert(/^[a-z]+$/.test(cityId), `remote city ID is invalid: ${cityId}`)
     assert(SHA_PATTERN.test(file.sha256 || '') && Number.isInteger(file.bytes), `remote city file metadata is invalid: ${cityId}`)
   }
+  const identityFields = [
+    'candidate_records_sha256', 'audit_records_sha256', 'source_index_sha256',
+    'audit_report_sha256', 'audit_commit_sha', 'audit_code_sha256',
+    'audit_version', 'parser_versions', 'latest_source_batch_ids',
+  ]
+  const presentIdentityFields = identityFields.filter((field) => manifest[field] !== undefined)
+  if (presentIdentityFields.length) {
+    assert(presentIdentityFields.length === identityFields.length, 'remote publication identity is incomplete')
+    assert(SHA_PATTERN.test(manifest.candidate_records_sha256 || '')
+      && SHA_PATTERN.test(manifest.audit_records_sha256 || '')
+      && SHA_PATTERN.test(manifest.source_index_sha256 || '')
+      && SHA_PATTERN.test(manifest.audit_report_sha256 || '')
+      && SHA_PATTERN.test(manifest.audit_code_sha256 || '')
+      && /^[a-f0-9]{40}$/.test(manifest.audit_commit_sha || ''), 'remote publication identity is invalid')
+    assert(manifest.audit_version === 'full-record-audit-v7', 'remote publication audit version is invalid')
+    assert(Array.isArray(manifest.parser_versions) && manifest.parser_versions.length > 0
+      && new Set(manifest.parser_versions).size === manifest.parser_versions.length
+      && manifest.parser_versions.every((value) => typeof value === 'string' && value), 'remote publication parser identity is invalid')
+    assert(Array.isArray(manifest.latest_source_batch_ids) && manifest.latest_source_batch_ids.length > 0
+      && new Set(manifest.latest_source_batch_ids).size === manifest.latest_source_batch_ids.length
+      && manifest.latest_source_batch_ids.every((value) => /^official-html-20\d{2}-(?:0[1-9]|1[0-2])-[a-f0-9]{12}$/.test(value)), 'remote latest source batches are invalid')
+  }
   if (manifest.release_type === 'historical_correction') {
     assert(/^revision-[a-z0-9][a-z0-9-]{5,80}$/.test(manifest.revision_id || ''), 'remote revision ID is invalid')
     assert(DATASET_PATTERN.test(manifest.supersedes_source_dataset_version || ''), 'remote superseded source is invalid')
     assert(manifest.revision_manifest_file_id === `${root}revision-manifest.json`, 'remote revision manifest path is invalid')
     assert(SHA_PATTERN.test(manifest.revision_manifest_sha256 || '') && Number.isInteger(manifest.revision_manifest_bytes), 'remote revision manifest metadata is invalid')
+    assert(presentIdentityFields.length === identityFields.length, 'historical correction lacks publication identity')
+    assert(Array.isArray(manifest.revision_source_batch_ids) && manifest.revision_source_batch_ids.length > 0
+      && new Set(manifest.revision_source_batch_ids).size === manifest.revision_source_batch_ids.length
+      && manifest.revision_source_batch_ids.every((value) => /^official-html-20\d{2}-(?:0[1-9]|1[0-2])-[a-f0-9]{12}$/.test(value)), 'remote revision source batches are invalid')
   }
   return manifest
 }
@@ -305,7 +331,8 @@ function validateCompleteSourceEvidence(manifest, snapshot) {
 
 function validateRevisionManifest(revision, manifest) {
   assert(revision?.format === 'housing-historical-correction' && revision.schema_version === '1.0.0', 'remote revision manifest format is invalid')
-  assert(revision.revision_id === manifest.revision_id && revision.revision_type === 'historical_data_correction', 'remote revision identity is invalid')
+  assert(revision.revision_id === manifest.revision_id && revision.release_type === 'historical_correction', 'remote revision identity is invalid')
+  assert(['official_revision', 'parser_error', 'transform_error', 'mapping_error'].includes(revision.reason_type), 'remote revision reason type is invalid')
   assert(revision.approval_status === 'approved', 'remote revision is not approved')
   assert(revision.dataset_as_of === manifest.dataset_as_of && revision.source_dataset_version === manifest.source_dataset_version, 'remote revision dataset is inconsistent')
   assert(revision.supersedes_source_dataset_version === manifest.supersedes_source_dataset_version, 'remote revision superseded source is inconsistent')
@@ -316,9 +343,12 @@ function validateRevisionManifest(revision, manifest) {
   assert(revision.revoked_source_dataset_versions.every((value) => revision.source_version_chain.includes(value) && value !== revision.source_dataset_version), 'remote revision revokes an invalid source')
   assert(typeof revision.reason === 'string' && revision.reason.trim().length >= 10, 'remote revision reason is invalid')
   assert(Array.isArray(revision.official_urls) && revision.official_urls.length > 0 && revision.official_urls.every((url) => /^https:\/\/(?:www\.)?stats\.gov\.cn\//.test(url)), 'remote revision official URLs are invalid')
-  assert(Array.isArray(revision.source_batch_ids) && revision.source_batch_ids.length > 0, 'remote revision source batches are invalid')
+  assert(Array.isArray(revision.latest_source_batch_ids) && JSON.stringify(revision.latest_source_batch_ids) === JSON.stringify(manifest.latest_source_batch_ids), 'remote revision latest source batches are inconsistent')
+  assert(Array.isArray(revision.revision_source_batch_ids) && JSON.stringify(revision.revision_source_batch_ids) === JSON.stringify(manifest.revision_source_batch_ids), 'remote revision source batches are inconsistent')
   assert(typeof revision.parser_version === 'string' && revision.parser_version && typeof revision.audit_version === 'string' && revision.audit_version, 'remote revision audit metadata is invalid')
-  assert(SHA_PATTERN.test(revision.audit_report_sha256 || '') && /^[a-f0-9]{40}$/.test(revision.commit_sha || '') && /^\d+$/.test(String(revision.github_run_id || '')), 'remote revision build identity is invalid')
+  assert(SHA_PATTERN.test(revision.candidate_records_sha256 || '') && SHA_PATTERN.test(revision.audit_records_sha256 || '') && SHA_PATTERN.test(revision.source_index_sha256 || '') && SHA_PATTERN.test(revision.audit_report_sha256 || '') && SHA_PATTERN.test(revision.audit_code_sha256 || '') && /^[a-f0-9]{40}$/.test(revision.audit_commit_sha || '') && /^[a-f0-9]{40}$/.test(revision.commit_sha || '') && /^\d+$/.test(String(revision.github_run_id || '')), 'remote revision build identity is invalid')
+  assert(SHA_PATTERN.test(revision.ledger_before_sha256 || '') && SHA_PATTERN.test(revision.ledger_after_sha256 || '') && SHA_PATTERN.test(revision.ledger_append_sha256 || '') && Number.isInteger(revision.ledger_append_start) && Number.isInteger(revision.ledger_append_count) && revision.ledger_append_count > 0, 'remote revision ledger identity is invalid')
+  for (const field of ['candidate_records_sha256', 'audit_records_sha256', 'source_index_sha256', 'audit_report_sha256', 'audit_commit_sha', 'audit_code_sha256', 'audit_version']) assert(revision[field] === manifest[field], `remote revision ${field} is inconsistent`)
   assert(Number.isFinite(Date.parse(revision.approved_at || '')) && typeof revision.approved_by === 'string' && revision.approved_by, 'remote revision approval metadata is invalid')
   assert(Array.isArray(revision.changes) && revision.changes.length > 0, 'remote revision changes are missing')
   const keys = revision.changes.map((item) => `${item.record_key}|${item.field}`)
@@ -838,7 +868,13 @@ function createDataRuntime({ wxApi = typeof wx === 'undefined' ? null : wx, bund
     }
     if (!rollbackAuthorized) validateRemoteSource(current, manifest, bundled, revisionManifest)
     const registry = storedRegistry(control)
-    if (isCurrentPointer) validateCurrent(current, config, { allowLegacy: false, requireContext: true, manifest, registry })
+    if (isCurrentPointer) validateCurrent(current, config, {
+      allowLegacy: false,
+      requireContext: true,
+      manifest,
+      revisionManifest,
+      registry,
+    })
     const bootstrapText = readSync(`${root}/bootstrap.json`)
     assert(utf8Bytes(bootstrapText).byteLength === manifest.bootstrap_bytes, 'cached bootstrap size mismatch')
     assert(fileHash(bootstrapText) === manifest.bootstrap_sha256, 'cached bootstrap hash mismatch')
@@ -1482,6 +1518,7 @@ function createDataRuntime({ wxApi = typeof wx === 'undefined' ? null : wx, bund
         allowLegacy: false,
         requireContext: true,
         manifest,
+        revisionManifest,
         registry: control.registry,
       })
       if (activeSource === 'bundled' && bundledSupersedesRemoteManifest(manifest, bundled, localState.control, config)) {

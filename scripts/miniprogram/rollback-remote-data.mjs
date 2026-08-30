@@ -17,6 +17,7 @@ import {
 import { buildAutomaticRollbackPointer, validateManifestFunctionOutput } from './post-publish-guard.mjs'
 import { assertProductionPointerBaseline } from './publish-remote-data-guards.mjs'
 import { authorizeCiRollback } from './ci-rollback-authorization.mjs'
+import { loadHistoricalRevisionManifest } from './revision-manifest-context.mjs'
 import {
   assertManualRollbackWriteOrigin,
   buildManualRollbackAudit,
@@ -125,6 +126,11 @@ async function downloadAndVerifyTarget(label) {
   if (manifest.release_type === 'historical_correction') {
     await cloud.downloadObject(`housing-data/releases/${datasetVersion}/revision-manifest.json`, resolve(targetRoot, 'revision-manifest.json'))
   }
+  const revisionManifest = await loadHistoricalRevisionManifest(manifest, {
+    releaseRoot: `housing-data/releases/${datasetVersion}`,
+    readText: async (key) => (await cloud.getObject(key)).toString('utf8'),
+    label: 'rollback target revision manifest',
+  })
   const targetPointer = {
     dataset_version: manifest.dataset_version,
     source_dataset_version: manifest.source_dataset_version,
@@ -146,6 +152,7 @@ async function downloadAndVerifyTarget(label) {
     cityIds,
     manifest,
     manifestText,
+    revisionManifest,
     targetPointer,
     verificationOutput: stdout.trim(),
   }
@@ -163,15 +170,22 @@ async function readAndValidateActiveBaseline(expectedText) {
   if (registry.generation !== current.revocations_generation) throw new Error('Active revocations registry generation mismatch')
   const activeManifestText = (await cloud.getObject(`housing-data/releases/${current.dataset_version}/manifest.json`)).toString('utf8')
   if (sha256(activeManifestText) !== current.manifest_sha256) throw new Error('Active manifest hash mismatch')
+  const activeManifest = JSON.parse(activeManifestText)
+  const activeRevisionManifest = await loadHistoricalRevisionManifest(activeManifest, {
+    releaseRoot: `housing-data/releases/${current.dataset_version}`,
+    readText: async (key) => (await cloud.getObject(key)).toString('utf8'),
+    label: 'active revision manifest',
+  })
   validateControlPointer(current, {
     allowLegacy: false,
     requireContext: true,
-    manifest: JSON.parse(activeManifestText),
+    manifest: activeManifest,
+    revisionManifest: activeRevisionManifest,
     registry,
     cloudEnvId,
     storageBucket: cloud.bucket,
   })
-  return { current, currentText, registry }
+  return { current, currentText, registry, manifest: activeManifest, revisionManifest: activeRevisionManifest }
 }
 
 function buildRollbackArtifacts({ baseline, target, rolledBackAt }) {
@@ -198,6 +212,7 @@ function buildRollbackArtifacts({ baseline, target, rolledBackAt }) {
     rollbackRevisionId,
     targetSourceDatasetVersion: target.manifest.source_dataset_version,
     targetManifest: target.manifest,
+    targetRevisionManifest: target.revisionManifest,
     statusReason: 'manual_rollback',
   })
   const currentText = stableJson(current)
@@ -258,6 +273,7 @@ async function verifyAppliedIntent({ intent, intentText, target, recoveredAfterP
     allowLegacy: false,
     requireContext: true,
     manifest: target.manifest,
+    revisionManifest: target.revisionManifest,
     registry,
     cloudEnvId,
     storageBucket: cloud.bucket,

@@ -1,0 +1,112 @@
+name: housing-data-incident-lifecycle
+
+on:
+  workflow_run:
+    workflows:
+      - monthly-data-check
+      - monthly-data-auto-publish
+      - monthly-data-pending-publish
+      - historical-data-correction
+      - monthly-data-post-publish-monitor
+      - quarterly-historical-page-audit
+    types: [completed]
+  workflow_dispatch:
+    inputs:
+      action:
+        description: acknowledge, recover, or evaluate
+        required: true
+        type: choice
+        options: [acknowledge, recover, evaluate]
+      fingerprint:
+        description: Fault fingerprint required for acknowledge or recover
+        required: false
+        type: string
+      note:
+        description: Acknowledgement or recovery note
+        required: false
+        type: string
+      recovery_evidence_sha256:
+        description: Required SHA-256 evidence for recovery
+        required: false
+        type: string
+  schedule:
+    - cron: "*/10 * * * *"
+
+permissions:
+  contents: read
+  issues: write
+
+concurrency:
+  group: housing-data-incident-lifecycle
+  cancel-in-progress: false
+
+jobs:
+  workflow-failure:
+    if: >-
+      github.event_name == 'workflow_run' &&
+      github.event.workflow_run.conclusion == 'failure' &&
+      github.event.workflow_run.head_branch == github.event.repository.default_branch &&
+      github.event.workflow_run.head_repository.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Open or deduplicate the assigned incident
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          HOUSING_DATA_INCIDENT_OWNER: ${{ vars.HOUSING_DATA_INCIDENT_OWNER }}
+          WORKFLOW_NAME: ${{ github.event.workflow_run.name }}
+          WORKFLOW_CONCLUSION: ${{ github.event.workflow_run.conclusion }}
+          WORKFLOW_UPDATED_AT: ${{ github.event.workflow_run.updated_at }}
+          WORKFLOW_URL: ${{ github.event.workflow_run.html_url }}
+        shell: bash
+        run: >-
+          node scripts/miniprogram/incident-lifecycle.mjs
+          --action=open
+          --kind=workflow_failure
+          --scope="workflow:${WORKFLOW_NAME}"
+          --condition="workflow_conclusion=${WORKFLOW_CONCLUSION}"
+          --summary="Workflow ${WORKFLOW_NAME} finished with ${WORKFLOW_CONCLUSION}."
+          --occurred-at="${WORKFLOW_UPDATED_AT}"
+          --evidence-url="${WORKFLOW_URL}"
+
+  lifecycle:
+    if: github.event_name != 'workflow_run'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Evaluate acknowledgement deadlines
+        if: github.event_name == 'schedule' || inputs.action == 'evaluate'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/miniprogram/incident-lifecycle.mjs --action=evaluate
+      - name: Record owner acknowledgement
+        if: inputs.action == 'acknowledge'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          HOUSING_DATA_INCIDENT_OWNER: ${{ vars.HOUSING_DATA_INCIDENT_OWNER }}
+          FINGERPRINT: ${{ inputs.fingerprint }}
+          NOTE: ${{ inputs.note }}
+        run: >-
+          node scripts/miniprogram/incident-lifecycle.mjs
+          --action=acknowledge
+          --fingerprint="${FINGERPRINT}"
+          --note="${NOTE}"
+      - name: Record verified recovery and close the incident
+        if: inputs.action == 'recover'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          FINGERPRINT: ${{ inputs.fingerprint }}
+          NOTE: ${{ inputs.note }}
+          RECOVERY_EVIDENCE_SHA256: ${{ inputs.recovery_evidence_sha256 }}
+        run: >-
+          node scripts/miniprogram/incident-lifecycle.mjs
+          --action=recover
+          --fingerprint="${FINGERPRINT}"
+          --summary="${NOTE}"
+          --recovery-evidence-sha256="${RECOVERY_EVIDENCE_SHA256}"

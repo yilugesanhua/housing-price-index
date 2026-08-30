@@ -1,8 +1,9 @@
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises'
+import { glob, mkdir, readFile, rm, writeFile } from 'node:fs/promises'
 import { createRequire } from 'node:module'
 import { resolve } from 'node:path'
-import { buildRemoteRelease, clientNextCheckAt, sha256, verifyReleaseAgainstSnapshot } from './remote-data-lib.mjs'
+import { buildRemoteRelease, clientNextCheckAt, verifyReleaseAgainstSnapshot } from './remote-data-lib.mjs'
 import { loadAndValidateHistoricalCorrection } from './historical-correction-lib.mjs'
+import { buildPublicationIdentity, validateAuditSourceIndex } from './publication-identity.mjs'
 
 const root = resolve(import.meta.dirname, '../..')
 const require = createRequire(import.meta.url)
@@ -14,7 +15,19 @@ const cloudEnvId = process.argv.find((argument) => argument.startsWith('--env=')
 const dataRoot = process.argv.find((argument) => argument.startsWith('--data-root='))?.slice('--data-root='.length) || 'apps/web/public/data'
 const auditRoot = process.argv.find((argument) => argument.startsWith('--audit-root='))?.slice('--audit-root='.length) || ''
 const publishedData = JSON.parse(await readFile(resolve(root, dataRoot, 'data.json'), 'utf8'))
-const sourceBatchIds = publishedData.records.filter((record) => record.stat_month === snapshot.datasetAsOf).map((record) => record.source_batch_id).filter(Boolean)
+const latestSourceBatchIds = [...new Set(publishedData.records
+  .filter((record) => record.stat_month === snapshot.datasetAsOf)
+  .map((record) => record.source_batch_id)
+  .filter(Boolean))].sort()
+const auditReport = JSON.parse(await readFile(resolve(root, auditRoot || 'data', 'audit-report.json'), 'utf8'))
+const sourceBatchPaths = await glob('data/raw/**/*.batch.json', { cwd: root })
+const sourceBatches = []
+for (const path of sourceBatchPaths) {
+  const batch = JSON.parse(await readFile(resolve(root, path), 'utf8'))
+  if (batch?.source_batch?.stat_month <= snapshot.datasetAsOf) sourceBatches.push(batch)
+}
+validateAuditSourceIndex({ auditReport, batches: sourceBatches })
+const publicationIdentity = buildPublicationIdentity({ records: publishedData.records, auditReport })
 const dataConfig = require(resolve(root, 'apps/miniprogram/config/data.js'))
 const calendarPath = process.argv.find((argument) => argument.startsWith('--calendar='))?.slice('--calendar='.length) || resolve(root, 'work/monthly-data-check/release-calendar.json')
 const explicitNextCheckAt = process.argv.find((argument) => argument.startsWith('--next-check-at='))?.slice('--next-check-at='.length)
@@ -28,13 +41,28 @@ if (!Number.isFinite(Date.parse(nextCheckAt || ''))) throw new Error('Invalid --
 const generatedAt = process.env.AUTO_RELEASE_TIME_SEED && Number.isFinite(Date.parse(process.env.AUTO_RELEASE_TIME_SEED))
   ? new Date(process.env.AUTO_RELEASE_TIME_SEED).toISOString()
   : snapshot.generatedAt
-let correction = correctionPath ? await loadAndValidateHistoricalCorrection({ root, requestPath: resolve(root, correctionPath) }) : null
+let correction = correctionPath ? await loadAndValidateHistoricalCorrection({
+  root,
+  requestPath: resolve(root, correctionPath),
+  candidateCommitSha: commitSha,
+  githubRunId,
+}) : null
 if (correction) {
-  if (!/^[a-f0-9]{40}$/.test(commitSha || '') || !/^\d+$/.test(githubRunId || '')) throw new Error('Correction staging requires valid --commit and --run-id')
-      correction = { ...correction, audit_report_sha256: sha256(await readFile(resolve(root, auditRoot || 'data', 'audit-report.json'))), commit_sha: commitSha, github_run_id: githubRunId }
+  for (const field of ['candidate_records_sha256', 'audit_records_sha256', 'source_index_sha256', 'audit_report_sha256', 'audit_commit_sha', 'audit_code_sha256', 'audit_version']) {
+    if (correction[field] !== publicationIdentity[field]) throw new Error(`Correction identity differs from staged publication identity: ${field}`)
+  }
+  if (JSON.stringify(correction.latest_source_batch_ids) !== JSON.stringify(latestSourceBatchIds)) throw new Error('Correction latest source batches differ from staged publication')
 }
 const minimumAppVersion = correction ? dataConfig.correctionMinimumAppVersion : dataConfig.monthlyMinimumAppVersion
-const release = buildRemoteRelease(snapshot, { cloudEnvId, storageBucket: dataConfig.storageBucket, minimumAppVersion, nextCheckAt, sourceBatchIds, correction })
+const release = buildRemoteRelease(snapshot, {
+  cloudEnvId,
+  storageBucket: dataConfig.storageBucket,
+  minimumAppVersion,
+  nextCheckAt,
+  latestSourceBatchIds,
+  publicationIdentity,
+  correction,
+})
 const outputRoot = resolve(root, outputDirectory, release.manifest.dataset_version)
 const errors = verifyReleaseAgainstSnapshot(snapshot, release)
 if (errors.length) throw new Error(`Remote release validation failed:\n- ${errors.join('\n- ')}`)
@@ -58,12 +86,24 @@ const report = {
   revision_manifest_sha256: release.manifest.revision_manifest_sha256 || null,
   revision_manifest_bytes: release.manifest.revision_manifest_bytes || null,
   dataset_version: release.manifest.dataset_version,
-  source_dataset_version: snapshot.datasetVersion,
+  source_dataset_version: snapshot.sourceDatasetVersion,
   dataset_as_of: snapshot.datasetAsOf,
   release_date: snapshot.releaseDate,
   official_url: snapshot.latestOfficialUrl,
   next_check_at: nextCheckAt,
-  source_batch_ids: release.manifest.source_batch_ids,
+  latest_source_batch_ids: release.manifest.latest_source_batch_ids,
+  revision_source_batch_ids: release.manifest.revision_source_batch_ids || [],
+  candidate_records_sha256: release.manifest.candidate_records_sha256,
+  audit_records_sha256: release.manifest.audit_records_sha256,
+  source_index_sha256: release.manifest.source_index_sha256,
+  audit_report_sha256: release.manifest.audit_report_sha256,
+  audit_commit_sha: release.manifest.audit_commit_sha,
+  audit_code_sha256: release.manifest.audit_code_sha256,
+  ledger_before_sha256: release.manifest.ledger_before_sha256 || null,
+  ledger_after_sha256: release.manifest.ledger_after_sha256 || null,
+  ledger_append_start: release.manifest.ledger_append_start ?? null,
+  ledger_append_count: release.manifest.ledger_append_count ?? null,
+  ledger_append_sha256: release.manifest.ledger_append_sha256 || null,
   manifest_sha256: release.current.manifest_sha256,
   bootstrap_sha256: release.manifest.bootstrap_sha256,
   bootstrap_bytes: release.manifest.bootstrap_bytes,
@@ -85,7 +125,8 @@ await writeFile(resolve(outputRoot, 'release-report.md'), [
   `- 统计月份：${report.dataset_as_of}`,
   `- 官方发布日期：${report.release_date}`,
   `- 官方来源：${report.official_url}`,
-  `- 来源批次：${report.source_batch_ids.join(', ')}`,
+  `- 最新月来源批次：${report.latest_source_batch_ids.join(', ')}`,
+  ...(report.revision_source_batch_ids.length ? [`- 历史修订来源批次：${report.revision_source_batch_ids.join(', ')}`] : []),
   `- Bootstrap：${report.bootstrap_bytes} bytes`,
   `- 最大城市分片：${report.largest_city_bytes} bytes`,
   `- 完整版本：${report.total_release_bytes} bytes`,

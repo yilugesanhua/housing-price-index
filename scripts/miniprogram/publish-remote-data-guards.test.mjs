@@ -21,6 +21,24 @@ const gate = {
   source_dataset_version: candidateSourceDatasetVersion,
   supersedes_source_dataset_version: oldSourceDatasetVersion,
 }
+const candidateIdentity = {
+  candidate_records_sha256: 'a'.repeat(64),
+  audit_records_sha256: 'b'.repeat(64),
+  source_index_sha256: 'c'.repeat(64),
+  audit_report_sha256: 'd'.repeat(64),
+  audit_commit_sha: 'e'.repeat(40),
+  audit_code_sha256: 'f'.repeat(64),
+  audit_version: 'full-record-audit-v7',
+  parser_versions: ['official-html-v9-product-housing-only-strict-release-date'],
+}
+const sourceBatchIds = ['official-html-2026-06-aaaaaaaaaaaa']
+const ledgerIdentity = {
+  ledger_before_sha256: '1'.repeat(64),
+  ledger_after_sha256: '2'.repeat(64),
+  ledger_append_sha256: '3'.repeat(64),
+  ledger_append_start: 0,
+  ledger_append_count: 1,
+}
 const candidateManifest = {
   dataset_version: candidateDatasetVersion,
   dataset_as_of: '2026-06',
@@ -28,13 +46,35 @@ const candidateManifest = {
   revision_id: gate.revision_id,
   source_dataset_version: candidateSourceDatasetVersion,
   supersedes_source_dataset_version: oldSourceDatasetVersion,
+  revision_manifest_file_id: `cloud://cloudtest.bucket-test/housing-data/releases/${candidateDatasetVersion}/revision-manifest.json`,
+  revision_manifest_sha256: '4'.repeat(64),
+  revision_manifest_bytes: 512,
+  latest_source_batch_ids: sourceBatchIds,
+  revision_source_batch_ids: sourceBatchIds,
+  ...candidateIdentity,
+  ...ledgerIdentity,
+  changed_record_count: 1,
 }
 const candidateRevisionManifest = {
+  format: 'housing-historical-correction',
+  schema_version: '1.0.0',
+  release_type: 'historical_correction',
+  reason_type: 'official_revision',
+  approval_status: 'approved',
   revision_id: gate.revision_id,
+  dataset_as_of: '2026-06',
   source_dataset_version: candidateSourceDatasetVersion,
   supersedes_source_dataset_version: oldSourceDatasetVersion,
   source_version_chain: [oldSourceDatasetVersion, candidateSourceDatasetVersion],
   revoked_source_dataset_versions: [oldSourceDatasetVersion],
+  latest_source_batch_ids: sourceBatchIds,
+  revision_source_batch_ids: sourceBatchIds,
+  parser_version: candidateIdentity.parser_versions[0],
+  ...candidateIdentity,
+  ...ledgerIdentity,
+  approved_at: '2026-07-30T00:00:00.000Z',
+  approved_by: 'data-owner',
+  changes: [{ record_key: '2026-06|beijing|new|all', field: 'mom_index' }],
 }
 const registry = appendHistoricalCorrectionRevocations(
   createRevocationRegistry({ generatedAt: '2026-07-30T00:00:00.000Z' }),

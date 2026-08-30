@@ -1,13 +1,16 @@
 import { createHash } from 'node:crypto'
+import { validatePublicationIdentity } from './publication-identity.mjs'
 
 export const REMOTE_FORMAT = 'housing-miniprogram-data'
 export const REMOTE_SCHEMA_VERSION = '1.0.0'
 export const SERIES_CODES = ['n_a', 'n_s', 'n_m', 'n_l', 'r_a', 'r_s', 'r_m', 'r_l']
 export const RELEASE_TYPES = Object.freeze({ monthly: 'monthly_update', correction: 'historical_correction' })
+export const CORRECTION_REASON_TYPES = Object.freeze(['official_revision', 'parser_error', 'transform_error', 'mapping_error'])
 export const CORRECTION_FORMAT = 'housing-historical-correction'
 export const CORRECTION_SCHEMA_VERSION = '1.0.0'
 const COMPLETE_BOOTSTRAP_MINIMUM_APP_VERSION = [2, 3, 0]
 const LEGACY_CONTROL_MIGRATION_ID = 'legacy-control-2026-06-e9788d0bddf3'
+const OFFICIAL_SOURCE_BATCH_ID_PATTERN = /^official-html-20\d{2}-(0[1-9]|1[0-2])-[a-f0-9]{12}$/
 export const SIZE_LIMITS = Object.freeze({
   current: 8 * 1024,
   manifest: 16 * 1024,
@@ -157,14 +160,27 @@ export function buildCityShard(snapshot, cityId) {
   }
 }
 
-export function buildRemoteRelease(snapshot, { cloudEnvId, storageBucket, minimumAppVersion, nextCheckAt, sourceBatchIds = [], correction = null }) {
+export function buildRemoteRelease(snapshot, {
+  cloudEnvId,
+  storageBucket,
+  minimumAppVersion,
+  nextCheckAt,
+  sourceBatchIds = [],
+  latestSourceBatchIds = sourceBatchIds,
+  publicationIdentity,
+  correction = null,
+}) {
   validateBundledSnapshot(snapshot)
   assert(/^cloud[\w-]+$/.test(cloudEnvId), 'invalid cloud environment ID')
   assert(/^[a-z0-9-]+$/.test(storageBucket), 'invalid cloud storage bucket')
   assert(/^v\d+\.\d+\.\d+$/.test(minimumAppVersion), 'invalid minimum app version')
   assert(Number.isFinite(Date.parse(nextCheckAt || '')), 'invalid client next check time')
+  validatePublicationIdentity(publicationIdentity)
   if (correction) validateCorrectionDescriptor(correction, snapshot)
-  const batches = [...new Set(sourceBatchIds)].sort()
+  const batches = [...new Set(latestSourceBatchIds)].sort()
+  assert(batches.length > 0 && batches.every((value) => OFFICIAL_SOURCE_BATCH_ID_PATTERN.test(value)), 'invalid latest source batch IDs')
+  assert(JSON.stringify(batches) === JSON.stringify(latestSourceBatchIds), 'latest source batch IDs must be sorted and unique')
+  if (correction) assert(JSON.stringify(batches) === JSON.stringify(correction.latest_source_batch_ids), 'correction latest source batches differ from release')
   const releaseHash = sha256(stableJson({
     sourceDatasetVersion: snapshot.sourceDatasetVersion,
     cloudEnvId,
@@ -173,14 +189,29 @@ export function buildRemoteRelease(snapshot, { cloudEnvId, storageBucket, minimu
     remoteSchemaVersion: REMOTE_SCHEMA_VERSION,
     minimumAppVersion,
     nextCheckAt,
-    sourceBatchIds: batches,
+    latestSourceBatchIds: batches,
+    publicationIdentity,
     correction: correction ? {
       revisionId: correction.revision_id,
+      releaseType: correction.release_type,
+      reasonType: correction.reason_type,
       supersedesSourceDatasetVersion: correction.supersedes_source_dataset_version,
       sourceVersionChain: correction.source_version_chain,
       revokedSourceDatasetVersions: correction.revoked_source_dataset_versions,
+      latestSourceBatchIds: correction.latest_source_batch_ids,
+      revisionSourceBatchIds: correction.revision_source_batch_ids,
       changes: correction.changes,
+      candidateRecordsSha256: correction.candidate_records_sha256,
+      auditRecordsSha256: correction.audit_records_sha256,
+      sourceIndexSha256: correction.source_index_sha256,
       auditReportSha256: correction.audit_report_sha256,
+      auditCommitSha: correction.audit_commit_sha,
+      auditCodeSha256: correction.audit_code_sha256,
+      ledgerBeforeSha256: correction.ledger_before_sha256,
+      ledgerAfterSha256: correction.ledger_after_sha256,
+      ledgerAppendStart: correction.ledger_append_start,
+      ledgerAppendCount: correction.ledger_append_count,
+      ledgerAppendSha256: correction.ledger_append_sha256,
       commitSha: correction.commit_sha,
       githubRunId: correction.github_run_id,
       approvedAt: correction.approved_at,
@@ -205,7 +236,8 @@ export function buildRemoteRelease(snapshot, { cloudEnvId, storageBucket, minimu
     format: CORRECTION_FORMAT,
     schema_version: CORRECTION_SCHEMA_VERSION,
     revision_id: correction.revision_id,
-    revision_type: correction.revision_type,
+    release_type: correction.release_type,
+    reason_type: correction.reason_type,
     approval_status: correction.approval_status,
     dataset_as_of: snapshot.datasetAsOf,
     supersedes_source_dataset_version: correction.supersedes_source_dataset_version,
@@ -214,10 +246,21 @@ export function buildRemoteRelease(snapshot, { cloudEnvId, storageBucket, minimu
     revoked_source_dataset_versions: clone(correction.revoked_source_dataset_versions),
     reason: correction.reason,
     official_urls: clone(correction.official_urls),
-    source_batch_ids: clone(correction.source_batch_ids),
+    latest_source_batch_ids: clone(correction.latest_source_batch_ids),
+    revision_source_batch_ids: clone(correction.revision_source_batch_ids),
     parser_version: correction.parser_version,
     audit_version: correction.audit_version,
+    candidate_records_sha256: correction.candidate_records_sha256,
+    audit_records_sha256: correction.audit_records_sha256,
+    source_index_sha256: correction.source_index_sha256,
     audit_report_sha256: correction.audit_report_sha256,
+    audit_commit_sha: correction.audit_commit_sha,
+    audit_code_sha256: correction.audit_code_sha256,
+    ledger_before_sha256: correction.ledger_before_sha256,
+    ledger_after_sha256: correction.ledger_after_sha256,
+    ledger_append_start: correction.ledger_append_start,
+    ledger_append_count: correction.ledger_append_count,
+    ledger_append_sha256: correction.ledger_append_sha256,
     commit_sha: correction.commit_sha,
     github_run_id: correction.github_run_id,
     approved_at: correction.approved_at,
@@ -248,18 +291,33 @@ export function buildRemoteRelease(snapshot, { cloudEnvId, storageBucket, minimu
     supported_client_data_major: 1,
     minimum_app_version: minimumAppVersion,
     validation_status: 'passed',
-    source_batch_ids: batches,
+    latest_source_batch_ids: batches,
+    candidate_records_sha256: publicationIdentity.candidate_records_sha256,
+    audit_records_sha256: publicationIdentity.audit_records_sha256,
+    source_index_sha256: publicationIdentity.source_index_sha256,
+    audit_report_sha256: publicationIdentity.audit_report_sha256,
+    audit_commit_sha: publicationIdentity.audit_commit_sha,
+    audit_code_sha256: publicationIdentity.audit_code_sha256,
+    audit_version: publicationIdentity.audit_version,
+    parser_versions: clone(publicationIdentity.parser_versions),
     release_type: correction ? RELEASE_TYPES.correction : RELEASE_TYPES.monthly,
     release_note: `更新国家统计局70城住宅价格指数至${snapshot.datasetAsOf}`,
   }
   if (revisionManifest) Object.assign(manifest, {
     revision_id: revisionManifest.revision_id,
     supersedes_source_dataset_version: revisionManifest.supersedes_source_dataset_version,
+    revision_source_batch_ids: clone(revisionManifest.revision_source_batch_ids),
     revision_manifest_file_id: `${releaseRoot}/revision-manifest.json`,
     revision_manifest_sha256: sha256(revisionManifestText),
     revision_manifest_bytes: byteLength(revisionManifestText),
     changed_record_count: revisionManifest.changed_record_count,
+    ledger_before_sha256: revisionManifest.ledger_before_sha256,
+    ledger_after_sha256: revisionManifest.ledger_after_sha256,
+    ledger_append_start: revisionManifest.ledger_append_start,
+    ledger_append_count: revisionManifest.ledger_append_count,
+    ledger_append_sha256: revisionManifest.ledger_append_sha256,
   })
+  else manifest.source_batch_ids = batches
   const manifestText = stableJson(manifest)
   const current = {
     dataset_version: datasetVersion,
@@ -277,10 +335,18 @@ export function buildRemoteRelease(snapshot, { cloudEnvId, storageBucket, minimu
   return { bootstrap, bootstrapText, cities, manifest, manifestText, revisionManifest, revisionManifestText, current, currentText, totalBytes }
 }
 
-export function validateCorrectionDescriptor(correction, snapshot = null) {
+function assertCanonicalBatchIds(values, label) {
+  assert(Array.isArray(values) && values.length > 0, `${label} are missing`)
+  assert(values.every((value) => OFFICIAL_SOURCE_BATCH_ID_PATTERN.test(value)), `${label} are invalid`)
+  assert(new Set(values).size === values.length && JSON.stringify(values) === JSON.stringify([...values].sort()), `${label} must be sorted and unique`)
+}
+
+export function validateCorrectionRequest(correction, snapshot = null) {
   assert(correction && typeof correction === 'object', 'correction descriptor is required')
   assert(/^revision-[a-z0-9][a-z0-9-]{5,80}$/.test(correction.revision_id || ''), 'invalid correction revision ID')
-  assert(correction.revision_type === 'historical_data_correction', 'invalid correction revision type')
+  assert(correction.release_type === RELEASE_TYPES.correction, 'invalid correction release type')
+  assert(CORRECTION_REASON_TYPES.includes(correction.reason_type), 'invalid correction reason type')
+  assert(correction.revision_type === undefined, 'legacy revision_type is forbidden')
   assert(correction.approval_status === 'approved', 'correction is not approved')
   const sourcePattern = /^20\d{2}-(0[1-9]|1[0-2])-[a-f0-9]{12}$/
   assert(sourcePattern.test(correction.supersedes_source_dataset_version || ''), 'invalid superseded source dataset version')
@@ -297,12 +363,10 @@ export function validateCorrectionDescriptor(correction, snapshot = null) {
   assert(correction.revoked_source_dataset_versions.every((value) => correction.source_version_chain.includes(value) && value !== correction.source_dataset_version), 'correction revocation list is invalid')
   assert(typeof correction.reason === 'string' && correction.reason.trim().length >= 10, 'correction reason is too short')
   assert(Array.isArray(correction.official_urls) && correction.official_urls.length > 0 && correction.official_urls.every((url) => /^https:\/\/(?:www\.)?stats\.gov\.cn\//.test(url)), 'correction official URLs are invalid')
-  assert(Array.isArray(correction.source_batch_ids) && correction.source_batch_ids.length > 0, 'correction source batches are missing')
+  assertCanonicalBatchIds(correction.latest_source_batch_ids, 'correction latest source batches')
+  assertCanonicalBatchIds(correction.revision_source_batch_ids, 'correction revision source batches')
   assert(typeof correction.parser_version === 'string' && correction.parser_version.length > 0, 'correction parser version is missing')
   assert(typeof correction.audit_version === 'string' && correction.audit_version.length > 0, 'correction audit version is missing')
-  if (correction.audit_report_sha256 !== undefined) assert(/^[a-f0-9]{64}$/.test(correction.audit_report_sha256), 'correction audit report hash is invalid')
-  if (correction.commit_sha !== undefined) assert(/^[a-f0-9]{40}$/.test(correction.commit_sha), 'correction commit SHA is invalid')
-  if (correction.github_run_id !== undefined) assert(/^\d+$/.test(String(correction.github_run_id)), 'correction GitHub run ID is invalid')
   assert(Number.isFinite(Date.parse(correction.approved_at || '')) && typeof correction.approved_by === 'string' && correction.approved_by.trim(), 'correction approval metadata is invalid')
   assert(Array.isArray(correction.changes) && correction.changes.length > 0, 'correction changes are missing')
   const keys = correction.changes.map((item) => `${item.record_key}|${item.field}`)
@@ -313,6 +377,21 @@ export function validateCorrectionDescriptor(correction, snapshot = null) {
     assert(/^https:\/\/(?:www\.)?stats\.gov\.cn\//.test(item.source_url || ''), `invalid correction source URL: ${item.record_key}`)
     assert(typeof item.source_record_locator === 'string' && item.source_record_locator.length > 0, `missing correction source locator: ${item.record_key}`)
   }
+  return correction
+}
+
+export function validateCorrectionDescriptor(correction, snapshot = null) {
+  validateCorrectionRequest(correction, snapshot)
+  for (const field of [
+    'candidate_records_sha256', 'audit_records_sha256', 'source_index_sha256',
+    'audit_report_sha256', 'audit_code_sha256', 'ledger_before_sha256',
+    'ledger_after_sha256', 'ledger_append_sha256',
+  ]) assert(/^[a-f0-9]{64}$/.test(correction[field] || ''), `invalid correction ${field}`)
+  assert(/^[a-f0-9]{40}$/.test(correction.audit_commit_sha || ''), 'invalid correction audit commit SHA')
+  assert(/^[a-f0-9]{40}$/.test(correction.commit_sha || ''), 'invalid correction commit SHA')
+  assert(/^\d+$/.test(String(correction.github_run_id || '')), 'invalid correction GitHub run ID')
+  assert(Number.isInteger(correction.ledger_append_start) && correction.ledger_append_start >= 0, 'invalid correction ledger append start')
+  assert(Number.isInteger(correction.ledger_append_count) && correction.ledger_append_count > 0, 'invalid correction ledger append count')
   return correction
 }
 
@@ -330,11 +409,39 @@ export function verifyRevisionManifest(manifest, revisionManifest) {
   check(revisionManifest?.dataset_as_of === manifest?.dataset_as_of, 'revision month mismatch')
   check(revisionManifest?.source_dataset_version === manifest?.source_dataset_version, 'revision source dataset mismatch')
   check(revisionManifest?.supersedes_source_dataset_version === manifest?.supersedes_source_dataset_version, 'superseded source dataset mismatch')
+  check(revisionManifest?.release_type === RELEASE_TYPES.correction, 'revision release type mismatch')
+  check(revisionManifest?.reason_type && CORRECTION_REASON_TYPES.includes(revisionManifest.reason_type), 'revision reason type mismatch')
+  check(JSON.stringify(revisionManifest?.latest_source_batch_ids) === JSON.stringify(manifest?.latest_source_batch_ids), 'revision latest source batches mismatch')
+  check(JSON.stringify(revisionManifest?.revision_source_batch_ids) === JSON.stringify(manifest?.revision_source_batch_ids), 'revision source batches mismatch')
+  for (const field of ['candidate_records_sha256', 'audit_records_sha256', 'source_index_sha256', 'audit_report_sha256', 'audit_commit_sha', 'audit_code_sha256']) {
+    check(revisionManifest?.[field] === manifest?.[field], `revision ${field} mismatch`)
+  }
+  check(revisionManifest?.audit_version === manifest?.audit_version, 'revision audit version mismatch')
+  for (const field of ['ledger_before_sha256', 'ledger_after_sha256', 'ledger_append_start', 'ledger_append_count', 'ledger_append_sha256']) {
+    check(revisionManifest?.[field] === manifest?.[field], `revision ${field} mismatch`)
+  }
   check(revisionManifest?.changed_record_count === manifest?.changed_record_count, 'changed record count mismatch')
   check(/^[a-f0-9]{64}$/.test(revisionManifest?.audit_report_sha256 || ''), 'revision audit report hash is invalid')
   check(/^[a-f0-9]{40}$/.test(revisionManifest?.commit_sha || ''), 'revision commit SHA is invalid')
   check(/^\d+$/.test(String(revisionManifest?.github_run_id || '')), 'revision GitHub run ID is invalid')
   return errors
+}
+
+function verifyPublicationIdentityManifest(manifest) {
+  const fields = [
+    'candidate_records_sha256', 'audit_records_sha256', 'source_index_sha256',
+    'audit_report_sha256', 'audit_commit_sha', 'audit_code_sha256',
+    'audit_version', 'parser_versions',
+  ]
+  const present = fields.filter((field) => manifest?.[field] !== undefined)
+  if (present.length === 0) return [] // Read-only compatibility for pre-gate releases.
+  if (present.length !== fields.length) return ['publication identity is incomplete']
+  try {
+    validatePublicationIdentity(Object.fromEntries(fields.map((field) => [field, manifest[field]])))
+    return []
+  } catch (error) {
+    return [error.message]
+  }
 }
 
 export function verifyReleaseAgainstSnapshot(snapshot, release) {
@@ -353,6 +460,7 @@ export function verifyReleaseAgainstSnapshot(snapshot, release) {
   check(release.manifest.bootstrap_bytes === byteLength(release.bootstrapText), 'bootstrap byte size mismatch')
   check(release.current.manifest_sha256 === sha256(release.manifestText), 'manifest SHA-256 mismatch')
   check([undefined, RELEASE_TYPES.monthly, RELEASE_TYPES.correction].includes(release.manifest.release_type), 'manifest release type is invalid')
+  for (const error of verifyPublicationIdentityManifest(release.manifest)) errors.push(error)
   for (const error of verifyRevisionManifest(release.manifest, release.revisionManifest)) errors.push(error)
   if (release.revisionManifestText) {
     check(release.manifest.revision_manifest_sha256 === sha256(release.revisionManifestText), 'revision manifest SHA-256 mismatch')
@@ -421,6 +529,7 @@ export function verifyReleaseIntegrity(release) {
   check(manifest?.bootstrap_bytes === byteLength(bootstrapText), 'bootstrap byte size mismatch')
   check(current?.manifest_sha256 === sha256(manifestText), 'manifest SHA-256 mismatch')
   check([undefined, RELEASE_TYPES.monthly, RELEASE_TYPES.correction].includes(manifest?.release_type), 'manifest release type is invalid')
+  for (const error of verifyPublicationIdentityManifest(manifest)) errors.push(error)
   for (const error of verifyRevisionManifest(manifest, revisionManifest)) errors.push(error)
   if (revisionManifestText) {
     check(manifest?.revision_manifest_sha256 === sha256(revisionManifestText), 'revision manifest SHA-256 mismatch')

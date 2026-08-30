@@ -38,6 +38,8 @@ function configuredNextCheckAt(fallback: string): string {
 
 interface RevisionRecord {
   revision_id: string;
+  release_type: "historical_correction";
+  reason_type: "official_revision" | "parser_error" | "transform_error" | "mapping_error";
   record_key: string;
   previous_value: StandardRecord;
   revised_value: StandardRecord;
@@ -193,7 +195,7 @@ if (errors.length > 0) {
     if (!hasRevisableRecordChange(previous, record)) continue;
     const prior = [...existingRevisions, ...newRevisions].filter((revision) => revision.record_key === key).at(-1);
     const revisionId = createHash("sha256").update(`${key}|${JSON.stringify(previous)}|${JSON.stringify(record)}|${generatedAt}`).digest("hex");
-    newRevisions.push({ revision_id: revisionId, record_key: key, previous_value: previous, revised_value: record, detected_at: generatedAt, source_batch_id: record.source_batch_id, reason: "official-source-record-changed-during-publish", supersedes_revision_id: prior?.revision_id ?? null });
+    newRevisions.push({ revision_id: revisionId, release_type: "historical_correction", reason_type: "official_revision", record_key: key, previous_value: previous, revised_value: record, detected_at: generatedAt, source_batch_id: record.source_batch_id, reason: "official-source-record-changed-during-publish", supersedes_revision_id: prior?.revision_id ?? null });
   }
   manifest.source_dataset_version = sourceDatasetVersion(latestMonth, batches, [...existingRevisions, ...newRevisions]);
 

@@ -4,6 +4,8 @@ import type { ParsedBatch, StandardRecord } from "./types";
 
 interface RevisionRecord {
   revision_id: string;
+  release_type?: "historical_correction";
+  reason_type?: "official_revision" | "parser_error" | "transform_error" | "mapping_error";
   record_key: string;
   previous_value: StandardRecord;
   revised_value: StandardRecord;
@@ -79,6 +81,8 @@ export function sourceDatasetVersion(
         source_batch_id: revision.source_batch_id,
         reason: revision.reason,
         supersedes_revision_position: supersedesRevisionPosition,
+        ...(revision.release_type === undefined ? {} : { release_type: revision.release_type }),
+        ...(revision.reason_type === undefined ? {} : { reason_type: revision.reason_type }),
       };
     }),
   };

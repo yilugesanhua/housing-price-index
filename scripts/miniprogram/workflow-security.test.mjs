@@ -18,7 +18,11 @@ const completeHistoryPreview = await readFile(resolve(root, '.github/workflows/m
 const legacyMigration = await readFile(resolve(root, '.github/workflows/legacy-control-migration.yml'), 'utf8')
 const manualRollback = await readFile(resolve(root, '.github/workflows/manual-data-rollback.yml'), 'utf8')
 const candidateCleanup = await readFile(resolve(root, '.github/workflows/monthly-data-candidate-cleanup.yml'), 'utf8')
+const statusDeployment = await readFile(resolve(root, '.github/workflows/monthly-data-status-deploy.yml'), 'utf8')
+const historicalPageAudit = await readFile(resolve(root, '.github/workflows/quarterly-historical-page-audit.yml'), 'utf8')
+const incidentLifecycle = await readFile(resolve(root, '.github/workflows/housing-data-incident-lifecycle.yml'), 'utf8')
 const pointerRepair = await readFile(resolve(root, 'scripts/miniprogram/repair-current-pointer.mjs'), 'utf8')
+const statusDeploymentScript = await readFile(resolve(root, 'scripts/miniprogram/deploy-data-status.mjs'), 'utf8')
 const genericPublisher = await readFile(resolve(root, 'scripts/miniprogram/publish-remote-data.mjs'), 'utf8')
 const privateAuditPublisher = await readFile(resolve(root, 'scripts/miniprogram/publish-private-audit.mjs'), 'utf8')
 const rollbackPublisher = await readFile(resolve(root, 'scripts/miniprogram/rollback-remote-data.mjs'), 'utf8')
@@ -29,6 +33,7 @@ const monitorEventRegistration = await readFile(resolve(root, 'scripts/miniprogr
 const strictValidatorDeployment = await readFile(resolve(root, 'scripts/miniprogram/deploy-strict-validator.mjs'), 'utf8')
 const previewValidatorDeployment = await readFile(resolve(root, 'scripts/miniprogram/deploy-preview-validator.mjs'), 'utf8')
 const tencentCloudSdk = await readFile(resolve(root, 'scripts/miniprogram/tencent-cloud-sdk.mjs'), 'utf8')
+const readonlyWatchdogConfiguration = await readFile(resolve(root, 'scripts/miniprogram/configure-watchdog-readonly-audit.mjs'), 'utf8')
 const candidateCleanupScript = await readFile(resolve(root, 'scripts/miniprogram/delete-remote-candidate.mjs'), 'utf8')
 const watchdogFunction = await readFile(resolve(root, 'apps/miniprogram/cloudfunctions/monthlyDataWatchdog/index.js'), 'utf8')
 const watchdogContract = await readFile(resolve(root, 'apps/miniprogram/cloudfunctions/monthlyDataWatchdog/discovery-contract.js'), 'utf8')
@@ -63,6 +68,41 @@ test('discovery workflow remains read-only and has no production environment', (
   assert.doesNotMatch(discovery, /contents: write|housing-data-production|TENCENTCLOUD_SECRET/)
 })
 
+test('quarterly historical recheck only emits isolated evidence and cannot write data or production controls', () => {
+  assert.match(historicalPageAudit, /cron: "17 2 1 1,4,7,10 \*"/)
+  assert.match(historicalPageAudit, /npm run data:recheck-historical-pages/)
+  assert.match(historicalPageAudit, /contents: read/)
+  assert.doesNotMatch(historicalPageAudit, /contents: write|housing-data-production|TENCENTCLOUD|AUTOMATIC_RELEASE_ENABLED|PRODUCTION_RELEASE_AUTHORIZED/)
+})
+
+test('incident lifecycle is limited to repository Issue records and rejects untrusted workflow runs', () => {
+  assert.match(incidentLifecycle, /issues: write/)
+  assert.match(incidentLifecycle, /concurrency:\s+group: housing-data-incident-lifecycle\s+cancel-in-progress: false/)
+  assert.match(incidentLifecycle, /workflow_run\.head_branch == github\.event\.repository\.default_branch/)
+  assert.match(incidentLifecycle, /workflow_run\.head_repository\.full_name == github\.repository/)
+  assert.match(incidentLifecycle, /HOUSING_DATA_INCIDENT_OWNER/)
+  assert.doesNotMatch(incidentLifecycle, /housing-data-production|TENCENTCLOUD|AUTOMATIC_RELEASE_ENABLED|PRODUCTION_RELEASE_AUTHORIZED/)
+})
+
+test('status deployment is separately protected, binds the immutable observation, and keeps release authorization closed', () => {
+  assert.match(statusDeployment, /workflow_run:\s+workflows: \[monthly-data-check\]/)
+  assert.match(statusDeployment, /workflow_run\.conclusion == 'success'/)
+  assert.match(statusDeployment, /github\.event\.workflow_run\.head_branch == github\.event\.repository\.default_branch/)
+  assert.match(statusDeployment, /group: housing-data-production-publish/)
+  assert.match(statusDeployment, /cancel-in-progress: false/)
+  assert.match(statusDeployment, /environment: housing-data-production/)
+  assert.match(statusDeployment, /monthly-data-check-\$\{\{ github\.event\.workflow_run\.id \}\}/)
+  assert.match(statusDeployment, /monthly-data-check-\$\{\{ needs\.inspect\.outputs\.source_run_id \}\}/)
+  assert.match(statusDeployment, /cloud-observation\.json/)
+  assert.match(statusDeployment, /AUTOMATIC_RELEASE_ENABLED: \$\{\{ vars\.AUTOMATIC_RELEASE_ENABLED \}\}/)
+  assert.match(statusDeployment, /PRODUCTION_RELEASE_AUTHORIZED: \$\{\{ vars\.PRODUCTION_RELEASE_AUTHORIZED \}\}/)
+  assert.match(statusDeployment, /vars\.AUTOMATIC_RELEASE_ENABLED == 'true'/)
+  assert.match(statusDeploymentScript, /status deployment requires the repository automatic release authorization/)
+  assert.match(statusDeploymentScript, /status deployment requires the production environment authorization/)
+  assert.match(statusDeploymentScript, /current\.json changed before status deployment/)
+  assert.match(statusDeploymentScript, /current\.json round-trip differs after status deployment/)
+})
+
 test('independent watchdog can only read Actions runs and dispatch the fixed discovery workflow', () => {
   assert.match(discovery, /workflow_dispatch:\s+inputs:\s+watchdog_slot:/)
   assert.match(discovery, /DISCOVERY_SLOT_ID: \$\{\{ inputs\.watchdog_slot \|\| '' \}\}/)
@@ -84,6 +124,15 @@ test('independent watchdog can only read Actions runs and dispatch the fixed dis
   assert.match(watchdogDecision, /already_dispatched/)
   assert.match(watchdogDecision, /schedule_missing/)
   assert.match(watchdogDecision, /findStalledRun/)
+})
+
+test('readonly watchdog configuration updates only its five environment variables without exposing the token', () => {
+  assert.match(readonlyWatchdogConfiguration, /READONLY_AUDIT_VARIABLE_NAMES/)
+  assert.match(readonlyWatchdogConfiguration, /updateFunctionEnvironment/)
+  assert.match(readonlyWatchdogConfiguration, /WATCHDOG_GITHUB_AUDIT_ENABLED', Value: 'true'/)
+  assert.match(readonlyWatchdogConfiguration, /WATCHDOG_DRY_RUN', Value: 'false'/)
+  assert.match(readonlyWatchdogConfiguration, /production_data_writes: 0/)
+  assert.doesNotMatch(readonlyWatchdogConfiguration, /putObject|updateFunctionCode|invokeFunction|console\.log\(.*WATCHDOG_GITHUB_TOKEN/)
 })
 
 test('publisher is triggered only by the named discovery workflow', () => {
@@ -167,7 +216,8 @@ test('monthly publication and private audit consume the same isolated release ro
   assert.equal((recovery.match(new RegExp(isolatedRoot.source, 'g')) || []).length, 2)
   assert.match(genericPublisher, /const candidateRootInput = argument\('candidate-root'\) \?\? 'work\/miniprogram-data'/)
   assert.match(privateAuditPublisher, /const candidateRootInput = argument\('candidate-root'\) \?\? 'work\/miniprogram-data'/)
-  assert.match(privateAuditPublisher, /resolve\(candidateRoot, datasetVersion, 'release-report\.json'\)/)
+  assert.match(privateAuditPublisher, /const candidateDirectory = resolve\(candidateRoot, datasetVersion\)/)
+  assert.match(privateAuditPublisher, /resolve\(candidateDirectory, 'release-report\.json'\)/)
 })
 
 test('daily discovery schedule, specification, and watchdog use the same time window', () => {
