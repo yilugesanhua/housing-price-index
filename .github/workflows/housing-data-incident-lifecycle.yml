@@ -62,15 +62,18 @@ jobs:
           WORKFLOW_UPDATED_AT: ${{ github.event.workflow_run.updated_at }}
           WORKFLOW_URL: ${{ github.event.workflow_run.html_url }}
         shell: bash
-        run: >-
-          node scripts/miniprogram/incident-lifecycle.mjs
-          --action=open
-          --kind=workflow_failure
-          --scope="workflow:${WORKFLOW_NAME}"
-          --condition="workflow_conclusion=${WORKFLOW_CONCLUSION}"
-          --summary="Workflow ${WORKFLOW_NAME} finished with ${WORKFLOW_CONCLUSION}."
-          --occurred-at="${WORKFLOW_UPDATED_AT}"
-          --evidence-url="${WORKFLOW_URL}"
+        run: |
+          # GitHub supplies workflow_run.updated_at at second precision; the
+          # incident contract uses the canonical millisecond ISO form.
+          OCCURRED_AT="$(node -e 'const value = new Date(process.argv[1]); if (Number.isNaN(value.getTime())) process.exit(1); process.stdout.write(value.toISOString())' "$WORKFLOW_UPDATED_AT")"
+          node scripts/miniprogram/incident-lifecycle.mjs \
+            --action=open \
+            --kind=workflow_failure \
+            --scope="workflow:${WORKFLOW_NAME}" \
+            --condition="workflow_conclusion=${WORKFLOW_CONCLUSION}" \
+            --summary="Workflow ${WORKFLOW_NAME} finished with ${WORKFLOW_CONCLUSION}." \
+            --occurred-at="${OCCURRED_AT}" \
+            --evidence-url="${WORKFLOW_URL}"
 
   lifecycle:
     if: github.event_name != 'workflow_run'

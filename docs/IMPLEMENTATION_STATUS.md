@@ -2,6 +2,25 @@
 
 更新日期：2026-08-30
 
+## 2026-08-30 阶段D后续推进记录
+
+- 候选 PR #6 已合并到默认分支，合并提交为 `06365d8debadb12c6a62bf4145270fe84f5f4155`；该提交的默认分支 CI 运行 `33298180368` 成功。随后修复 `stage-remote-data.mjs` 对 Node.js 异步 glob 的兼容问题，PR #7 已合并，当前默认分支提交为 `e47b9105673c4d97e15e9384238d0b976fa3248b`，修复提交 CI 运行 `33299310891` 成功。
+- D19 Actions 评估运行 `33298388664` 成功；D19 负责人变量仍为 `yilugesanhua`。D18 默认分支季度复核运行 `33298387289` 已结束但失败：复核180个来源中 `changed_count=170`、`failed_count=1`，因此只保留隔离人工任务，不能登记通过。该失败暴露 D19 `workflow_run.updated_at` 秒级时间戳与脚本毫秒级规范不兼容，已在工作流中加入规范化修复并通过本地工作流安全/生命周期测试，待同提交 CI 和失败回调复验。
+- 云端隔离链路运行 `33299529772` 成功：在 `housing-data/rehearsals/33299529772-1/` 完成对象上传、HEAD、下载、哈希回读、隔离指针切换、故意守卫失败和自动回滚，以及70个城市分片完整重建。报告明确 `production_pointer_untouched=true`、`production_release_prefix_untouched=true`。Artifact 已保存到项目外 `C:\Users\user\AppData\Local\Temp\stage-d-followup-20260830\cloud-write-rehearsal-33299529772`。
+- 微信开发者工具已对 `v2.5.27` 当前候选重新编译；模拟器继续显示首页、2026-06 数据和70城图表，问题面板为0个问题。工具调试器显示7条警告，未取得主包大小报告，因此开发者工具项仍只能记为有限通过，不能替代双真机验收。
+- D19 真实受控演练已完成：Issue #8 直连脚本验证超时升级、负责人确认去重和 SHA-256 恢复关闭；Issue #9 通过 Actions `workflow_dispatch` 完成负责人确认与恢复关闭。D18 失败回调运行 `33300284569` 因时间格式问题失败，修复已写入 `.github/workflows/housing-data-incident-lifecycle.yml`，不得将该回调记为通过。
+- 本轮仍未开启 `AUTOMATIC_RELEASE_ENABLED` 或 `PRODUCTION_RELEASE_AUTHORIZED`，未写入正式 `current.json`、未修改正式指针、未上传或发布小程序。D18 的170条人工判断、失败来源处置、双真机和平台审核仍待完成。
+
+## 2026-08-30 阶段D第1-6项执行记录（本地/隔离证据）
+
+- 第1项已完成本地干净候选准备：从当前既有改动组装的隔离提交 `d5799b298c7cec464d437a2cfc51f3352a2cee4c` 生成 `v2.5.27` 候选，包含45个小程序文件。候选 ZIP SHA-256 为 `c31b0ab4e66eacbe4282c2691a2af6b8e564f0a6dd5dc87997ded53a96da5a00`，候选清单 SHA-256 为 `6800ecb4d062ac7fb4d6709cd7bb33423a55ce64984d32f7104dad09979df1b6`，文件清单 SHA-256 为 `c6230260d020584c6c13ade3fc6197ea9c1842b80eb03c274be33ddf176a36da`。候选仅保存在项目外临时目录，不代表已提交或发布。
+- 第2项已完成候选分支的同提交 GitHub CI 与跨环境复现：两个独立隔离检出生成的候选 ZIP 字节级 SHA-256 一致；版本身份门禁通过；GitHub 普通 CI 运行 `33296581537` 在提交 `d5799b298c7cec464d437a2cfc51f3352a2cee4c` 上成功，包含 `npm run check` 和 `npm run test:e2e`。远端默认分支仍是 `7f7b5176af8a3d6486e25971cf7cfbec6f44bebd`，候选目前仅在独立分支 `codex/stage-d-v2.5.27-20260830`，因此尚未形成默认分支同提交证据。
+- 第3项 D18 已完成一次真实只读隔离演练：复核180个实际引用官方来源，`200 + HTML/XHTML` 校验全部通过；9个内容未变，171个内容哈希变化，失败0。脚本状态为 `attention_required`，已生成171份 `pending_human_review` 隔离任务；没有写入数据、远程包或正式指针。完整报告位于项目外 `C:\Users\user\AppData\Local\Temp\stage-d-local-20260830-01\clean-worktree\work\quarterly-historical-page-audit\d18-local-20260830\report.json`。
+- 第4项已完成受控变化后的隔离处置准备：171份任务均保留旧/新最终URL、旧/新原始 SHA-256、观察时间、变化原因和后续修订入口，统一标记 `production_untouched=true`；未自动采纳任何变化。真实人工判断和后续修订仍需维护人逐项确认。
+- 第5项已完成线上变量配置：GitHub 仓库 Variables 已设置 `HOUSING_DATA_INCIDENT_OWNER=yilugesanhua`，未写入令牌、密码或验证码。
+- 第6项已完成 D19 本地和真实 Issue 生命周期演练：本地4/4通过；真实演练 Issue #4 验证超时升级后再次评估返回 `already_escalated`，附本地日志 SHA-256 `5a62f50bea70759d4940031cceee0cacc29cf027e4e3ad7eb18740cfd238588b` 恢复并关闭；Issue #5 验证负责人确认后恢复并关闭。两项演练 Issue 均已关闭。由于工作流文件尚未进入默认分支，尚未完成由 Actions 自动触发的线上工作流演练。
+- 本轮执行摘要保存在项目外 `C:\Users\user\AppData\Local\Temp\stage-d-local-20260830-01\execution-summary.json`。只读回读仍确认 `AUTOMATIC_RELEASE_ENABLED=false`、`PRODUCTION_RELEASE_AUTHORIZED=false`；未部署、未推送、未写正式数据、未修改正式指针、未上传或发布小程序。
+
 ## 2026-08-30 历史修订完整信任链 `v2.5.27`（本地实现，未部署）
 
 - 当前候选版本为 `v2.5.27`。历史修订包的 `revision-manifest.json` 现在在发布候选复用、状态部署、发布后只读监测、人工/自动回滚和预览验证器中均按固定发布目录下载，并校验原始字节长度和 SHA-256 后才作为控制指针上下文使用。
