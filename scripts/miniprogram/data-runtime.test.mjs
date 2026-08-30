@@ -622,7 +622,7 @@ test('preview controls are accepted only by the preview root', () => {
     control_schema_version: '1.0.0', control_generation: 1,
     ...artifact.currentFields,
     transition_type: 'publish', data_status: 'current', status_reason: 'isolated_development_preview',
-    control_generated_at: '2026-07-20T00:00:00.000Z', control_valid_until: '2026-07-20T01:00:00.000Z',
+    control_generated_at: '2026-08-30T00:00:00.000Z', control_valid_until: '2026-08-31T00:00:00.000Z',
   }
   assert.equal(validateCurrent(current, { config: { ...config, remoteDataRoot: 'housing-data/preview' }, allowLegacy: false, requireContext: true, manifest: release.manifest, registry }), current)
   assert.throws(() => validateCurrent(current, { config, allowLegacy: false }), /manifest file ID is invalid/)
@@ -636,6 +636,29 @@ test('preview controls are accepted only by the preview root', () => {
     assert.equal(runtime.getSource(), 'remote')
     assert.equal(runtime.getSnapshot().months.length, 180)
   })
+})
+
+test('preview runtime state and cache are isolated from the formal runtime', async () => {
+  const snapshot = completeFixture()
+  const release = buildCompleteRemoteRelease(snapshot, completeReleaseOptions(snapshot, { dataRoot: 'housing-data/preview' }))
+  const registry = createRevocationRegistry({ generatedAt: '2026-07-20T00:00:00.000Z' })
+  const artifact = buildRevocationRegistryArtifact(registry, { cloudEnvId: config.cloudEnvId, storageBucket: config.storageBucket, dataRoot: 'housing-data/preview' })
+  release.current = {
+    ...release.current,
+    control_schema_version: '1.0.0', control_generation: 1,
+    ...artifact.currentFields,
+    transition_type: 'publish', data_status: 'current', status_reason: 'isolated_development_preview',
+    published_at: '2026-08-30T00:00:00.000Z',
+    control_generated_at: '2026-08-30T00:00:00.000Z', control_valid_until: '2026-08-31T00:00:00.000Z',
+  }
+  release.revocationArtifact = artifact
+  const mock = createWxMock(release)
+  const preview = createDataRuntime({ wxApi: mock.wxApi, config: { ...config, previewMode: true, remoteDataRoot: 'housing-data/preview' } })
+  assert.equal((await preview.refresh({ force: true })).updated, true)
+  assert.ok(mock.storage.has(`${STATE_KEY}-preview`))
+  assert.equal(mock.storage.has(STATE_KEY), false)
+  assert.ok(mock.directories.has(`/user/housing-data/preview/${release.current.dataset_version}`))
+  assert.equal(mock.directories.has(`/user/housing-data/${release.current.dataset_version}`), false)
 })
 
 test('v2 complete package corruption never replaces the bundled snapshot', async () => {

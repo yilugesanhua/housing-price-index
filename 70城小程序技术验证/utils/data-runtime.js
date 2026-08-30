@@ -38,6 +38,10 @@ const VALIDATION_RECEIPT_FIELDS = [
 const MAX_RECEIPT_CLOCK_SKEW_MS = 60 * 1000
 const STATE_SCHEMA_VERSION = 3
 
+function scopedStorageKey(key, config) {
+  return config.remoteDataRoot === 'housing-data/preview' ? `${key}-preview` : key
+}
+
 function major(version) {
   return Number(String(version || '').replace(/^v/, '').split('.')[0])
 }
@@ -467,7 +471,16 @@ function createDataRuntime({ wxApi = typeof wx === 'undefined' ? null : wx, bund
   let cachedCityIds = []
   let controlRecoveryError = null
   const fs = wxApi && typeof wxApi.getFileSystemManager === 'function' ? wxApi.getFileSystemManager() : null
-  const userRoot = wxApi?.env?.USER_DATA_PATH ? `${wxApi.env.USER_DATA_PATH}/housing-data` : ''
+  // Preview and formal releases are separate trust domains, including local state and files.
+  const previewScope = config.remoteDataRoot === 'housing-data/preview'
+  const stateKey = scopedStorageKey(STATE_KEY, config)
+  const controlTombstoneKey = scopedStorageKey(CONTROL_TOMBSTONE_KEY, config)
+  const pointerKey = scopedStorageKey(POINTER_KEY, config)
+  const checkKey = scopedStorageKey(CHECK_KEY, config)
+  const revokedSourcesKey = scopedStorageKey(REVOKED_SOURCES_KEY, config)
+  const userRoot = wxApi?.env?.USER_DATA_PATH
+    ? `${wxApi.env.USER_DATA_PATH}/housing-data${previewScope ? '/preview' : ''}`
+    : ''
 
   function emptyState() {
     return {
@@ -593,13 +606,13 @@ function createDataRuntime({ wxApi = typeof wx === 'undefined' ? null : wx, bund
   function loadState() {
     let state
     try {
-      const current = wxApi?.getStorageSync?.(STATE_KEY)
+      const current = wxApi?.getStorageSync?.(stateKey)
       if ([1, 2, STATE_SCHEMA_VERSION].includes(current?.stateSchemaVersion)) {
         state = normalizeState(current)
       } else {
-        const legacyPointer = wxApi?.getStorageSync?.(POINTER_KEY)
-        const legacySchedule = wxApi?.getStorageSync?.(CHECK_KEY)
-        const legacySources = wxApi?.getStorageSync?.(REVOKED_SOURCES_KEY)
+        const legacyPointer = wxApi?.getStorageSync?.(pointerKey)
+        const legacySchedule = wxApi?.getStorageSync?.(checkKey)
+        const legacySources = wxApi?.getStorageSync?.(revokedSourcesKey)
         state = emptyState()
         if (legacyPointer && DATASET_PATTERN.test(legacyPointer.datasetVersion || '') && SHA_PATTERN.test(legacyPointer.manifestSha256 || '')) {
           state.active = clone(legacyPointer)
@@ -614,7 +627,7 @@ function createDataRuntime({ wxApi = typeof wx === 'undefined' ? null : wx, bund
     }
     let tombstone = null
     try {
-      tombstone = wxApi?.getStorageSync?.(CONTROL_TOMBSTONE_KEY)
+      tombstone = wxApi?.getStorageSync?.(controlTombstoneKey)
       if (tombstone !== undefined && tombstone !== null && tombstone !== '') {
         assert(tombstone.schemaVersion === 1, 'stored control tombstone schema is invalid')
         assert(SHA_PATTERN.test(tombstone.integritySha256 || '')
@@ -685,12 +698,12 @@ function createDataRuntime({ wxApi = typeof wx === 'undefined' ? null : wx, bund
 
   function persistState(next) {
     const normalized = normalizeState(next)
-    wxApi?.setStorageSync?.(STATE_KEY, normalized)
+    wxApi?.setStorageSync?.(stateKey, normalized)
     localState = normalized
     try {
-      wxApi?.removeStorageSync?.(POINTER_KEY)
-      wxApi?.removeStorageSync?.(CHECK_KEY)
-      wxApi?.removeStorageSync?.(REVOKED_SOURCES_KEY)
+      wxApi?.removeStorageSync?.(pointerKey)
+      wxApi?.removeStorageSync?.(checkKey)
+      wxApi?.removeStorageSync?.(revokedSourcesKey)
     } catch (_) {}
     return localState
   }
@@ -1023,7 +1036,7 @@ function createDataRuntime({ wxApi = typeof wx === 'undefined' ? null : wx, bund
       pendingRollback: normalizedPending,
     }
     tombstone.integritySha256 = fingerprint(tombstone)
-    wxApi?.setStorageSync?.(CONTROL_TOMBSTONE_KEY, tombstone)
+    wxApi?.setStorageSync?.(controlTombstoneKey, tombstone)
     controlRecoveryError = null
   }
 
@@ -1417,7 +1430,7 @@ function createDataRuntime({ wxApi = typeof wx === 'undefined' ? null : wx, bund
         if (tombstoneError && stateError && !invalidated) {
           let stateRemoved = false
           try {
-            wxApi?.removeStorageSync?.(STATE_KEY)
+            wxApi?.removeStorageSync?.(stateKey)
             stateRemoved = true
           } catch (_) {}
           if (!stateRemoved) {
