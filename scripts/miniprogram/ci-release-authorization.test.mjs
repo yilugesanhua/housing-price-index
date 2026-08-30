@@ -100,7 +100,7 @@ test('rejects an automatic candidate without successful CI for the same commit',
   }), /candidate ordinary CI commit SHA mismatch/)
 })
 
-test('accepts the fixed scheduled pending-release recovery workflow', () => {
+test('accepts the fixed scheduled or manually confirmed pending-release recovery workflow', () => {
   const recoveryGate = {
     ...gate,
     recovery: true,
@@ -120,6 +120,20 @@ test('accepts the fixed scheduled pending-release recovery workflow', () => {
     env: { ...env, CI_GATE_REPORT_SHA256: sha256(mismatchedText) }, datasetVersion, cloudEnvId,
     gateReportText: mismatchedText, checkedOutSha: env.CI_COMMIT_SHA,
   }), /recovery ordinary CI commit SHA mismatch/)
+
+  const manualEnv = {
+    ...env,
+    GITHUB_EVENT_NAME: 'workflow_dispatch',
+    CI_MANUAL_RECOVERY_CONFIRMATION: 'recover-pending-release',
+  }
+  assert.equal(validateCiReleaseAuthorization({ env: manualEnv, datasetVersion, cloudEnvId, gateReportText: recoveryText, checkedOutSha: manualEnv.CI_COMMIT_SHA }).status, 'passed')
+  assert.throws(() => validateCiReleaseAuthorization({
+    env: { ...manualEnv, CI_MANUAL_RECOVERY_CONFIRMATION: 'wrong-confirmation' },
+    datasetVersion,
+    cloudEnvId,
+    gateReportText: recoveryText,
+    checkedOutSha: manualEnv.CI_COMMIT_SHA,
+  }), /manual pending recovery confirmation mismatch/)
 })
 
 test('accepts only the fixed manually confirmed corrected release with both production switches enabled', () => {

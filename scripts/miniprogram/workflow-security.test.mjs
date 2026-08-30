@@ -257,15 +257,18 @@ test('candidate cleanup has one fixed release target and preserves the protected
   assert.doesNotMatch(candidateCleanupScript, /housing-data\/current\.json['"],/)
 })
 
-test('scheduled recovery reads state without credentials and publishes only a ready pending release', () => {
+test('scheduled or manually confirmed recovery reads state without credentials and publishes only a ready pending release', () => {
   const inspectAndRecover = recovery.slice(recovery.indexOf('  inspect:'), recovery.indexOf('  publish:'))
   const publish = recovery.slice(recovery.indexOf('  publish:'))
   assert.doesNotMatch(inspectAndRecover, /environment: housing-data-production|TENCENTCLOUD_SECRET/)
+  assert.match(recovery, /workflow_dispatch:\s+inputs:\s+confirmation:/)
+  assert.match(recovery, /inputs\.confirmation == 'recover-pending-release'/)
   assert.match(inspectAndRecover, /needs\.inspect\.outputs\.ready == 'true'/)
   assert.match(recovery, /vars\.AUTOMATIC_RELEASE_ENABLED == 'true'/)
   assert.match(inspectAndRecover, /miniprogram:data:verify-official-source/)
   assert.match(publish, /environment: housing-data-production/)
   assert.match(publish, /PRODUCTION_RELEASE_AUTHORIZED:/)
+  assert.match(publish, /CI_MANUAL_RECOVERY_CONFIRMATION: \$\{\{ inputs\.confirmation \|\| '' \}\}/)
 })
 
 test('scheduled recovery inspection installs locked dependencies before importing the pending state validator', () => {
