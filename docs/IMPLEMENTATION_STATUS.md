@@ -9,6 +9,14 @@
 - 当前尚未留存该版本的不可变候选 ZIP、精确源码提交、微信平台构建号、审核/发布时间、主包大小、设备/系统明细和正式线上数据回读；因此此处只登记已确认的平台完成状态，候选身份、正式数据自动更新和稳定归档门槛仍为 `passed_limited`。
 - 本次状态登记没有开启 `AUTOMATIC_RELEASE_ENABLED` 或 `PRODUCTION_RELEASE_AUTHORIZED`，没有写入正式 `current.json`，没有切换正式数据指针。小程序代码包正式发布与每月数据自动发布是两条独立链路。
 
+## 2026-08-30 当前自动更新回放修复与云端复核
+
+- 针对完整隔离回放中每轮候选缺少对应 `publicationIdentity` 的失败原因，提交 `79db8e264ab5753791b6c3f90163afa00e79258f` 为每个回放月份生成并绑定范围化审计身份；它已作为默认分支提交 `e322e19d031b86934ee90309da6ffc8c0d5f3128` 合并。默认分支 CI `33315713592` 成功完成 `npm run check`、`npm run test:e2e` 和版本身份检查。
+- GitHub Actions `33315927833` 在 `main@e322e19d031b86934ee90309da6ffc8c0d5f3128` 完成当前普通月度单组连续6个月完整隔离回放：`2026-01` 至 `2026-06` 共6轮、每轮6个阶段均通过，且每轮 `publication_identity_verified=true`。工件 `report.json` 为 `status=passed`、`replay_count=6`、`production_pointer_untouched=true`、`production_release_prefix_untouched=true`、`automatic_release_enabled=false`；报告 SHA-256 为 `3ced45f6f80a0532b923af45b5696cba247de9c7d2f0a6c3aa4d8102c2341dd2`，已保存到项目外 `C:\Users\user\CodexAuditEvidence\v2.5.28-replay-fix-20260830\full-cloud-replay-33315927833`。
+- 随后只读运行 `monthly-data-post-publish-monitor` 的 GitHub Actions `33316750559` 成功回读当前正式数据：`dataset_version=2026-06-f80465ae29a5`、70个城市分片完整、云函数验证通过、`production_pointer_untouched=true`。监测报告 SHA-256 为 `280ebe44dd612b424b42f9573dc120af79f7c3cb7858415bc8784cd3628de391`，保存在项目外 `C:\Users\user\CodexAuditEvidence\v2.5.28-replay-fix-20260830\post-publish-monitor-33316750559`。
+- 回放后使用独立授权身份再次回读，仓库 `AUTOMATIC_RELEASE_ENABLED=false`、生产 Environment `PRODUCTION_RELEASE_AUTHORIZED=false`。本轮未写入正式 `current.json`、未切换正式指针、未上传或发布小程序；修复只涉及自动化脚本，不改小程序页面或源码版本。
+- 这补齐的是当前代码的普通月度隔离回放与正式数据只读回读证据，不替代 `v2.5.28` 不可变候选、候选绑定的平台原始记录、其余启用清单项或维护人对两个生产开关的未来授权；自动数据更新整体仍为 `passed_limited`，生产自动发布仍未启用。
+
 ## 2026-08-30 阶段D后续推进记录
 
 - 候选 PR #6 已合并到默认分支，合并提交为 `06365d8debadb12c6a62bf4145270fe84f5f4155`；该提交的默认分支 CI 运行 `33298180368` 成功。随后修复 `stage-remote-data.mjs` 对 Node.js 异步 glob 的兼容问题，PR #7 已合并，当前默认分支提交为 `e47b9105673c4d97e15e9384238d0b976fa3248b`，修复提交 CI 运行 `33299310891` 成功。
