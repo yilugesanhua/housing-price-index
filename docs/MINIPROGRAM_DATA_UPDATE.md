@@ -10,7 +10,7 @@
 - 恢复路径默认只读核验并补充审计；除非规范明确授权且重新通过全部写前门禁，不得以恢复名义重新写生产对象。原始意图、执行、恢复和最终收尾的证据必须分别留存，任一身份不匹配时 fail closed。
 - 方案讨论、登记状态、本地实现、本地测试、CI、云端部署、开发者工具编译、双真机、审核、正式发布和稳定归档必须分别记录；本地 passed、历史运行 ID 或源码存在不得推断云端或平台状态。
 
-本文定义“住房小二”微信小程序每月自动数据更新的目标机制。当前运行模式统一标记为 `automation_disabled`：仓库级 `AUTOMATIC_RELEASE_ENABLED` 必须保持 `false`，生产 Environment 级 `PRODUCTION_RELEASE_AUTHORIZED` 必须保持 `false` 或未设置；普通发布、历史修订、回滚、状态部署和待发布恢复只有在两者独立验证且同时为精确字符串 `true` 时才能授权生产写入。[自动更新启用清单](AUTOMATION_ACTIVATION_CHECKLIST.md) 的正确性硬门槛全部关闭后、但D19通知闭环尚未关闭时，最多只能进入 `supervised_automation`，即无需维护人员电脑或逐版本确认，但计划发布日仍须人工巡检运行状态；D19通过后才可称 `unattended_automation`。不得用“无人值守”统称当前或仅有人监督的状态。
+本文定义“住房小二”微信小程序每月自动数据更新的目标机制。当前运行模式统一标记为 `automation_disabled`：仓库级 `AUTOMATIC_RELEASE_ENABLED` 必须保持 `false`，生产 Environment 级 `PRODUCTION_RELEASE_AUTHORIZED` 必须保持 `false` 或未设置；普通发布、历史修订、回滚、状态部署和待发布恢复只有在两者独立验证且同时为精确字符串 `true` 时才能授权生产写入。唯一不发布数据的验证例外是启用清单 I09 的受保护状态演练：它只能在默认分支、指定成功发现运行和固定确认词下执行，且两个开关必须同时保持精确字符串 `false`；它只允许在基线一致时更新状态字段、控制时间和递增控制代次，并回读验证，绝不更换数据、来源、清单、撤销身份或数据转换类型，也不改变自动化状态。该演练的细节和关闭证据只以[自动更新启用清单](AUTOMATION_ACTIVATION_CHECKLIST.md)为准。[自动更新启用清单](AUTOMATION_ACTIVATION_CHECKLIST.md) 的正确性硬门槛全部关闭后、但D19通知闭环尚未关闭时，最多只能进入 `supervised_automation`，即无需维护人员电脑或逐版本确认，但计划发布日仍须人工巡检运行状态；D19通过后才可称 `unattended_automation`。不得用“无人值守”统称当前或仅有人监督的状态。
 
 双开关规则只有一个极窄、一次性人工例外：精确迁移ID `legacy-control-2026-06-e9788d0bddf3` 可在普通自动发布两级开关继续关闭时，经默认分支精确提交、同提交普通CI和生产 Environment 人工批准，把唯一已审计旧生产指针迁移到现行控制协议。`LEGACY_CONTROL_MIGRATION_AUTHORIZED=true` 不得保存为仓库级或 Environment 级持久变量，只能在受保护 job 的人工批准和全部写前门禁通过后写入该 job 的临时环境，job 结束即失效。该授权不得被其他入口读取或复用；它不授权发布新数据、不授权历史修订、回滚、状态部署或恢复，也不改变 `automation_disabled`。本地代码、工作流或本段规范存在都不表示生产迁移已经执行。
 
@@ -122,7 +122,7 @@
 发现与发布必须是两个权限隔离的工作流：
 
 - `.github/workflows/monthly-data-check.yml` 只读，不持有云端写凭据，不得直接修改 `current.json`。
-- 只读发现每次检查只生成绑定控制指针基线SHA-256、观察时间、结果、下次检查时间和官方来源哈希的不可变报告。用户可见 `data_status` 只能由独立受保护状态部署作业更新；该作业必须重新读取当前指针和撤销登记，保持数据版本、源版本、清单和撤销身份不变，递增 `control_generation`，写后再只读回读。`.github/workflows/monthly-data-status-deploy.yml` 与 `scripts/miniprogram/deploy-data-status.mjs` 已实现这条本地门禁：它只消费 `monthly-data-check` 的不可变观察对象，基线变化或写后回读失败即停止；实际写入仍须按本规范的双开关规则同时获得两个精确`true`授权。尚未在受保护Environment实际运行，不得把这条实现登记为已部署或关闭I09。
+- 只读发现每次检查只生成绑定控制指针基线SHA-256、观察时间、结果、下次检查时间和官方来源哈希的不可变报告。用户可见 `data_status` 只能由独立受保护状态部署作业更新；该作业必须重新读取当前指针和撤销登记，保持数据版本、源版本、清单和撤销身份不变，递增 `control_generation`，写后再只读回读。`.github/workflows/monthly-data-status-deploy.yml` 与 `scripts/miniprogram/deploy-data-status.mjs` 只消费 `monthly-data-check` 的不可变观察对象，基线变化或写后回读失败即停止。正常状态部署仍须按本规范的双开关规则同时获得两个精确`true`授权；I09验收前可用同一受保护入口执行一次固定确认词、默认分支、当前成功发现运行和双开关均为`false`的有限演练。该演练只验证状态字段/控制代次和回读，不得作为数据发布、指针数据身份变更或自动化启用证据。
 - `.github/workflows/monthly-data-auto-publish.yml` 负责无云凭据的候选生成与受保护环境中的首次发布；两个作业权限隔离。候选提交只可持久化官方原始档案和 `status=ready` 的待发布记录，不得覆盖当前 Web 数据、当前小程序内置快照或标准化正式数据；候选提交自身必须先取得同一提交的成功普通 CI 证据，才可进入受保护发布。`ready` 只表示待发布，不能表示已发布或已切换正式指针。
 - `.github/workflows/monthly-data-pending-publish.yml` 只重试默认分支中状态为 `ready` 的持久化候选。无Secrets的检查/恢复作业必须先对pending状态字段、官方来源URL白名单、换行或危险字符、不可变候选、重新抓取的官方来源和全部门禁失败关闭；只有其结构化输出通过后，受保护发布作业才可取得生产Secrets。不得把仓库文件中的URL或shell输出直接插入命令字符串。
 - 待发布恢复必须找到同一精确恢复提交上成功完成的普通 `ci.yml` push运行，把CI运行ID、提交SHA、目标数据版本和门禁报告哈希写入恢复门禁；不得复用其他提交、Pull Request或旧候选的CI结果。
