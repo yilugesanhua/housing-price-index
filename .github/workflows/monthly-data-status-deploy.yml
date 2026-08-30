@@ -61,8 +61,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          node <<'NODE'
-          const fs = require('fs')
+          node --input-type=module <<'NODE'
+          import { appendFileSync } from 'node:fs'
 
           const fail = (message) => { throw new Error(`Trusted discovery run rejected: ${message}`) }
           const assert = (condition, message) => { if (!condition) fail(message) }
@@ -91,7 +91,7 @@ jobs:
           }
 
           assert(shaPattern.test(sourceCommitSha || ''), 'source commit SHA is invalid')
-          fs.appendFileSync(process.env.GITHUB_OUTPUT, `source_commit_sha=${sourceCommitSha}\nsource_run_id=${sourceRunId}\n`)
+          appendFileSync(process.env.GITHUB_OUTPUT, `source_commit_sha=${sourceCommitSha}\nsource_run_id=${sourceRunId}\n`)
           NODE
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
