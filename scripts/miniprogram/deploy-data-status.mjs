@@ -16,6 +16,9 @@ import { parseHistoricalRevisionManifest } from './revision-manifest-context.mjs
 
 const CURRENT_KEY = 'housing-data/current.json'
 const PRODUCTION_ENVIRONMENT = 'housing-data-production'
+const STATUS_DEPLOYMENT_WORKFLOW = 'monthly-data-status-deploy'
+const STATUS_DEPLOYMENT_WORKFLOW_FILE = 'monthly-data-status-deploy.yml'
+const STATUS_DEPLOYMENT_REHEARSAL_CONFIRMATION = 'status-deployment-rehearsal'
 const STATUS_MUTABLE_FIELDS = new Set([
   'control_generation',
   'control_generated_at',
@@ -194,14 +197,33 @@ export async function deployDataStatus({
   return { ...deployment, wrote: true, round_trip_verified: true }
 }
 
-function requireProtectedWorkflowEnvironment(env) {
+export function requireProtectedWorkflowEnvironment(env) {
   assert(env.GITHUB_ACTIONS === 'true', 'status deployment is allowed only in GitHub Actions')
   assert(env.CI_PRODUCTION_ENVIRONMENT === PRODUCTION_ENVIRONMENT, 'status deployment requires the protected production environment')
-  assert(env.AUTOMATIC_RELEASE_ENABLED === 'true', 'status deployment requires the repository automatic release authorization')
-  assert(env.PRODUCTION_RELEASE_AUTHORIZED === 'true', 'status deployment requires the production environment authorization')
   assert(typeof env.CI_DEFAULT_BRANCH === 'string' && /^[A-Za-z0-9._/-]+$/.test(env.CI_DEFAULT_BRANCH), 'default branch is invalid')
   assert(env.GITHUB_REF === `refs/heads/${env.CI_DEFAULT_BRANCH}`, 'status deployment must run from the default branch')
   assert(/^[a-f0-9]{40}$/.test(env.CI_COMMIT_SHA || ''), 'status deployment commit SHA is invalid')
+  assert(env.GITHUB_WORKFLOW === STATUS_DEPLOYMENT_WORKFLOW, 'status deployment workflow identity is invalid')
+  assert(
+    typeof env.GITHUB_WORKFLOW_REF === 'string'
+      && env.GITHUB_WORKFLOW_REF.endsWith(`/.github/workflows/${STATUS_DEPLOYMENT_WORKFLOW_FILE}@refs/heads/${env.CI_DEFAULT_BRANCH}`),
+    'status deployment workflow reference is invalid',
+  )
+
+  const mode = env.CI_STATUS_DEPLOYMENT_MODE
+  if (mode === 'release') {
+    assert(env.GITHUB_EVENT_NAME === 'workflow_run', 'normal status deployment must be triggered by a trusted workflow run')
+    assert(env.AUTOMATIC_RELEASE_ENABLED === 'true', 'status deployment requires the repository automatic release authorization')
+    assert(env.PRODUCTION_RELEASE_AUTHORIZED === 'true', 'status deployment requires the production environment authorization')
+    return mode
+  }
+
+  assert(mode === 'rehearsal', 'status deployment mode is invalid')
+  assert(env.GITHUB_EVENT_NAME === 'workflow_dispatch', 'status deployment rehearsal must be manually dispatched')
+  assert(env.CI_STATUS_DEPLOYMENT_REHEARSAL_CONFIRMATION === STATUS_DEPLOYMENT_REHEARSAL_CONFIRMATION, 'status deployment rehearsal confirmation is invalid')
+  assert(env.AUTOMATIC_RELEASE_ENABLED === 'false', 'status deployment rehearsal requires the repository automatic release authorization to remain false')
+  assert(env.PRODUCTION_RELEASE_AUTHORIZED === 'false', 'status deployment rehearsal requires the production environment authorization to remain false')
+  return mode
 }
 
 async function main() {
@@ -211,7 +233,7 @@ async function main() {
   const cloudEnvId = argument('env') || DEFAULT_CLOUD_ENV_ID
   assert(observationPath, 'an immutable discovery observation is required')
   assert(/^[A-Za-z0-9._/-]+$/.test(cloudEnvId), 'cloud environment ID is invalid')
-  requireProtectedWorkflowEnvironment(process.env)
+  const deploymentMode = requireProtectedWorkflowEnvironment(process.env)
   const observation = parseJson(await readFile(resolve(observationPath), 'utf8'), 'discovery observation')
   const result = await deployDataStatus({
     client: createTencentCloudClient({ cloudEnvId }),
@@ -231,6 +253,16 @@ async function main() {
     control_generation: result.candidate?.control_generation || result.current.control_generation,
     data_status: result.candidate?.data_status || result.current.data_status,
     status_reason: result.candidate?.status_reason || result.current.status_reason,
+    deployment_mode: deploymentMode,
+    rehearsal: deploymentMode === 'rehearsal',
+    data_identity: {
+      dataset_as_of: result.current.dataset_as_of,
+      dataset_version: result.current.dataset_version,
+      source_dataset_version: result.current.source_dataset_version,
+      manifest_sha256: result.current.manifest_sha256,
+      revocations_sha256: result.current.revocations_sha256,
+      transition_type: result.current.transition_type,
+    },
     repository_commit_sha: process.env.CI_COMMIT_SHA,
     generated_at: new Date().toISOString(),
   }

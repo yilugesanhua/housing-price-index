@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import test from 'node:test'
-import { buildDataStatusDeployment, deployDataStatus } from './deploy-data-status.mjs'
+import { buildDataStatusDeployment, deployDataStatus, requireProtectedWorkflowEnvironment } from './deploy-data-status.mjs'
 import { buildControlValidUntil, buildRevocationRegistryArtifact, createRevocationRegistry, sha256, stableJson } from './control-plane.mjs'
 
 const cloudEnvId = 'cloud-test'
@@ -111,6 +111,48 @@ function fakeClient(files, options = {}) {
     },
   }
 }
+
+function protectedWorkflowEnvironment(overrides = {}) {
+  return {
+    GITHUB_ACTIONS: 'true',
+    GITHUB_EVENT_NAME: 'workflow_run',
+    GITHUB_WORKFLOW: 'monthly-data-status-deploy',
+    GITHUB_WORKFLOW_REF: 'yilugesanhua/housing-price-index/.github/workflows/monthly-data-status-deploy.yml@refs/heads/main',
+    GITHUB_REF: 'refs/heads/main',
+    CI_DEFAULT_BRANCH: 'main',
+    CI_COMMIT_SHA: 'f'.repeat(40),
+    CI_PRODUCTION_ENVIRONMENT: 'housing-data-production',
+    CI_STATUS_DEPLOYMENT_MODE: 'release',
+    AUTOMATIC_RELEASE_ENABLED: 'true',
+    PRODUCTION_RELEASE_AUTHORIZED: 'true',
+    ...overrides,
+  }
+}
+
+test('status deployment rehearsal is limited to the protected manual false/false path', () => {
+  assert.equal(requireProtectedWorkflowEnvironment(protectedWorkflowEnvironment()), 'release')
+
+  const rehearsal = protectedWorkflowEnvironment({
+    GITHUB_EVENT_NAME: 'workflow_dispatch',
+    CI_STATUS_DEPLOYMENT_MODE: 'rehearsal',
+    CI_STATUS_DEPLOYMENT_REHEARSAL_CONFIRMATION: 'status-deployment-rehearsal',
+    AUTOMATIC_RELEASE_ENABLED: 'false',
+    PRODUCTION_RELEASE_AUTHORIZED: 'false',
+  })
+  assert.equal(requireProtectedWorkflowEnvironment(rehearsal), 'rehearsal')
+  assert.throws(
+    () => requireProtectedWorkflowEnvironment({ ...rehearsal, AUTOMATIC_RELEASE_ENABLED: 'true' }),
+    /rehearsal requires the repository automatic release authorization to remain false/,
+  )
+  assert.throws(
+    () => requireProtectedWorkflowEnvironment({ ...rehearsal, PRODUCTION_RELEASE_AUTHORIZED: 'true' }),
+    /rehearsal requires the production environment authorization to remain false/,
+  )
+  assert.throws(
+    () => requireProtectedWorkflowEnvironment({ ...rehearsal, GITHUB_REF: 'refs/heads/feature/test' }),
+    /default branch/,
+  )
+})
 
 test('status deployment changes only status fields and preserves every data identity', () => {
   const release = makeCurrent()

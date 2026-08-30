@@ -72,8 +72,8 @@
 
 ## 2026-08-30 阶段D I09独立状态部署（本地实现，未部署）
 
-- 新增 `.github/workflows/monthly-data-status-deploy.yml` 与 `scripts/miniprogram/deploy-data-status.mjs`。它只接收 `monthly-data-check` 成功运行的不可变 CloudBase 观察对象；在受保护 `housing-data-production` Environment 中重新读取 `current.json`、当前manifest和撤销登记，逐字节比较观察记录绑定的指针基线，保持数据/来源/manifest/撤销身份和原始数据转换类型不变，只变更 `data_status`、`status_reason`、控制生成时间和递增后的 `control_generation`。写前再次读取基线，写后逐字节回读；不接收本地生产写入，实际写入仍严格要求两个生产开关均为`true`。当前两者为`false`，所以受保护部署作业会跳过。
-- 新增5项定向测试：状态更新的身份保持、陈旧观察基线拒绝、健康状态免写入、并发基线变化拒绝和存储写失败保留原指针；工作流安全测试45/45通过。尚未运行受保护Environment工作流，没有写入正式 `current.json`，也没有改变发布开关。I09从 `partial/not_tested` 更新为 `implemented/passed_limited`，不能据此关闭阶段D或启用自动发布。
+- 新增 `.github/workflows/monthly-data-status-deploy.yml` 与 `scripts/miniprogram/deploy-data-status.mjs`。它只接收 `monthly-data-check` 成功运行的不可变 CloudBase 观察对象；在受保护 `housing-data-production` Environment 中重新读取 `current.json`、当前manifest和撤销登记，逐字节比较观察记录绑定的指针基线，保持数据/来源/manifest/撤销身份和原始数据转换类型不变，只变更 `data_status`、`status_reason`、控制生成时间和递增后的 `control_generation`。写前再次读取基线，写后逐字节回读；正常状态部署严格要求两个生产开关均为`true`。为取得关闭证据，受保护工作流另有默认分支、当前成功发现运行、固定确认词和两开关均为`false`才可进入的一次性有限演练模式；脚本会再次校验模式与开关，只能改变状态字段和控制代次，回执会固定数据/来源/清单/撤销身份。该演练不发布数据、不切换数据版本，也不打开自动发布。
+- 新增6项定向测试：状态更新的身份保持、陈旧观察基线拒绝、健康状态免写入、并发基线变化拒绝、存储写失败保留原指针和双开关关闭的受保护演练限制；工作流安全测试47/47通过。尚未运行受保护Environment工作流，没有写入正式 `current.json`，也没有改变发布开关。I09从 `partial/not_tested` 更新为 `implemented/passed_limited`，不能据此关闭阶段D或启用自动发布。
 
 ## 2026-08-29 18:45-18:55 按执行方案再次现场复核
 
@@ -401,7 +401,7 @@ S10相关路径为 `apps/miniprogram/utils/data-runtime.js`、`data-integrity.js
 | I06 | 上线准备清单把局部实现或旧证据勾选为当前候选已测试 | 定义 `[x]/[-]/[ ]/[N/A]` 证据语义，把无精确候选闭环的项目降为局部证据或待验证 | 补充R01-R02及D01-D16 | `implemented`（文档状态修正） | `passed_limited` | 否 |
 | I07 | 产品规范混写当前能力、有限实现和候选路线图 | 以状态表区分 `current`、`partial`、`approved_not_implemented`、`candidate`、`out_of_scope`，并写明平台和验收入口；已有基础但未闭环的远程数据能力不得整体写成当前已完成能力 | 独立范围治理 | `implemented`（文档分类） | `passed_limited`（只证明分类已修正） | 否 |
 | I08 | “无人值守”、有人监督、SLA层级、生产开关和带日期云端记录表达不统一 | 当前统一为 `automation_disabled`；仓库总开关使用 `AUTOMATIC_RELEASE_ENABLED`，生产Environment授权使用 `PRODUCTION_RELEASE_AUTHORIZED`，启用条件只引用统一硬门槛；满足正确性硬门槛但D19未关闭时才可称 `supervised_automation`，D19关闭后才可称 `unattended_automation`。10-25分钟为正常预期、30分钟为内部SLO、45分钟为预警、60分钟为正式SLA目标；带日期云端记录只证明当时状态。计划发现现为每日09:15至17:55每20分钟，但GitHub定时可能延迟或丢失，尚未完成该配置的线上窗口观察，必须如实登记 | 补充C02保留决定、D17、D19、V02、V04、V10、V16 | `implemented`（术语与门槛文档） | `passed_limited`（本地时段一致性测试通过；SLA调度的线上覆盖仍未验证，生产开关保持关闭） | 否 |
-| I09 | 每次检查后的状态部署与只读发现边界缺少责任流程 | 只读发现只能产出报告；用户可见 `data_status` 变更必须经独立受保护状态部署作业，递增控制代次、保持数据身份和撤销身份并回读验证；脚本只能在基线一致时写入，实际写入仍须两个生产开关均为`true` | 补充D01、D19 | `implemented` | `passed_limited`（5项状态部署定向测试及45项工作流安全测试；未在受保护Environment运行） | 未来只影响数据状态提示 |
+| I09 | 每次检查后的状态部署与只读发现边界缺少责任流程 | 只读发现只能产出报告；用户可见 `data_status` 变更必须经独立受保护状态部署作业，递增控制代次、保持数据身份和撤销身份并回读验证；正常写入须两个生产开关均为`true`。关闭前演练只允许默认分支、当前成功发现运行、固定确认词和两开关均为`false`的有限受保护模式，且只能改状态字段和控制代次 | 补充D01、D19 | `implemented` | `passed_limited`（6项状态部署定向测试及扩展工作流安全测试；尚未在受保护Environment运行） | 未来只影响数据状态提示 |
 | I10 | 候选身份要求稳定归档清单，而稳定归档又要求全部候选证据，形成循环依赖 | 先生成不可变候选构件并固定ZIP/清单哈希，外部验收全部绑定该构件；通过后把原字节晋级到稳定归档，不重新打包。候选和原字节晋级工具均已实现，本地测试覆盖身份与原子完成 | 补充R03-R04及V05；不采用R05方案 | `implemented` | `passed_limited`（本地候选/晋级工具和定向测试） | 否 |
 | I11 | 小程序来源页和授权说明没有完整披露模糊位置处理、本地匹配城市缓存及保留边界 | 来源页和`app.json`披露模糊位置、项目云函数、腾讯位置服务、不持久化经纬度和本机`cityId/locatedAt`最长24小时；两条读取路径删除过期/无效缓存，来源页清除全部相关本地记录；平台隐私指引和双真机仍须核对 | 补充C03及V01 | `partial` | `passed_limited`（本地源码与定向测试） | 最小披露文案和错误态已变化，不改变正常定位功能或页面布局 |
 | I12 | 生产信任链曾使用可移动Action标签；当前本地工作流已固定完整SHA，普通GitHub CI `30736720927` 已通过，但受保护Environment执行尚未复核 | 所有可接触生产Secrets或承接其Artifact的外部Action固定40位commit SHA；更新走审查和依赖更新流程，标签仅可写在注释中 | 补充D19、V17及权限安全 | `implemented` | `passed_limited`（本地机器扫描、失败fixture和普通CI） | 否 |
