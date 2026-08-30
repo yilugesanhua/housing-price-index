@@ -20,7 +20,8 @@ const latestSourceBatchIds = [...new Set(publishedData.records
   .map((record) => record.source_batch_id)
   .filter(Boolean))].sort()
 const auditReport = JSON.parse(await readFile(resolve(root, auditRoot || 'data', 'audit-report.json'), 'utf8'))
-const sourceBatchPaths = await glob('data/raw/**/*.batch.json', { cwd: root })
+const sourceBatchPaths = []
+for await (const path of glob('data/raw/**/*.batch.json', { cwd: root })) sourceBatchPaths.push(path)
 const sourceBatches = []
 for (const path of sourceBatchPaths) {
   const batch = JSON.parse(await readFile(resolve(root, path), 'utf8'))
