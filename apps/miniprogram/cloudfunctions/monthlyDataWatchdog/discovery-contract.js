@@ -491,6 +491,9 @@ class OfficialResponseError extends Error {
 function isTransientNetworkFailure(error, seen = new Set()) {
   if (!error || typeof error !== 'object' || seen.has(error)) return false
   seen.add(error)
+  // Node fetch raises this DOMException when the per-request AbortSignal
+  // expires. It is an upstream transport timeout, so it is safe to retry.
+  if (error.name === 'TimeoutError') return true
   if (typeof error.code === 'string' && ['ETIMEDOUT', 'ECONNRESET', 'ECONNREFUSED', 'EAI_AGAIN', 'ENETUNREACH', 'EHOSTUNREACH', 'UND_ERR_CONNECT_TIMEOUT'].includes(error.code)) return true
   if (Array.isArray(error.errors) && error.errors.some((nested) => isTransientNetworkFailure(nested, seen))) return true
   return isTransientNetworkFailure(error.cause, seen)

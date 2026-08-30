@@ -364,6 +364,29 @@ test('network failure retries within the same slot and preserves the failure rea
   assert.equal(recordAfterRecovery.attempts, 2)
 })
 
+test('official calendar fetch retries Node TimeoutError before failing closed', async () => {
+  let calls = 0
+  const result = await contract.fetchOfficialText('https://www.stats.gov.cn/sj/fbrc/index_fbrc.html', {
+    allowedPrefixes: ['/sj/fbrc/'],
+    retryDelayMs: 0,
+    fetchImpl: async () => {
+      calls += 1
+      if (calls < contract.MAX_FETCH_ATTEMPTS) {
+        throw new DOMException('The operation was aborted due to timeout', 'TimeoutError')
+      }
+      return {
+        ok: true,
+        status: 200,
+        url: 'https://www.stats.gov.cn/sj/fbrc/index_fbrc.html',
+        text: async () => '[]',
+      }
+    },
+  })
+  assert.equal(calls, contract.MAX_FETCH_ATTEMPTS)
+  assert.equal(result.response.attempt, contract.MAX_FETCH_ATTEMPTS)
+  assert.equal(result.text, '[]')
+})
+
 test('observation records are immutable by identity', async () => {
   const { database } = memoryDatabase()
   const observation = {
