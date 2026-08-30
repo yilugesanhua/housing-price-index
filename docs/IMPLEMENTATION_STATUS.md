@@ -2,6 +2,13 @@
 
 更新日期：2026-08-30
 
+## 2026-08-30 `v2.5.28` 客户端与平台状态（维护人确认）
+
+- 当前工作区 `apps/miniprogram/config/version.js` 与 `70城小程序技术验证/config/version.js` 均为 `v2.5.28`，文件 SHA-256 均为 `57817bf76cf63d3b272be5a9e27cc72a1037e9ea32f0cd2cb6d1819a4c16141b`。
+- 维护人确认 `v2.5.28` 已完成 Android/iPhone 双真机验收、微信平台审核和正式发布。本条来源为维护人2026-08-30本会话确认，不把旧 `v2.5.27` 候选或旧平台记录挪作本版本证据。
+- 当前尚未留存该版本的不可变候选 ZIP、精确源码提交、微信平台构建号、审核/发布时间、主包大小、设备/系统明细和正式线上数据回读；因此此处只登记已确认的平台完成状态，候选身份、正式数据自动更新和稳定归档门槛仍为 `passed_limited`。
+- 本次状态登记没有开启 `AUTOMATIC_RELEASE_ENABLED` 或 `PRODUCTION_RELEASE_AUTHORIZED`，没有写入正式 `current.json`，没有切换正式数据指针。小程序代码包正式发布与每月数据自动发布是两条独立链路。
+
 ## 2026-08-30 阶段D后续推进记录
 
 - 候选 PR #6 已合并到默认分支，合并提交为 `06365d8debadb12c6a62bf4145270fe84f5f4155`；该提交的默认分支 CI 运行 `33298180368` 成功。随后修复 `stage-remote-data.mjs` 对 Node.js 异步 glob 的兼容问题，PR #7 已合并，当前默认分支提交为 `e47b9105673c4d97e15e9384238d0b976fa3248b`，修复提交 CI 运行 `33299310891` 成功。
@@ -11,7 +18,7 @@
 - D19 真实受控演练已完成：Issue #8 直连脚本验证超时升级、负责人确认去重和 SHA-256 恢复关闭；Issue #9 通过 Actions `workflow_dispatch` 完成负责人确认与恢复关闭。D18 失败回调运行 `33300284569` 因时间格式问题失败；修复合并后，受控无效时段月度检查 `33300872049` 的失败回调 `33300899238` 成功自动打开 Issue #11，随后 Actions `33300990998`/`33300991022` 完成确认和带 SHA-256 证据恢复关闭。故障通知闭环已在线验证。
 - 维护人已确认 D18 重跑产生的171条历史页面变化任务可进入修订评估；已在项目外生成审核确认清单 `C:\Users\user\AppData\Local\Temp\stage-d-followup-20260830\d18-online-33300833376\human-review-approved.json`，清单 SHA-256 为 `d42836175dc3a1e1f071807cb05353b118dcd5307a26d3b6ba5b1f368ea3495f`。该确认不等于自动采纳页面内容，也未写入生产数据。
 - D18 数据级复核已完成：对171条确认任务逐页使用当前解析器与归档记录逐字段比对，171条均为页面内容变化但业务字段一致，0条业务字段变化、0条失败；2013-06 首次抓取失败后重试成功，HTTP 200、解析560条且逐字段一致。最终评估报告位于项目外 `C:\Users\user\AppData\Local\Temp\stage-d-followup-20260830\d18-online-33300833376\data-level-assessment.json`，SHA-256 为 `44a927ce7d2c317e29140c26cd8aeeb735bd19d46b99031fc294bb419ad4351c`。结论为不生成历史修订申请、不写入生产数据。
-- 本轮仍未开启 `AUTOMATIC_RELEASE_ENABLED` 或 `PRODUCTION_RELEASE_AUTHORIZED`，未写入正式 `current.json`、未修改正式指针、未上传或发布小程序。D18 数据级复核已无待修订业务字段；双真机和平台审核仍待完成。
+- `v2.5.27` 阶段D执行结束时仍未开启 `AUTOMATIC_RELEASE_ENABLED` 或 `PRODUCTION_RELEASE_AUTHORIZED`，未写入正式 `current.json`、未修改正式指针。其后 `v2.5.28` 的双真机、审核和正式发布状态见本文件开头的维护人确认；该平台操作不改变上述自动数据更新边界。
 
 ## 2026-08-30 阶段D第1-6项执行记录（本地/隔离证据）
 
@@ -235,7 +242,7 @@
 
 本文件记录权威规范与当前实现之间的差距，不另行定义产品、数据或发布规则。R01-R07、D01-D20、I01-I14与V01-V19涉及的目标要求以 `AGENTS.md`、`PRODUCT.md`、`DATA_CONTRACT.md`、`ACCEPTANCE.md`、`MINIPROGRAM_VERSIONING.md`、`RELEASE_READINESS.md` 和 `MINIPROGRAM_DATA_UPDATE.md` 的对应条款为准；项目全部权威规范及职责边界以 [文档索引](DOCUMENT_INDEX.md) 为准。
 
-当前界面和功能事实以 `apps/web/` 与 `apps/miniprogram/` 为准。唯一源码版本为 `v2.5.27`；历史 `v2.5.25` 已从精确提交 `7f7b5176af8a3d6486e25971cf7cfbec6f44bebd` 生成并只读保存候选构件，但它不能作为当前候选或本轮外部验收证据。自动更新代码已通过此前登记的普通 CI 和当前本地定向测试，但当前候选尚未进行微信开发者工具重新编译，Android/iPhone、微信平台审核/发布和正式远程数据回读仍未提供证据。此前版本和候选记录按其日期保留为历史证据，不替代本轮结论。S00-S09及V01-V12最初的规范治理轮次没有修改 Web、小程序、生成数据、云端资源或当前页面；后续单独批准的S10只修改小程序远程数据运行时、控制面和发布/回滚工具，不修改正常数据页面。V13-V18与D08后续实施只修改已批准的数据审计、客户端元数据、工作流安全、测试和对应规范；2026-07-31另行批准实施D08-D14、I01-I03、I11、V01和V07后，小程序新增数据不可用错误态、定位披露及缓存清理。真实默认启动随后暴露“没有可信控制状态即禁用完整内置快照”的严重回退，原失败证据和重新打开记录继续保留；同日完成最小运行时修复及本地回归后，D10、D13恢复为 `implemented/passed_limited`，S10和I01恢复为 `partial/passed_limited`，仍不代表真实CI、云端、开发者工具、双真机、远程完整包或自动更新验收通过。下表中的 `approved` 只表示方案已经确认，不能理解为代码已经实现、测试已经通过或生产能力已经启用；各项实现与有限验证另按本文件专项登记。
+当前界面和功能事实以 `apps/web/` 与 `apps/miniprogram/` 为准。唯一源码版本为 `v2.5.28`；`v2.5.27` 及更早版本的候选、CI和平台记录均按其日期保留为历史证据，不能替代当前版本的身份补证。维护人已确认当前版本的双真机、微信审核和正式发布；当前工作区尚未生成可回读的 `v2.5.28` 不可变候选、同提交 CI和正式远程数据回读，因此自动更新代码仍只能按已登记的有限证据评估。S00-S09及V01-V12最初的规范治理轮次没有修改 Web、小程序、生成数据、云端资源或当前页面；后续单独批准的S10只修改小程序远程数据运行时、控制面和发布/回滚工具，不修改正常数据页面。V13-V18与D08后续实施只修改已批准的数据审计、客户端元数据、工作流安全、测试和对应规范；2026-07-31另行批准实施D08-D14、I01-I03、I11、V01和V07后，小程序新增数据不可用错误态、定位披露及缓存清理。真实默认启动随后暴露“没有可信控制状态即禁用完整内置快照”的严重回退，原失败证据和重新打开记录继续保留；同日完成最小运行时修复及本地回归后，D10、D13恢复为 `implemented/passed_limited`，S10和I01恢复为 `partial/passed_limited`，仍不代表真实CI、云端、远程完整包或自动更新验收通过。下表中的 `approved` 只表示方案已经确认，不能理解为代码已经实现、测试已经通过或生产能力已经启用；各项实现与有限验证另按本文件专项登记。
 
 2026-08-01至2026-08-02完成唯一legacy控制迁移实现、固定验证器契约、两阶段写入/严格收尾、十分钟动态严格回执、精确旧包兼容和 `onShow` 同步非阻塞收口；这些变更已整理到精确提交 `cdea2207ff8f570aa1d8725ea474f22df30f26c8`，普通GitHub CI运行 `30736720927` 已通过 `npm run check` 与 `npm run test:e2e`。上述证据仍不代表云函数部署、生产迁移、开发者工具、双真机或微信平台/正式发布通过。写入阶段不再依赖旧云函数的`describe_validator`，收尾阶段才在新版云函数部署后执行真实预检和回执验证。
 
@@ -635,6 +642,9 @@ I02在当前本地候选已有共享验证器和有限故障测试，登记为 `
 | 2026-08-30 | I14 | `not_started` | `implemented` | `not_tested` | `passed_limited` | `local_version_identity_gate` | 当前入口、候选/归档身份和客户端未升版的正反向测试通过，普通CI入口已配置；下一次真实升版候选仍需现场验证 | Codex本地复核 |
 | 2026-08-30 | D18 | `not_started` | `implemented` | `not_tested` | `passed_limited` | `local_quarterly_historical_page_isolation` | 官方来源重抓、HTML/XHTML内容类型校验、最终URL/重定向与原始哈希比较、相同页无动作、变化页仅产出隔离任务、请求失败不写入的5项测试通过；未运行GitHub季度任务 | Codex本地复核 |
 | 2026-08-30 | D19 | `not_started` | `implemented` | `not_tested` | `passed_limited` | `local_github_issue_incident_lifecycle` | 同故障去重、负责人确认、一次超时升级、带SHA-256恢复关闭和非法输入拒绝的4项测试通过；负责人变量和真实GitHub演练未完成 | Codex本地复核 |
+| 2026-08-30 | D18 | `implemented` | `implemented` | `passed_limited` | `passed_limited` | `online_historical_page_review_33300833376` | GitHub季度复核运行 `33300833376` 检出171条页面哈希变化、0条失败；维护人确认后逐页数据级复核171/171业务字段一致，0条修订申请、0次生产写入。该证据证明一次真实隔离闭环，不替代未来季度持续运行 | Codex工件复核与维护人确认 |
+| 2026-08-30 | D19 | `implemented` | `implemented` | `passed_limited` | `passed_limited` | `online_incident_lifecycle_33300899238` | `HOUSING_DATA_INCIDENT_OWNER=yilugesanhua` 已配置；失败回调自动打开 Issue #11，Actions `33300990998` 与 `33300991022` 完成负责人确认和带SHA-256恢复关闭。该受控演练已验证闭环，不开启生产自动发布 | Codex工件复核 |
+| 2026-08-30 | R01 | `partial` | `partial` | `passed_limited` | `passed_limited` | `v2.5.28_maintainer_confirmed_platform_completion` | 本机源码与开发者工具目录均为 `v2.5.28`；维护人确认 Android/iPhone 双真机、微信审核和正式发布完成。缺少不可变候选、精确提交、平台构建号/时间、主包大小、设备明细及正式数据回读，不关闭自动更新或稳定归档门槛 | 维护人确认与Codex本地版本核对 |
 
 ## v2.4.2 候选切换登记（2026-08-02）
 
