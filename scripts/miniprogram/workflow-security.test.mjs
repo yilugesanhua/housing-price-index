@@ -298,15 +298,23 @@ test('scheduled recovery inspection installs locked dependencies before importin
 
 test('scheduled recovery restores the original candidate artifact instead of generating a new one', async () => {
   const recover = recovery.slice(recovery.indexOf('  recover:'), recovery.indexOf('  publish:'))
+  const publish = recovery.slice(recovery.indexOf('  publish:'))
   assert.match(recovery, /candidate_run_id: \$\{\{ steps\.pending\.outputs\.candidate_run_id \}\}/)
   assert.match(recover, /Download the exact original candidate artifact/)
   assert.match(recover, /housing-data-candidate-\$\{\{ needs\.inspect\.outputs\.candidate_run_id \}\}/)
   assert.match(recover, /run-id: \$\{\{ needs\.inspect\.outputs\.candidate_run_id \}\}/)
+  assert.match(recover, /path: work\/candidate-artifact/)
+  assert.match(recover, /cp -R work\/candidate-artifact\/auto-release\/\. work\/auto-release\//)
+  assert.doesNotMatch(recover, /candidate-artifact\/work\/auto-release/)
   assert.match(recover, /work\/auto-release\/candidate\/snapshot\.cjs/)
   assert.match(recover, /work\/auto-release\/candidate\/remote-data/)
   assert.match(recover, /Recheck the immutable CloudBase discovery observation/)
   assert.match(recover, /expected-observation-id=/)
   assert.doesNotMatch(recover, /npm run data:audit|miniprogram:data:stage|miniprogram:data:prepare-auto|miniprogram:data:publish\s+--/)
+  assert.match(publish, /path: work\/recovery-artifact/)
+  assert.match(publish, /cp -R work\/recovery-artifact\/auto-release\/\. work\/auto-release\//)
+  assert.match(publish, /cp -R work\/recovery-artifact\/monthly-data-check\/\. work\/monthly-data-check\//)
+  assert.doesNotMatch(publish, /recovery-artifact\/work\//)
 
   const recoveryGate = await readFile(resolve(root, 'scripts/miniprogram/create-recovery-gate.mjs'), 'utf8')
   assert.match(recoveryGate, /Pending candidate workflow run ID is invalid/)
