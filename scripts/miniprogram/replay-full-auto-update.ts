@@ -16,7 +16,7 @@ import {
 } from "../../packages/core/src/index";
 import { evaluateLatestCheck, evaluateReleaseSchedule } from "../data/check-latest";
 import { auditParsedBatch } from "../data/audit-batches";
-import { FULL_RECORD_AUDIT_METHOD, FULL_RECORD_AUDIT_VERSION, recordsSha256, validateAuditReport, type AuditReport } from "../data/audit-report";
+import { auditReportSha256, FULL_RECORD_AUDIT_METHOD, FULL_RECORD_AUDIT_VERSION, recordsSha256, sourceIndexSha256, validateAuditReport, type AuditReport } from "../data/audit-report";
 import { PARSER_VERSION, parseOfficialHtml, recordKey, sha256 as sourceSha256 } from "../data/official-parser";
 import { sourceDatasetVersion } from "../data/source-identity";
 import { validateRecords } from "../data/validate";
@@ -30,6 +30,7 @@ import {
   validateControlPointer,
 } from "./control-plane.mjs";
 import { activatePointerWithRollback } from "./guarded-activation.mjs";
+import { buildPublicationIdentity } from "./publication-identity.mjs";
 import { buildRemoteRelease, sha256, stableJson, verifyReleaseAgainstSnapshot } from "./remote-data-lib.mjs";
 import { assertRehearsalKey, createTencentCloudClient } from "./tencent-cloud-sdk.mjs";
 
@@ -279,6 +280,40 @@ function assertExactRecordSet(actual: StandardRecord[], expected: StandardRecord
     assert.deepEqual(record, expectedRecord, `${label}: record differs ${key}`);
   }
   assert.equal(actualKeys.size, expectedByKey.size, `${label}: expected records are missing`);
+}
+
+function scopedAuditReportForReplay(fullReport: AuditReport, allBatches: ParsedBatch[], targetMonth: string): AuditReport {
+  const batches = allBatches
+    .filter((batch) => batch.source_batch.stat_month <= targetMonth)
+    .sort((left, right) => left.source_batch.source_batch_id.localeCompare(right.source_batch.source_batch_id));
+  assert(batches.length > 0, `${targetMonth}: replay audit has no source batches`);
+
+  const expectedBatchIds = batches.map((batch) => batch.source_batch.source_batch_id);
+  const evidence = fullReport.batches
+    .filter((batch) => batch.stat_month <= targetMonth)
+    .sort((left, right) => left.source_batch_id.localeCompare(right.source_batch_id));
+  assert.deepEqual(evidence.map((batch) => batch.source_batch_id), expectedBatchIds, `${targetMonth}: replay audit evidence does not exactly match scoped source batches`);
+
+  const records = batches.flatMap((batch) => batch.records);
+  const months = batches.map((batch) => batch.source_batch.stat_month).sort();
+  const { report_sha256: _ignored, ...reportContent } = fullReport;
+  const scopedContent: Omit<AuditReport, "report_sha256"> = {
+    ...reportContent,
+    parser_versions: [...new Set(batches.map((batch) => batch.source_batch.parser_version))].sort(),
+    batch_count: batches.length,
+    record_count: records.length,
+    records_sha256: recordsSha256(records),
+    source_index_sha256: sourceIndexSha256(batches),
+    coverage_start: months.at(0) ?? null,
+    coverage_end: months.at(-1) ?? null,
+    batches: evidence,
+  };
+  const scopedReport: AuditReport = {
+    ...scopedContent,
+    report_sha256: auditReportSha256(scopedContent),
+  };
+  assert.deepEqual(validateAuditReport(scopedReport, batches), [], `${targetMonth}: scoped full-record audit is invalid`);
+  return scopedReport;
 }
 
 function rejected(label: string, action: () => void): { kind: string; rejected: true; error: string } {
@@ -602,6 +637,10 @@ for (const [index, targetMonth] of targetMonths.entries()) {
     };
   });
 
+  const scopedAuditReport = scopedAuditReportForReplay(auditReport, auditedBatches, targetMonth);
+  assert.equal(scopedAuditReport.record_count, targetRecords.length, `${targetMonth}: scoped audit record count does not match candidate`);
+  assert.equal(scopedAuditReport.records_sha256, recordsSha256(targetRecords), `${targetMonth}: scoped audit record hash does not match candidate`);
+
   const packaged = await timed(stages, "candidate_package", async () => {
     const baselineVersion = `${baselineMonth}-${digest(baselineRecords).slice(0, 12)}`;
     const targetVersion = `${targetMonth}-${digest(targetRecords).slice(0, 12)}`;
@@ -609,12 +648,14 @@ for (const [index, targetMonth] of targetMonths.entries()) {
     const targetBuilt = buildSnapshot(targetRecords, targetMonth, targetVersion, replaySourceVersion(targetMonth));
     assert.deepEqual(baselineBuilt.paddingMonths.slice(1), targetBuilt.paddingMonths);
     const nextCheckAt = new Date(Date.parse(`${archive.source_batch.release_date}T01:30:00.000Z`) + 31 * 24 * 60 * 60 * 1000).toISOString();
+    const publicationIdentity = buildPublicationIdentity({ records: targetRecords, auditReport: scopedAuditReport });
     const release = buildRemoteRelease(targetBuilt.snapshot, {
       cloudEnvId,
       storageBucket,
       minimumAppVersion: "v2.3.0",
       nextCheckAt,
       sourceBatchIds: [archive.source_batch.source_batch_id],
+      publicationIdentity,
     });
     const errors = verifyReleaseAgainstSnapshot(targetBuilt.snapshot, release);
     assert.deepEqual(errors, [], `${targetMonth}: candidate package verification failed: ${errors.join("; ")}`);
@@ -625,6 +666,10 @@ for (const [index, targetMonth] of targetMonths.entries()) {
         city_shards: 70,
         total_bytes: release.totalBytes,
         exact_snapshot_reconstruction: true,
+        publication_identity_verified: true,
+        publication_audit_batch_count: scopedAuditReport.batch_count,
+        publication_audit_record_count: scopedAuditReport.record_count,
+        publication_audit_report_sha256: publicationIdentity.audit_report_sha256,
         test_only_pre_coverage_null_padding_months: targetBuilt.paddingMonths,
       },
     };
